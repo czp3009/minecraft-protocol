@@ -108,7 +108,7 @@ internal class AuthUpdateScope(initial: AuthState) {
 
 private fun AuthState.ownedCopy(): AuthState = copy(accounts = accounts.toList())
 
-private fun writeJsonAtomically(fileSystem: FileSystem, path: Path, content: String) {
+internal fun writeJsonAtomically(fileSystem: FileSystem, path: Path, content: String) {
     fileSystem.createDirectories(checkNotNull(path.parent))
     val temporary = checkNotNull(path.parent) / "${path.name}.tmp"
     try {

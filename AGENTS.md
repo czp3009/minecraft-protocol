@@ -33,7 +33,7 @@ Runtime libraries are arranged from reusable formats and models toward connectio
 | `protocol-datapack-vanilla` | Generated defaults for the repository-selected official release                         |
 | `protocol-transport`        | Ktor sockets, framing, compression envelopes, and stream encryption                     |
 | `protocol-session`          | Typed packet dispatch, direction, state transitions, and loader negotiation profiles    |
-| `distribution-metadata`     | Modern version, asset-index, and Java runtime metadata plus download descriptors        |
+| `distribution-metadata`     | Modern version, asset-index, and Java runtime metadata plus streaming downloads         |
 | `account-auth`              | Launcher-side Microsoft, Xbox, and Minecraft Services HTTP APIs                         |
 | `protocol-auth`             | Game identities, Session/Services HTTP APIs, Login cryptography, and chat signing       |
 | `protocol-client`           | Client orchestration through entry into Play plus received world projections            |

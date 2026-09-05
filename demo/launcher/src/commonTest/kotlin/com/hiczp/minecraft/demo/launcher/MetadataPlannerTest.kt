@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.demo.launcher
 
+import com.hiczp.minecraft.distribution.metadata.*
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.MinecraftOnlineIdentity
 import kotlinx.serialization.json.JsonPrimitive
@@ -14,8 +15,9 @@ class MetadataPlannerTest {
     private val windows = LauncherPlatform("windows", "x86_64", ";", "windows-x86_64", "10.0.22631")
 
     @Test
-    fun argumentSerializerPreservesElementBoundaries() {
+    fun decodedArgumentsExpandWithoutMergingElementBoundaries() {
         val fixture = buildJsonObject {
+            put("default-user-jvm", buildJsonArray {})
             put(
                 "game",
                 buildJsonArray {
@@ -51,64 +53,177 @@ class MetadataPlannerTest {
                 },
             )
         }
-        val mojangArguments = launcherJson.decodeFromString<MojangArguments>(fixture.toString())
+        val minecraftArguments = launcherJson.decodeFromString<MinecraftArguments>(fixture.toString())
 
-        assertEquals(2, mojangArguments.game.size)
-        val conditional = mojangArguments.jvm.single() as MojangArgument.Conditional
-        assertEquals(listOf("-Dfirst=true", "-Dpath=${'$'}{game_directory}"), conditional.values)
+        assertEquals(2, minecraftArguments.game.size)
+        assertEquals(
+            listOf("-Dfirst=true", "-Dpath=C:/Launcher Root"),
+            MetadataPlanner.expandArguments(
+                minecraftArguments.jvm,
+                windows,
+                mapOf("game_directory" to "C:/Launcher Root")
+            ),
+        )
     }
 
     @Test
     fun orderedRulesUseLastMatchingAction() {
         val rules = listOf(
-            MojangRule("allow", os = MojangRule.Os(name = "windows")),
-            MojangRule("disallow", os = MojangRule.Os(name = "windows", arch = "amd64")),
+            MinecraftRule("allow", os = MinecraftOperatingSystemRule(name = "windows")),
+            MinecraftRule("disallow", os = MinecraftOperatingSystemRule(name = "windows", arch = "amd64")),
         )
 
         assertFalse(RuleEvaluator.allows(rules, windows))
-        val defaultUserRule = listOf(MojangRule("allow", features = mapOf("is_demo_user" to false)))
+        val defaultUserRule = listOf(MinecraftRule("allow", features = mapOf("is_demo_user" to false)))
         assertTrue(RuleEvaluator.allows(defaultUserRule, windows))
     }
 
     @Test
+    fun osVersionRangesOnOtherPlatformsAreSkipped() {
+        val rules = listOf(
+            MinecraftRule("allow", os = MinecraftOperatingSystemRule(name = "linux")),
+            MinecraftRule(
+                "disallow",
+                os = MinecraftOperatingSystemRule(
+                    name = "windows",
+                    versionRange = MinecraftOperatingSystemVersionRange(min = "10.0.17134"),
+                ),
+            ),
+        )
+        val linux = LauncherPlatform("linux", "x86_64", ":", "linux-x86_64", "not-used-by-this-rule")
+
+        assertTrue(RuleEvaluator.allows(rules, linux))
+        val architectureRule = MinecraftRule(
+            "allow",
+            os = MinecraftOperatingSystemRule(
+                name = "windows",
+                arch = "x86",
+                versionRange = MinecraftOperatingSystemVersionRange(min = "10.0.17134"),
+            ),
+        )
+        assertFalse(RuleEvaluator.allows(listOf(architectureRule), windows.copy(osVersion = "not-used-by-this-rule")))
+    }
+
+    @Test
+    fun collectorArgumentGroupsMatchTheirWindowsVersionRangesIndependently() {
+        val minecraftArguments = launcherJson.decodeFromString<MinecraftArguments>(
+            """
+            {
+              "default-user-jvm": [
+                {
+                  "rules": [
+                    {"action": "allow", "os": {"name": "osx"}},
+                    {"action": "allow", "os": {"name": "linux"}},
+                    {"action": "allow", "os": {"name": "windows", "versionRange": {"min": "10.0.17134"}}}
+                  ],
+                  "value": ["-XX:+UseZGC"]
+                },
+                {
+                  "rules": [{"action": "allow", "os": {"name": "windows", "versionRange": {"max": "10.0.17134"}}}],
+                  "value": ["-XX:+UseG1GC"]
+                }
+              ],
+              "jvm": [],
+              "game": []
+            }
+            """.trimIndent(),
+        )
+
+        for (osVersion in listOf("10.0.17133", "10.0.15063.2500")) {
+            assertEquals(
+                listOf("-XX:+UseG1GC"),
+                MetadataPlanner.expandArguments(
+                    minecraftArguments.defaultUserJvm,
+                    windows.copy(osVersion = osVersion),
+                    emptyMap()
+                ),
+            )
+        }
+        for (osVersion in listOf("10.0.17134", "10.0.17134.0")) {
+            assertEquals(
+                listOf("-XX:+UseZGC", "-XX:+UseG1GC"),
+                MetadataPlanner.expandArguments(
+                    minecraftArguments.defaultUserJvm,
+                    windows.copy(osVersion = osVersion),
+                    emptyMap()
+                ),
+            )
+        }
+        for (osVersion in listOf("10.0.17134.1", "10.0.22631.1")) {
+            assertEquals(
+                listOf("-XX:+UseZGC"),
+                MetadataPlanner.expandArguments(
+                    minecraftArguments.defaultUserJvm,
+                    windows.copy(osVersion = osVersion),
+                    emptyMap()
+                ),
+            )
+        }
+    }
+
+    @Test
     fun modernMetadataProducesIsolatedOrderedPlan() {
-        val versionMetadata = metadata(
+        val minecraftVersionMetadata = metadata(
             libraries = listOf(
                 library("first", "a/first.jar", 'a'),
-                MojangLibrary(
+                MinecraftLibrary(
                     name = "linux-only",
-                    downloads = MojangLibrary.Downloads(artifact = download("b/linux.jar", 'b')),
-                    rules = listOf(MojangRule("allow", MojangRule.Os(name = "linux"))),
+                    downloads = MinecraftLibraryDownloads(artifact = download("b/linux.jar", 'b')),
+                    rules = listOf(MinecraftRule("allow", os = MinecraftOperatingSystemRule(name = "linux"))),
                 ),
                 library("second", "c/second.jar", 'c'),
             ),
         )
 
-        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, windows)
+        val installPlan = MetadataPlanner.createInstallPlan(minecraftVersionMetadata, windows)
 
         assertEquals(listOf("libraries/a/first.jar", "libraries/c/second.jar", "client.jar"), installPlan.classpath)
-        assertTrue(installPlan.downloads.any { it.relativePath == "assets/indexes/assets-id.json" })
+        assertEquals("assets/indexes/assets-id.json", installPlan.assetIndexPath)
+        assertEquals(
+            listOf("client.jar", "libraries/a/first.jar", "libraries/c/second.jar", "logging/client.xml"),
+            installPlan.downloads.map { it.relativePath },
+        )
         assertFalse(installPlan.downloads.any { "linux.jar" in it.relativePath })
     }
 
     @Test
     fun launchArgumentsExpandWithoutMergingValues() {
-        val versionMetadata = metadata(
-            mojangArguments = MojangArguments(
+        val minecraftVersionMetadata = metadata(
+            minecraftArguments = MinecraftArguments(
+                defaultUserJvm = listOf(
+                    MinecraftArgument.Literal("-Xmx2G"),
+                    MinecraftArgument.Expanded(
+                        rules = listOf(MinecraftRule("allow", os = MinecraftOperatingSystemRule(name = "windows"))),
+                        value = MinecraftArgumentValue.Multiple(
+                            listOf(
+                                "-XX:+UseG1GC",
+                                "-Droot=${'$'}{game_directory}"
+                            )
+                        ),
+                    ),
+                    MinecraftArgument.Expanded(
+                        rules = listOf(MinecraftRule("allow", os = MinecraftOperatingSystemRule(name = "linux"))),
+                        value = MinecraftArgumentValue.Single("-Dlinux=true"),
+                    ),
+                    MinecraftArgument.Expanded(
+                        rules = listOf(MinecraftRule("allow", features = mapOf("is_demo_user" to false))),
+                        value = MinecraftArgumentValue.Single("-Dplayer=${'$'}{auth_player_name}"),
+                    ),
+                ),
                 jvm = listOf(
-                    MojangArgument.Literal("-Djava.library.path=${'$'}{natives_directory}"),
-                    MojangArgument.Literal("-cp"),
-                    MojangArgument.Literal("${'$'}{classpath}"),
+                    MinecraftArgument.Literal("-Djava.library.path=${'$'}{natives_directory}"),
+                    MinecraftArgument.Literal("-cp"),
+                    MinecraftArgument.Literal("${'$'}{classpath}"),
                 ),
                 game = listOf(
-                    MojangArgument.Literal("--username"),
-                    MojangArgument.Literal("${'$'}{auth_player_name}"),
-                    MojangArgument.Literal("--accessToken"),
-                    MojangArgument.Literal("${'$'}{auth_access_token}"),
+                    MinecraftArgument.Literal("--username"),
+                    MinecraftArgument.Literal("${'$'}{auth_player_name}"),
+                    MinecraftArgument.Literal("--accessToken"),
+                    MinecraftArgument.Literal("${'$'}{auth_access_token}"),
                 ),
             ),
         )
-        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, windows)
+        val installPlan = MetadataPlanner.createInstallPlan(minecraftVersionMetadata, windows)
 
         val launchPlan = MetadataPlanner.createLaunchPlan(
             installPlan,
@@ -121,22 +236,34 @@ class MetadataPlannerTest {
         assertEquals("Player", launchPlan.gameArguments[1])
         assertEquals("secret", launchPlan.gameArguments[3])
         assertEquals("secret", launchPlan.sensitiveAccessToken)
-        assertTrue(launchPlan.javaArguments[2].contains(";"))
+        assertEquals(
+            listOf("-Xmx2G", "-XX:+UseG1GC", "-Droot=C:/Launcher Root/minecraft/demo", "-Dplayer=Player"),
+            launchPlan.javaArguments.take(4),
+        )
+        assertEquals("-Djava.library.path=C:/Launcher Root/minecraft/demo/natives", launchPlan.javaArguments[4])
+        assertEquals("-cp", launchPlan.javaArguments[5])
+        assertTrue(launchPlan.javaArguments[6].contains(";"))
+        assertEquals(
+            "-Dlog4j.configurationFile=C:/Launcher Root/minecraft/demo/logging/client.xml",
+            launchPlan.javaArguments[7]
+        )
+        assertEquals(8, launchPlan.javaArguments.size)
         assertTrue(launchPlan.workingDirectory.contains("Launcher Root"))
     }
 
     @Test
     fun offlineLaunchUsesFreshCompactAccessToken() {
-        val versionMetadata = metadata(
-            mojangArguments = MojangArguments(
+        val minecraftVersionMetadata = metadata(
+            minecraftArguments = MinecraftArguments(
+                defaultUserJvm = emptyList(),
                 jvm = emptyList(),
                 game = listOf(
-                    MojangArgument.Literal("--accessToken"),
-                    MojangArgument.Literal("${'$'}{auth_access_token}"),
+                    MinecraftArgument.Literal("--accessToken"),
+                    MinecraftArgument.Literal("${'$'}{auth_access_token}"),
                 ),
             ),
         )
-        val installPlan = MetadataPlanner.createInstallPlan(versionMetadata, windows)
+        val installPlan = MetadataPlanner.createInstallPlan(minecraftVersionMetadata, windows)
         val minecraftOfflineIdentity = MinecraftOfflineIdentity("Player")
         fun createPlan() = MetadataPlanner.createLaunchPlan(
             installPlan,
@@ -159,52 +286,83 @@ class MetadataPlannerTest {
     }
 
     @Test
-    fun unsafeAndLegacyMetadataAreRejected() {
+    fun unsafeInstallationPathsAreRejected() {
         assertFailsWith<IllegalArgumentException> { validateRelativePath("../client.jar", "test") }
         assertFailsWith<IllegalArgumentException> { validateSinglePathComponent("../demo", "test") }
         assertFailsWith<IllegalArgumentException> {
             MetadataPlanner.createInstallPlan(
                 metadata(
-                    libraries = listOf(
-                        MojangLibrary(
-                            name = "legacy",
-                            downloads = MojangLibrary.Downloads(artifact = download("legacy.jar", 'd')),
-                            natives = mapOf("windows" to "natives-windows"),
-                        ),
-                    ),
+                    libraries = listOf(library("unsafe", "../outside.jar", 'd')),
                 ),
                 windows,
             )
         }
-        assertFailsWith<IllegalArgumentException> {
-            MetadataPlanner.createAssetDownloads(AssetIndex(emptyMap(), virtual = true))
-        }
+    }
+
+    @Test
+    fun assetDownloadsUseNormalizedPublicDescriptorsAndDeduplicateObjects() {
+        val downloads = MetadataPlanner.createAssetDownloads(
+            MinecraftAssetIndex(
+                mapOf(
+                    "minecraft/first.ogg" to MinecraftAssetObject(sha('A'), 2),
+                    "minecraft/second.ogg" to MinecraftAssetObject(sha('a'), 2),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                DownloadSpec(
+                    MinecraftDownload(sha('a'), 2, "https://resources.download.minecraft.net/aa/${sha('a')}"),
+                    "assets/objects/aa/${sha('a')}",
+                ),
+            ),
+            downloads,
+        )
     }
 
     private fun metadata(
-        libraries: List<MojangLibrary> = listOf(library("library", "lib/library.jar", 'b')),
-        mojangArguments: MojangArguments = MojangArguments(
-            game = listOf(MojangArgument.Literal("--username"), MojangArgument.Literal("${'$'}{auth_player_name}")),
-            jvm = listOf(MojangArgument.Literal("-cp"), MojangArgument.Literal("${'$'}{classpath}")),
+        libraries: List<MinecraftLibrary> = listOf(library("library", "lib/library.jar", 'b')),
+        minecraftArguments: MinecraftArguments = MinecraftArguments(
+            defaultUserJvm = emptyList(),
+            game = listOf(
+                MinecraftArgument.Literal("--username"),
+                MinecraftArgument.Literal("${'$'}{auth_player_name}")
+            ),
+            jvm = listOf(MinecraftArgument.Literal("-cp"), MinecraftArgument.Literal("${'$'}{classpath}")),
         ),
-    ) = VersionMetadata(
+    ) = MinecraftVersionMetadata(
         id = "demo",
         type = "release",
         mainClass = "example.Main",
         assets = "assets-id",
-        assetIndex = AssetIndexDownload("assets-id", "https://test/assets", sha('d'), 2),
-        downloads = VersionDownloads(Download("https://test/client", sha('e'), 2)),
+        assetIndex = MinecraftAssetIndexReference("assets-id", sha('d'), 2, 2, "https://test/assets"),
+        downloads = MinecraftVersionDownloads(
+            client = MinecraftDownload(sha('e'), 2, "https://test/client"),
+            server = MinecraftDownload(sha('f'), 2, "https://test/server"),
+        ),
         libraries = libraries,
-        arguments = mojangArguments,
-        javaVersion = VersionMetadata.JavaVersion("java-runtime", 21),
+        arguments = minecraftArguments,
+        javaVersion = MinecraftJavaVersion("java-runtime", 21),
+        logging = MinecraftLoggingConfiguration(
+            MinecraftClientLoggingConfiguration(
+                "-Dlog4j.configurationFile=${'$'}{path}",
+                MinecraftLoggingFile("client.xml", sha('a'), 2, "https://test/logging"),
+                "log4j2-xml",
+            ),
+        ),
+        complianceLevel = 1,
+        minimumLauncherVersion = 1,
+        releaseTime = "now",
+        time = "now",
     )
 
-    private fun library(name: String, path: String, hash: Char) = MojangLibrary(
+    private fun library(name: String, path: String, hash: Char) = MinecraftLibrary(
         name = name,
-        downloads = MojangLibrary.Downloads(artifact = download(path, hash)),
+        downloads = MinecraftLibraryDownloads(artifact = download(path, hash)),
     )
 
-    private fun download(path: String, hash: Char) = Download("https://test/$path", sha(hash), 2, path)
+    private fun download(path: String, hash: Char) = MinecraftLibraryDownload(path, sha(hash), 2, "https://test/$path")
 }
 
 internal fun sha(character: Char): String = character.toString().repeat(40)

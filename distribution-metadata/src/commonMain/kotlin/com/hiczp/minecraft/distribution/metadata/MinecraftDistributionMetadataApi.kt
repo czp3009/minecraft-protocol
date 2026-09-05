@@ -1,7 +1,9 @@
 package com.hiczp.minecraft.distribution.metadata
 
 import de.jensklingenberg.ktorfit.http.GET
+import de.jensklingenberg.ktorfit.http.Streaming
 import de.jensklingenberg.ktorfit.http.Url
+import io.ktor.client.statement.*
 
 interface MinecraftDistributionMetadataApi {
     @GET("mc/game/version_manifest_v2.json")
@@ -24,4 +26,11 @@ interface MinecraftDistributionMetadataApi {
     suspend fun javaRuntimeManifest(
         @Url url: String,
     ): MinecraftJavaRuntimeManifest
+
+    /** Prepares a GET without sending it. Consume the response stream within [HttpStatement.execute]'s block. */
+    @Streaming
+    @GET("")
+    suspend fun download(
+        @Url url: String,
+    ): HttpStatement
 }

@@ -59,23 +59,23 @@ internal fun LauncherApplication(launcherController: LauncherController, launche
         )
 
         is LauncherDestination.ConfirmInstall -> ConfirmInstallScreen(
-            launcherDestination.versionEntry,
+            launcherDestination.minecraftVersionReference,
             launcherState.installedState.installations.any {
-                it.versionId == launcherDestination.versionEntry.id
+                it.versionId == launcherDestination.minecraftVersionReference.id
             },
             launcherPlatform.platformKey,
-            onInstall = { launcherController.install(launcherDestination.versionEntry) },
+            onInstall = { launcherController.install(launcherDestination.minecraftVersionReference) },
             onBack = launcherController::showVersions,
         )
 
         is LauncherDestination.PreparingInstall -> PreparingInstallScreen(
-            launcherDestination.versionEntry,
+            launcherDestination.minecraftVersionReference,
             launcherPlatform.platformKey,
             launcherController::cancelInstallation,
         )
 
         is LauncherDestination.Installing -> InstallingScreen(
-            launcherDestination.versionEntry,
+            launcherDestination.minecraftVersionReference,
             installProgress,
             launcherPlatform.platformKey,
             launcherController::cancelInstallation,

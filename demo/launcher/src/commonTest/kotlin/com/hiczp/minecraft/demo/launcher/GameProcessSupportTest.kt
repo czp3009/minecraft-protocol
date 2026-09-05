@@ -62,7 +62,7 @@ class GameProcessSupportTest {
             gameArguments = emptyList(),
             sensitiveAccessToken = null,
             workingDirectory = "/game",
-            requiredJavaMajor = null,
+            requiredJavaMajor = 21,
         )
         val gameOutputBuffer = gameProcessService.outputBuffer(launchPlan)
 

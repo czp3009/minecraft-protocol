@@ -2,6 +2,7 @@ package com.hiczp.minecraft.demo.launcher.ui
 
 import androidx.compose.runtime.*
 import com.hiczp.minecraft.demo.launcher.*
+import com.hiczp.minecraft.distribution.metadata.MinecraftVersionReference
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.MinecraftOnlineIdentity
 import com.jakewharton.mosaic.layout.KeyEvent
@@ -74,7 +75,7 @@ internal fun ErrorScreen(
 
 @Composable
 internal fun PreparingInstallScreen(
-    versionEntry: VersionEntry,
+    minecraftVersionReference: MinecraftVersionReference,
     platform: String,
     onCancel: () -> Unit,
 ) {
@@ -90,7 +91,7 @@ internal fun PreparingInstallScreen(
             }
         },
     ) {
-        SectionHeading("Installing ${versionEntry.id}")
+        SectionHeading("Installing ${minecraftVersionReference.id}")
         Status("Loading resource manifests...")
     }
 }
@@ -141,18 +142,18 @@ internal fun HomeScreen(
 internal fun VersionsScreen(
     platform: String,
     visibleRows: Int,
-    versionsFor: (String?) -> List<VersionEntry>,
+    versionsFor: (String?) -> List<MinecraftVersionReference>,
     installedVersionIds: Set<String>,
-    onInstall: (VersionEntry) -> Unit,
+    onInstall: (MinecraftVersionReference) -> Unit,
     onBack: () -> Unit,
 ) {
     var versionFilter by remember { mutableStateOf(VersionFilter.STABLE) }
     val selectionState = rememberSelectionState()
-    val items = versionsFor(versionFilter.type).map { versionEntry ->
+    val items = versionsFor(versionFilter.type).map { minecraftVersionReference ->
         ActionItem(
-            label = versionEntry.id,
-            onActivate = { onInstall(versionEntry) },
-            trailingText = if (versionEntry.id in installedVersionIds) "Installed" else null,
+            label = minecraftVersionReference.id,
+            onActivate = { onInstall(minecraftVersionReference) },
+            trailingText = if (minecraftVersionReference.id in installedVersionIds) "Installed" else null,
         )
     }
 
@@ -190,7 +191,7 @@ internal fun VersionsScreen(
 
 @Composable
 internal fun ConfirmInstallScreen(
-    versionEntry: VersionEntry,
+    minecraftVersionReference: MinecraftVersionReference,
     installed: Boolean,
     platform: String,
     onInstall: () -> Unit,
@@ -201,9 +202,9 @@ internal fun ConfirmInstallScreen(
         hints = listOf(KeyHint("Enter", if (installed) "Reinstall" else "Install"), KeyHint("Esc", "Back")),
         onKeyEvent = { keyEvent -> handleConfirmationKey(keyEvent, onInstall, onBack) },
     ) {
-        SectionHeading(if (installed) "Reinstall ${versionEntry.id}" else "Install ${versionEntry.id}")
-        PropertyRow("Type", versionEntry.type)
-        PropertyRow("Directory", "minecraft/${versionEntry.id}/")
+        SectionHeading(if (installed) "Reinstall ${minecraftVersionReference.id}" else "Install ${minecraftVersionReference.id}")
+        PropertyRow("Type", minecraftVersionReference.type)
+        PropertyRow("Directory", "minecraft/${minecraftVersionReference.id}/")
         Spacer(Modifier.height(1))
         if (installed) {
             Status("Already installed. Continuing will overwrite this version.")
@@ -215,7 +216,7 @@ internal fun ConfirmInstallScreen(
 
 @Composable
 internal fun InstallingScreen(
-    versionEntry: VersionEntry,
+    minecraftVersionReference: MinecraftVersionReference,
     installProgress: InstallProgress,
     platform: String,
     onCancel: () -> Unit,
@@ -237,7 +238,7 @@ internal fun InstallingScreen(
             }
         },
     ) {
-        SectionHeading("Installing ${versionEntry.id}")
+        SectionHeading("Installing ${minecraftVersionReference.id}")
         ProgressBar(fraction)
         Spacer(Modifier.height(1))
         PropertyRow("Files", "${installProgress.completedFiles} / ${installProgress.totalFiles}")

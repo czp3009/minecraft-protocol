@@ -1,5 +1,8 @@
 package com.hiczp.minecraft.demo.launcher
 
+import com.hiczp.minecraft.distribution.metadata.MinecraftVersionManifest
+import com.hiczp.minecraft.distribution.metadata.MinecraftVersionMetadata
+import com.hiczp.minecraft.distribution.metadata.MinecraftVersionReference
 import com.hiczp.minecraft.protocol.auth.MinecraftIdentity
 import com.hiczp.minecraft.protocol.auth.MinecraftOnlineIdentity
 import kotlinx.coroutines.CancellationException
@@ -16,7 +19,7 @@ internal data class LauncherState(
     val launcherDestination: LauncherDestination = LauncherDestination.Home,
     val versionManifestState: VersionManifestState = VersionManifestState.Loading,
     val installedState: InstalledState = InstalledState(),
-    val installedMetadata: Map<String, VersionMetadata> = emptyMap(),
+    val installedMetadata: Map<String, MinecraftVersionMetadata> = emptyMap(),
     val authState: AuthState? = null,
     val accountCredentials: Map<Uuid, AccountCredentialState> = emptyMap(),
 )
@@ -28,7 +31,7 @@ internal enum class AccountCredentialState {
 
 internal sealed interface VersionManifestState {
     data object Loading : VersionManifestState
-    data class Ready(val versionManifest: VersionManifest) : VersionManifestState
+    data class Ready(val minecraftVersionManifest: MinecraftVersionManifest) : VersionManifestState
     data class Failed(val message: String) : VersionManifestState
 }
 
@@ -42,9 +45,9 @@ internal sealed interface LauncherDestination {
     data class Error(val message: String, val returnTo: LauncherDestination) : LauncherDestination
     data object Home : LauncherDestination
     data object Versions : LauncherDestination
-    data class ConfirmInstall(val versionEntry: VersionEntry) : LauncherDestination
-    data class PreparingInstall(val versionEntry: VersionEntry) : LauncherDestination
-    data class Installing(val versionEntry: VersionEntry) : LauncherDestination
+    data class ConfirmInstall(val minecraftVersionReference: MinecraftVersionReference) : LauncherDestination
+    data class PreparingInstall(val minecraftVersionReference: MinecraftVersionReference) : LauncherDestination
+    data class Installing(val minecraftVersionReference: MinecraftVersionReference) : LauncherDestination
     data object Installed : LauncherDestination
     data class VersionActions(val versionId: String) : LauncherDestination
     data class ConfirmDelete(val versionId: String) : LauncherDestination
@@ -98,9 +101,9 @@ internal class LauncherController(
         loadManifest()
     }
 
-    fun availableVersions(type: String?): List<VersionEntry> {
+    fun availableVersions(type: String?): List<MinecraftVersionReference> {
         val versions =
-            (_state.value.versionManifestState as? VersionManifestState.Ready)?.versionManifest?.versions.orEmpty()
+            (_state.value.versionManifestState as? VersionManifestState.Ready)?.minecraftVersionManifest?.versions.orEmpty()
         return if (type == null) versions else versions.filter { it.type == type }
     }
 
@@ -125,7 +128,8 @@ internal class LauncherController(
         show(error.returnTo)
     }
 
-    fun confirmInstall(versionEntry: VersionEntry) = show(LauncherDestination.ConfirmInstall(versionEntry))
+    fun confirmInstall(minecraftVersionReference: MinecraftVersionReference) =
+        show(LauncherDestination.ConfirmInstall(minecraftVersionReference))
 
     fun showInstalled() = show(LauncherDestination.Installed)
 
@@ -149,16 +153,16 @@ internal class LauncherController(
 
     fun cancelGamePreparation() = cancelActive(LauncherDestination.Installed)
 
-    fun install(versionEntry: VersionEntry) {
-        runOperation(LauncherDestination.PreparingInstall(versionEntry)) {
+    fun install(minecraftVersionReference: MinecraftVersionReference) {
+        runOperation(LauncherDestination.PreparingInstall(minecraftVersionReference)) {
             val completedInstallation = installationService.install(
-                versionEntry = versionEntry,
+                minecraftVersionReference = minecraftVersionReference,
                 onDownloadsStarted = { installedState ->
                     _state.update { current ->
                         current.copy(
-                            launcherDestination = LauncherDestination.Installing(versionEntry),
+                            launcherDestination = LauncherDestination.Installing(minecraftVersionReference),
                             installedState = installedState,
-                            installedMetadata = current.installedMetadata - versionEntry.id,
+                            installedMetadata = current.installedMetadata - minecraftVersionReference.id,
                         )
                     }
                 },
@@ -167,7 +171,8 @@ internal class LauncherController(
                 current.copy(
                     launcherDestination = LauncherDestination.Installed,
                     installedState = completedInstallation.installedState,
-                    installedMetadata = current.installedMetadata + (versionEntry.id to completedInstallation.versionMetadata),
+                    installedMetadata = current.installedMetadata +
+                            (minecraftVersionReference.id to completedInstallation.minecraftVersionMetadata),
                 )
             }
         }
@@ -231,8 +236,8 @@ internal class LauncherController(
         ) {
             val minecraftIdentity = launchIdentity()
             show(LauncherDestination.Loading(LauncherOperation.PREPARE_GAME, versionId, cancellable = true))
-            val versionMetadata = loadInstalledMetadata(versionId)
-            val installPlan = installationService.validateInstallation(versionMetadata)
+            val minecraftVersionMetadata = loadInstalledMetadata(versionId)
+            val installPlan = installationService.validateInstallation(minecraftVersionMetadata)
             val authState = launcherStore.authMemory.read { this }
             _state.update { it.copy(authState = authState) }
             val launchPlan = MetadataPlanner.createLaunchPlan(
@@ -378,10 +383,10 @@ internal class LauncherController(
         }
         manifestJob = coroutineScope.launch {
             try {
-                val versionManifest = installationService.loadManifest()
+                val minecraftVersionManifest = installationService.loadManifest()
                 _state.update { current ->
                     current.copy(
-                        versionManifestState = VersionManifestState.Ready(versionManifest),
+                        versionManifestState = VersionManifestState.Ready(minecraftVersionManifest),
                         launcherDestination = if (current.launcherDestination.isWaitingForManifest()) {
                             LauncherDestination.Versions
                         } else {
@@ -407,16 +412,17 @@ internal class LauncherController(
         }
     }
 
-    private suspend fun loadInstalledMetadata(versionId: String): VersionMetadata {
+    private suspend fun loadInstalledMetadata(versionId: String): MinecraftVersionMetadata {
         _state.value.installedMetadata[versionId]?.let { return it }
         manifestJob?.join()
-        val versionManifest = (_state.value.versionManifestState as? VersionManifestState.Ready)?.versionManifest
-            ?: throw IllegalStateException("The official version manifest is unavailable")
-        val versionEntry = versionManifest.versions.singleOrNull { it.id == versionId }
+        val minecraftVersionManifest =
+            (_state.value.versionManifestState as? VersionManifestState.Ready)?.minecraftVersionManifest
+                ?: throw IllegalStateException("The official version manifest is unavailable")
+        val minecraftVersionReference = minecraftVersionManifest.versions.singleOrNull { it.id == versionId }
             ?: throw IllegalStateException("Version $versionId is absent from the official manifest")
-        val versionMetadata = installationService.loadVersionMetadata(versionEntry)
-        _state.update { it.copy(installedMetadata = it.installedMetadata + (versionId to versionMetadata)) }
-        return versionMetadata
+        val minecraftVersionMetadata = installationService.loadVersionMetadata(minecraftVersionReference)
+        _state.update { it.copy(installedMetadata = it.installedMetadata + (versionId to minecraftVersionMetadata)) }
+        return minecraftVersionMetadata
     }
 
     private suspend fun refreshAuth(removeCredentialStates: Set<Uuid> = emptySet()) {

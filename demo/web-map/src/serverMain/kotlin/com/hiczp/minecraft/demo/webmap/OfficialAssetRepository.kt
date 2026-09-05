@@ -1,20 +1,21 @@
 package com.hiczp.minecraft.demo.webmap
 
+import com.hiczp.minecraft.distribution.metadata.MinecraftDistributionMetadataApiClient
+import com.hiczp.minecraft.distribution.metadata.download
 import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaRegistryData
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import io.github.oshai.kotlinlogging.KLogger
 import io.ktor.client.*
-import io.ktor.client.call.*
-import io.ktor.client.plugins.*
-import io.ktor.client.request.*
-import io.ktor.http.*
+import io.ktor.client.statement.*
+import io.ktor.utils.io.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import kotlinx.io.Buffer
+import kotlinx.io.readByteArray
 import okio.ByteString.Companion.toByteString
 import okio.FileSystem
 import okio.Path.Companion.toPath
@@ -36,8 +37,9 @@ class OfficialAssetRepository(
     parentCoroutineScope: CoroutineScope,
     private val logger: KLogger,
     private val fileSystem: FileSystem = FileSystem.SYSTEM,
-    private val httpClient: HttpClient = createOfficialAssetHttpClient(),
+    private val httpClient: HttpClient = HttpClient { configureOfficialAssetHttpClient() },
 ) {
+    private val minecraftDistributionMetadataApi = MinecraftDistributionMetadataApiClient(httpClient)
     private val repositoryJob = SupervisorJob(parentCoroutineScope.coroutineContext[Job])
     private val coroutineScope = CoroutineScope(parentCoroutineScope.coroutineContext + repositoryJob)
     private val loadedAssetsState = MutableStateFlow<LoadedOfficialAssets?>(null)
@@ -113,27 +115,19 @@ class OfficialAssetRepository(
             detail = "Resolving the selected Minecraft client artifact",
             completedSteps = 0,
         )
-        val manifestBytes = getBytes(OFFICIAL_VERSION_MANIFEST_URL, MAXIMUM_METADATA_BYTES)
-        val pistonVersionManifest = ASSET_JSON.decodeFromString<PistonVersionManifest>(manifestBytes.decodeToString())
-        val pistonVersionReference = pistonVersionManifest.versions.singleOrNull { pistonVersionReference ->
-            pistonVersionReference.id == minecraftVersion
+        val minecraftVersionManifest = minecraftDistributionMetadataApi.versionManifest()
+        val minecraftVersionReference = minecraftVersionManifest.versions.singleOrNull {
+            it.id == minecraftVersion
         } ?: error("The official version manifest does not contain $minecraftVersion")
-        requireHttps(pistonVersionReference.url, "version metadata")
 
         publishLoading(
-            action = "Verifying the official version metadata",
-            detail = "Checking the metadata SHA-1 before reading the client download",
+            action = "Reading the official version metadata",
+            detail = "Locating the selected client download",
             completedSteps = 1,
         )
-        val versionMetadataBytes = getBytes(pistonVersionReference.url, MAXIMUM_METADATA_BYTES)
-        check(versionMetadataBytes.sha1Hex().equals(pistonVersionReference.sha1, ignoreCase = true)) {
-            "The official version metadata SHA-1 does not match"
-        }
-        val pistonVersionMetadata = ASSET_JSON.decodeFromString<PistonVersionMetadata>(
-            versionMetadataBytes.decodeToString(),
-        )
-        val clientDownload = pistonVersionMetadata.downloads.client
-        requireHttps(clientDownload.url, "client JAR")
+        val minecraftVersionMetadata = minecraftDistributionMetadataApi.versionMetadata(minecraftVersionReference.url)
+        val clientDownload = minecraftVersionMetadata.downloads.client
+        check(clientDownload.url.startsWith("https://")) { "The official client JAR URL is not HTTPS" }
         check(clientDownload.size in 1..MAXIMUM_CLIENT_JAR_BYTES) {
             "The official client JAR size is outside the supported asset-loader range"
         }
@@ -145,27 +139,24 @@ class OfficialAssetRepository(
             loadedBytes = 0L,
             totalBytes = clientDownload.size,
         )
-        var lastReportedClientBytes = 0L
-        val clientJarBytes = getBytes(clientDownload.url, MAXIMUM_CLIENT_JAR_BYTES) { loadedBytes ->
-            val boundedLoadedBytes = loadedBytes.coerceAtMost(clientDownload.size)
-            if (
-                boundedLoadedBytes == clientDownload.size ||
-                boundedLoadedBytes - lastReportedClientBytes >= ASSET_DOWNLOAD_PROGRESS_INTERVAL_BYTES
-            ) {
-                lastReportedClientBytes = boundedLoadedBytes
+        val clientJarBytes = minecraftDistributionMetadataApi.download(clientDownload).execute { httpResponse ->
+            val byteReadChannel = httpResponse.bodyAsChannel()
+            val buffer = Buffer()
+            while (byteReadChannel.readTo(buffer, ASSET_DOWNLOAD_PROGRESS_INTERVAL_BYTES) > 0L) {
                 publishLoading(
                     action = "Downloading the official client assets",
                     detail = "Streaming the selected client JAR into server memory",
                     completedSteps = 2,
-                    loadedBytes = boundedLoadedBytes,
+                    loadedBytes = buffer.size.coerceAtMost(clientDownload.size),
                     totalBytes = clientDownload.size,
                 )
             }
+            buffer.readByteArray()
         }
         check(clientJarBytes.size.toLong() == clientDownload.size) {
             "The official client JAR byte count does not match its metadata"
         }
-        check(clientJarBytes.sha1Hex().equals(clientDownload.sha1, ignoreCase = true)) {
+        check(clientJarBytes.toByteString().sha1().hex().equals(clientDownload.sha1, ignoreCase = true)) {
             "The official client JAR SHA-1 does not match"
         }
 
@@ -193,22 +184,6 @@ class OfficialAssetRepository(
             resources = resources,
             blockAssets = blockAssetIndex,
         )
-    }
-
-    private suspend fun getBytes(
-        url: String,
-        maximumBytes: Long,
-        progressChanged: ((Long) -> Unit)? = null,
-    ): ByteArray {
-        val response = httpClient.get(url) {
-            progressChanged?.let { listener ->
-                onDownload { bytesSentTotal, _ -> listener(bytesSentTotal) }
-            }
-        }
-        check(response.status.isSuccess()) { "Official asset request failed with HTTP ${response.status.value}" }
-        return response.body<ByteArray>().also { bytes ->
-            check(bytes.size.toLong() <= maximumBytes) { "Official asset response exceeds its supported size" }
-        }
     }
 
     private suspend fun readAssetResources(clientJarBytes: ByteArray): Map<String, ByteArray> {
@@ -290,12 +265,6 @@ class OfficialAssetRepository(
     }
 }
 
-private fun ByteArray.sha1Hex(): String = toByteString().sha1().hex()
-
-private fun requireHttps(url: String, role: String) {
-    check(url.startsWith("https://")) { "The official $role URL is not HTTPS" }
-}
-
 private fun String.isOfficialAssetResource(): Boolean {
     val segments = split('/')
     return !(segments.size < 4 || segments[0] != "assets") && when (segments[2]) {
@@ -317,42 +286,9 @@ private fun requireAssetCategories(resourcePaths: Set<String>) {
     }
 }
 
-@Serializable
-private data class PistonVersionManifest(
-    val versions: List<PistonVersionReference>,
-)
-
-@Serializable
-private data class PistonVersionReference(
-    val id: String,
-    val url: String,
-    val sha1: String,
-)
-
-@Serializable
-private data class PistonVersionMetadata(
-    val downloads: PistonDownloads,
-)
-
-@Serializable
-private data class PistonDownloads(
-    val client: PistonDownload,
-)
-
-@Serializable
-private data class PistonDownload(
-    val sha1: String,
-    val size: Long,
-    val url: String,
-)
-
-private val ASSET_JSON: Json = Json { ignoreUnknownKeys = true }
-private const val OFFICIAL_VERSION_MANIFEST_URL: String =
-    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 private const val ASSET_LOAD_STEPS: Int = 5
 private const val ASSET_PROGRESS_FILE_INTERVAL: Int = 128
 private const val ASSET_DOWNLOAD_PROGRESS_INTERVAL_BYTES: Long = 256L * 1024L
 private const val ASSET_RETRY_DELAY_MILLISECONDS: Long = 2_000L
-private const val MAXIMUM_METADATA_BYTES: Long = 8L * 1024L * 1024L
 private const val MAXIMUM_CLIENT_JAR_BYTES: Long = 128L * 1024L * 1024L
 private const val MAXIMUM_UNCOMPRESSED_ASSET_BYTES: Long = 64L * 1024L * 1024L

@@ -43,13 +43,13 @@ class MinecraftDistributionMetadataApiClientTest {
             val minecraftAssetIndex =
                 minecraftDistributionMetadataApi.assetIndex(minecraftVersionMetadata.assetIndex.url)
             val minecraftJavaRuntimeCatalog = minecraftDistributionMetadataApi.javaRuntimeCatalog()
-            val minecraftJavaRuntimeManifestReference = minecraftJavaRuntimeCatalog.platforms
+            val runtimeManifestDownload = minecraftJavaRuntimeCatalog.platforms
                 .getValue(TEST_RUNTIME_PLATFORM)
                 .getValue(minecraftVersionMetadata.javaVersion.component)
                 .single()
                 .manifest
             val minecraftJavaRuntimeManifest =
-                minecraftDistributionMetadataApi.javaRuntimeManifest(minecraftJavaRuntimeManifestReference.url)
+                minecraftDistributionMetadataApi.javaRuntimeManifest(runtimeManifestDownload.url)
 
             assertEquals(TEST_VERSION_ID, minecraftVersionManifest.latest.release)
             assertEquals(TEST_VERSION_ID, minecraftVersionMetadata.id)
@@ -185,12 +185,12 @@ private class ApiFixture {
         ),
     )
     val javaRuntimeManifestBytes = TEST_JSON.encodeToString(minecraftJavaRuntimeManifest).encodeToByteArray()
-    private val minecraftJavaRuntimeManifestReference = MinecraftJavaRuntimeManifestReference(
+    private val runtimeManifestDownload = MinecraftDownload(
         sha1 = testSha1('2'),
         size = javaRuntimeManifestBytes.size.toLong(),
         url = metadataUrl(testSha1('2'), "runtime-manifest.json"),
     )
-    val javaRuntimeManifestPath = Url(minecraftJavaRuntimeManifestReference.url).encodedPath
+    val javaRuntimeManifestPath = Url(runtimeManifestDownload.url).encodedPath
 
     private val minecraftVersionMetadata = MinecraftVersionMetadata(
         arguments = MinecraftArguments(
@@ -276,7 +276,7 @@ private class ApiFixture {
                 TEST_RUNTIME_COMPONENT to listOf(
                     MinecraftJavaRuntimeEntry(
                         availability = MinecraftJavaRuntimeAvailability(group = 1, progress = 100),
-                        manifest = minecraftJavaRuntimeManifestReference,
+                        manifest = runtimeManifestDownload,
                         version = MinecraftJavaRuntimeVersion(name = "25", released = TEST_TIME),
                     ),
                 ),

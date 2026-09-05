@@ -17,7 +17,7 @@ value class MinecraftJavaRuntimeCatalog(
 @Serializable
 data class MinecraftJavaRuntimeEntry(
     val availability: MinecraftJavaRuntimeAvailability,
-    val manifest: MinecraftJavaRuntimeManifestReference,
+    val manifest: MinecraftDownload,
     val version: MinecraftJavaRuntimeVersion,
 )
 
@@ -25,13 +25,6 @@ data class MinecraftJavaRuntimeEntry(
 data class MinecraftJavaRuntimeAvailability(
     val group: Int,
     val progress: Int,
-)
-
-@Serializable
-data class MinecraftJavaRuntimeManifestReference(
-    val sha1: String,
-    val size: Long,
-    val url: String,
 )
 
 @Serializable

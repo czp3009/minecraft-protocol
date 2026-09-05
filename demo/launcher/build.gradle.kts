@@ -8,8 +8,6 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.kotlinCompose)
-    alias(libs.plugins.ksp)
-    alias(libs.plugins.ktorfit)
 }
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -40,10 +38,10 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":account-auth"))
+            implementation(project(":distribution-metadata"))
             implementation(project(":protocol-auth"))
             implementation(libs.mosaic.runtime)
             implementation(libs.kommand)
-            implementation(libs.ktorfit.lib.light)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.server.core)

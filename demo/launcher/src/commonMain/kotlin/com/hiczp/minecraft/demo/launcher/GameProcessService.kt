@@ -115,10 +115,9 @@ internal class GameProcessService(
 
     override suspend fun launch(launchPlan: LaunchPlan, gameOutputBuffer: GameOutputBuffer) {
         val actualJavaMajor = probeJavaMajor()
-        launchPlan.requiredJavaMajor?.let { required ->
-            require(actualJavaMajor >= required) {
-                "This version requires Java $required, but Java $actualJavaMajor was found on PATH"
-            }
+        val requiredJavaMajor = launchPlan.requiredJavaMajor
+        require(actualJavaMajor >= requiredJavaMajor) {
+            "This version requires Java $requiredJavaMajor, but Java $actualJavaMajor was found on PATH"
         }
         val argumentFile = launcherRoot /
                 "$JAVA_ARGUMENT_FILE_PREFIX${Random.nextLong().toULong().toString(16)}$JAVA_ARGUMENT_FILE_SUFFIX"

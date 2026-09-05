@@ -1,7 +1,10 @@
 package com.hiczp.minecraft.distribution.metadata
 
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -43,18 +46,22 @@ class MinecraftDistributionMetadataModelsTest {
         )
 
         val encodedArguments = Json.parseToJsonElement(MODEL_JSON.encodeToString(minecraftArguments)).jsonObject
-        val encodedDefaultUserJvm = encodedArguments.getValue("default-user-jvm").jsonArray.single().jsonObject
-        assertEquals(JsonArray(listOf(JsonPrimitive("-Xms2G"))), encodedDefaultUserJvm.getValue("value"))
-        assertEquals(
-            JsonPrimitive("-Xss1M"),
-            encodedArguments.getValue("jvm").jsonArray.single().jsonObject.getValue("value"),
-        )
+        assertEquals(Json.parseToJsonElement(MINECRAFT_ARGUMENTS_JSON), encodedArguments)
 
-        assertFailsWith<SerializationException> {
-            MODEL_JSON.decodeFromString<MinecraftArgument>("1")
-        }
-        assertFailsWith<SerializationException> {
-            MODEL_JSON.decodeFromString<MinecraftArgument>("""{"value":["valid",1]}""")
+        val invalidArguments = listOf(
+            "1",
+            "true",
+            "null",
+            "[]",
+            """{"value":1}""",
+            """{"value":null}""",
+            """{"value":{}}""",
+            """{"value":["valid",1]}""",
+        )
+        for (json in invalidArguments) {
+            assertFailsWith<SerializationException>("Unexpected argument shape: $json") {
+                MODEL_JSON.decodeFromString<MinecraftArgument>(json)
+            }
         }
     }
 
@@ -134,6 +141,10 @@ class MinecraftDistributionMetadataModelsTest {
         assertEquals("abcdef0123456789abcdef0123456789abcdef01", minecraftDownload.sha1)
         assertEquals(19, minecraftDownload.size)
         assertEquals(
+            "ab/abcdef0123456789abcdef0123456789abcdef01",
+            minecraftAssetPath(minecraftAssetObject.hash),
+        )
+        assertEquals(
             "https://resources.download.minecraft.net/ab/abcdef0123456789abcdef0123456789abcdef01",
             minecraftDownload.url,
         )
@@ -146,7 +157,6 @@ class MinecraftDistributionMetadataModelsTest {
             ),
             Json.parseToJsonElement(MODEL_JSON.encodeToString(minecraftAssetObject)),
         )
-
     }
 }
 

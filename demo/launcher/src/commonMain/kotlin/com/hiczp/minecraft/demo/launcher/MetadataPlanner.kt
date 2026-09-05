@@ -1,99 +1,55 @@
 package com.hiczp.minecraft.demo.launcher
 
+import com.hiczp.minecraft.distribution.metadata.*
 import com.hiczp.minecraft.protocol.auth.MinecraftIdentity
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.MinecraftOnlineIdentity
-import com.kgit2.kommand.Platform
-import com.kgit2.kommand.platform
 import okio.Path
 import okio.Path.Companion.toPath
 import kotlin.uuid.Uuid
 
-internal data class LauncherPlatform(
-    val osName: String,
-    val architecture: String,
-    val classpathSeparator: String,
-    val platformKey: String,
-    val osVersion: String? = null,
-) {
-    companion object {
-        fun current(): LauncherPlatform = when (platform) {
-            Platform.MINGW_X64 -> LauncherPlatform("windows", "x86_64", ";", "windows-x86_64")
-            Platform.LINUX_X64 -> LauncherPlatform("linux", "x86_64", ":", "linux-x86_64")
-            Platform.LINUX_ARM64 -> LauncherPlatform("linux", "aarch64", ":", "linux-aarch64")
-            Platform.MACOS_X64 -> LauncherPlatform("osx", "x86_64", ":", "osx-x86_64")
-            Platform.MACOS_ARM64 -> LauncherPlatform("osx", "aarch64", ":", "osx-aarch64")
-        }
-    }
-}
-
 internal object MetadataPlanner {
-    fun createInstallPlan(versionMetadata: VersionMetadata, launcherPlatform: LauncherPlatform): InstallPlan {
-        val versionId = validateSinglePathComponent(versionMetadata.id, "version ID")
-        require(versionMetadata.minecraftArguments == null && versionMetadata.arguments != null) {
-            "This demo does not support single-string minecraftArguments metadata"
-        }
+    fun createInstallPlan(
+        minecraftVersionMetadata: MinecraftVersionMetadata,
+        launcherPlatform: LauncherPlatform,
+    ): InstallPlan {
         val downloads = mutableListOf(
-            versionMetadata.downloads.client.toSpec("client.jar"),
+            DownloadSpec(minecraftVersionMetadata.downloads.client, "client.jar"),
         )
         val classpath = mutableListOf<String>()
 
-        versionMetadata.libraries.forEach { mojangLibrary ->
-            if (!RuleEvaluator.allows(mojangLibrary.rules, launcherPlatform)) return@forEach
-            require(mojangLibrary.natives == null && mojangLibrary.extract == null) {
-                "This demo does not support legacy native classifiers or extraction: ${mojangLibrary.name}"
-            }
-            val artifact = requireNotNull(mojangLibrary.downloads?.artifact) {
-                "Applicable library has no download artifact: ${mojangLibrary.name}"
-            }
-            val artifactPath = validateRelativePath(requireNotNull(artifact.path), "library artifact path")
-            val relativePath = "libraries/$artifactPath"
-            downloads += artifact.toSpec(relativePath)
+        minecraftVersionMetadata.libraries.forEach { minecraftLibrary ->
+            if (!RuleEvaluator.allows(minecraftLibrary.rules, launcherPlatform)) return@forEach
+            val artifact = minecraftLibrary.downloads.artifact
+            val relativePath = "libraries/${artifact.path}"
+            downloads += DownloadSpec(artifact.toDownload(), relativePath)
             classpath += relativePath
         }
         classpath += "client.jar"
 
-        val assetIndexId = validateSinglePathComponent(versionMetadata.assetIndex.id, "asset index ID")
-        val assetIndex = DownloadSpec(
-            url = versionMetadata.assetIndex.url,
-            sha1 = validateSha1(versionMetadata.assetIndex.sha1),
-            size = versionMetadata.assetIndex.size,
-            relativePath = "assets/indexes/$assetIndexId.json",
-        )
-        downloads += assetIndex
-
-        val loggingFile = versionMetadata.logging?.client?.file?.let { loggingDownload ->
-            val loggingId = validateSinglePathComponent(requireNotNull(loggingDownload.id), "logging file ID")
-            val relativePath = "logging/$loggingId"
-            downloads += loggingDownload.toSpec(relativePath)
-            relativePath
-        }
+        val assetIndexId = validateSinglePathComponent(minecraftVersionMetadata.assetIndex.id, "asset index ID")
+        val minecraftLoggingFile = minecraftVersionMetadata.logging.client.file
+        val loggingId = validateSinglePathComponent(minecraftLoggingFile.id, "logging file ID")
+        val loggingFile = "logging/$loggingId"
+        downloads += DownloadSpec(minecraftLoggingFile.toDownload(), loggingFile)
 
         return InstallPlan(
-            versionMetadata = versionMetadata,
-            gameRootName = versionId,
+            minecraftVersionMetadata = minecraftVersionMetadata,
             downloads = downloads.distinctBy(DownloadSpec::relativePath),
-            assetIndex = assetIndex,
+            assetIndexPath = "assets/indexes/$assetIndexId.json",
             classpath = classpath,
             loggingFile = loggingFile,
             nativeDirectory = "natives",
         )
     }
 
-    fun createAssetDownloads(assetIndex: AssetIndex): List<DownloadSpec> {
-        require(!assetIndex.virtual && !assetIndex.mapToResources) {
-            "This demo does not support virtual or resource-mapped assets"
-        }
-        return assetIndex.objects.values.distinctBy(AssetObject::hash).map { assetObject ->
-            val hash = validateSha1(assetObject.hash)
+    fun createAssetDownloads(minecraftAssetIndex: MinecraftAssetIndex): List<DownloadSpec> =
+        minecraftAssetIndex.objects.values.distinctBy { it.hash.lowercase() }.map { minecraftAssetObject ->
             DownloadSpec(
-                url = "https://resources.download.minecraft.net/${hash.take(2)}/$hash",
-                sha1 = hash,
-                size = assetObject.size,
-                relativePath = "assets/objects/${hash.take(2)}/$hash",
+                minecraftAssetObject.toDownload(),
+                "assets/objects/${minecraftAssetPath(minecraftAssetObject.hash)}",
             )
         }
-    }
 
     fun createLaunchPlan(
         installPlan: InstallPlan,
@@ -102,8 +58,8 @@ internal object MetadataPlanner {
         minecraftIdentity: MinecraftIdentity,
         installationId: Uuid,
     ): LaunchPlan {
-        val versionMetadata = installPlan.versionMetadata
-        val mojangArguments = requireNotNull(versionMetadata.arguments)
+        val minecraftVersionMetadata = installPlan.minecraftVersionMetadata
+        val minecraftArguments = minecraftVersionMetadata.arguments
         val absoluteGameRoot = gameRoot.toString()
         val libraryDirectory = (gameRoot / "libraries").toString()
         val assetsRoot = (gameRoot / "assets").toString()
@@ -117,11 +73,11 @@ internal object MetadataPlanner {
             "auth_uuid" to minecraftIdentity.id.toHexString(),
             "auth_access_token" to accessToken,
             "auth_xuid" to "",
-            "version_name" to versionMetadata.id,
-            "version_type" to versionMetadata.type,
+            "version_name" to minecraftVersionMetadata.id,
+            "version_type" to minecraftVersionMetadata.type,
             "game_directory" to absoluteGameRoot,
             "assets_root" to assetsRoot,
-            "assets_index_name" to versionMetadata.assets,
+            "assets_index_name" to minecraftVersionMetadata.assets,
             "natives_directory" to nativeDirectory,
             "library_directory" to libraryDirectory,
             "classpath" to classpath,
@@ -130,33 +86,39 @@ internal object MetadataPlanner {
             "launcher_version" to LAUNCHER_VERSION,
             "clientid" to installationId.toString(),
         )
-        val javaArguments = expandArguments(mojangArguments.jvm, launcherPlatform, placeholders).toMutableList()
-        versionMetadata.logging?.client?.let { logging ->
-            val loggingFile = requireNotNull(installPlan.loggingFile)
-            val absoluteLoggingFile = resolveSafe(gameRoot, loggingFile).toString()
-            javaArguments += logging.argument.replace($$"${path}", absoluteLoggingFile)
+        val javaArguments = buildList {
+            addAll(expandArguments(minecraftArguments.defaultUserJvm, launcherPlatform, placeholders))
+            addAll(expandArguments(minecraftArguments.jvm, launcherPlatform, placeholders))
+            val absoluteLoggingFile = resolveSafe(gameRoot, installPlan.loggingFile).toString()
+            add(minecraftVersionMetadata.logging.client.argument.replace($$"${path}", absoluteLoggingFile))
         }
-        val gameArguments = expandArguments(mojangArguments.game, launcherPlatform, placeholders)
+        val gameArguments = expandArguments(minecraftArguments.game, launcherPlatform, placeholders)
         return LaunchPlan(
             javaArguments = javaArguments,
-            mainClass = versionMetadata.mainClass,
+            mainClass = minecraftVersionMetadata.mainClass,
             gameArguments = gameArguments,
             sensitiveAccessToken = accessToken.takeIf { minecraftIdentity is MinecraftOnlineIdentity },
             workingDirectory = absoluteGameRoot,
-            requiredJavaMajor = versionMetadata.javaVersion?.majorVersion,
+            requiredJavaMajor = minecraftVersionMetadata.javaVersion.majorVersion,
         )
     }
 
     fun expandArguments(
-        arguments: List<MojangArgument>,
+        arguments: List<MinecraftArgument>,
         launcherPlatform: LauncherPlatform,
         placeholders: Map<String, String>,
     ): List<String> = buildList {
-        arguments.forEach { mojangArgument ->
-            when (mojangArgument) {
-                is MojangArgument.Literal -> add(replacePlaceholders(mojangArgument.value, placeholders))
-                is MojangArgument.Conditional -> if (RuleEvaluator.allows(mojangArgument.rules, launcherPlatform)) {
-                    mojangArgument.values.forEach { add(replacePlaceholders(it, placeholders)) }
+        arguments.forEach { minecraftArgument ->
+            when (minecraftArgument) {
+                is MinecraftArgument.Literal -> add(replacePlaceholders(minecraftArgument.value, placeholders))
+                is MinecraftArgument.Expanded -> if (RuleEvaluator.allows(minecraftArgument.rules, launcherPlatform)) {
+                    when (val minecraftArgumentValue = minecraftArgument.value) {
+                        is MinecraftArgumentValue.Single ->
+                            add(replacePlaceholders(minecraftArgumentValue.value, placeholders))
+
+                        is MinecraftArgumentValue.Multiple ->
+                            minecraftArgumentValue.values.forEach { add(replacePlaceholders(it, placeholders)) }
+                    }
                 }
             }
         }
@@ -179,50 +141,40 @@ internal object RuleEvaluator {
     )
 
     fun allows(
-        rules: List<MojangRule>?,
+        rules: List<MinecraftRule>,
         launcherPlatform: LauncherPlatform,
         enabledFeatures: Set<String> = emptySet(),
     ): Boolean {
-        if (rules.isNullOrEmpty()) return true
+        if (rules.isEmpty()) return true
         var allowed = false
-        rules.forEach { mojangRule ->
-            require(mojangRule.action == "allow" || mojangRule.action == "disallow") {
-                "Unknown Mojang rule action: ${mojangRule.action}"
+        rules.forEach { minecraftRule ->
+            require(minecraftRule.action == "allow" || minecraftRule.action == "disallow") {
+                "Unknown Mojang rule action: ${minecraftRule.action}"
             }
-            if (matches(mojangRule, launcherPlatform, enabledFeatures)) {
-                allowed = mojangRule.action == "allow"
+            if (matches(minecraftRule, launcherPlatform, enabledFeatures)) {
+                allowed = minecraftRule.action == "allow"
             }
         }
         return allowed
     }
 
     private fun matches(
-        mojangRule: MojangRule,
+        minecraftRule: MinecraftRule,
         launcherPlatform: LauncherPlatform,
         enabledFeatures: Set<String>
     ): Boolean {
-        val osMatches = mojangRule.os?.let { os ->
+        val osMatches = minecraftRule.os?.let { os ->
             val expectedName = os.name?.also {
                 require(it in setOf("windows", "linux", "osx")) { "Unknown Mojang OS name: $it" }
             }
             val expectedArchitecture = os.arch?.let(::normalizeArchitecture)
-            val regexMatches = os.version?.let { expression ->
-                val actualVersion = requireNotNull(launcherPlatform.osVersion) {
-                    "Cannot safely evaluate an OS version rule on this platform"
-                }
-                Regex(expression).containsMatchIn(actualVersion)
-            } ?: true
-            val rangeMatches = os.versionRange?.let { versionRange ->
-                val actualVersion = requireNotNull(launcherPlatform.osVersion) {
-                    "Cannot safely evaluate an OS version range on this platform"
-                }
-                versionInRange(actualVersion, versionRange.min, versionRange.max)
-            } ?: true
             (expectedName == null || expectedName == launcherPlatform.osName) &&
                     (expectedArchitecture == null || expectedArchitecture == launcherPlatform.architecture) &&
-                    regexMatches && rangeMatches
+                    (os.versionRange?.let { versionRange ->
+                        versionInRange(launcherPlatform.osVersion, versionRange.min, versionRange.max)
+                    } ?: true)
         } ?: true
-        val featuresMatch = mojangRule.features?.all { (name, expected) ->
+        val featuresMatch = minecraftRule.features?.all { (name, expected) ->
             require(name in knownFeatures) { "Unknown Mojang feature rule: $name" }
             (name in enabledFeatures) == expected
         } ?: true
@@ -254,15 +206,10 @@ internal fun resolveSafe(root: Path, relative: String): Path {
     return root / validated.toPath()
 }
 
-internal fun validateSha1(value: String): String {
+internal fun validateSha1(value: String) {
     require(value.length == 40 && value.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
         "Invalid SHA-1 value"
     }
-    return value.lowercase()
-}
-
-private fun Download.toSpec(relativePath: String): DownloadSpec {
-    return DownloadSpec(url, validateSha1(sha1), size, validateRelativePath(relativePath, "download target"))
 }
 
 private fun replacePlaceholders(value: String, placeholders: Map<String, String>): String {

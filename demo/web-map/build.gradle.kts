@@ -47,6 +47,7 @@ kotlin {
         val serverMain = create("serverMain") {
             dependsOn(commonMain.get())
             dependencies {
+                implementation(project(":distribution-metadata"))
                 implementation(project(":protocol-datapack"))
                 implementation(project(":protocol-datapack-vanilla"))
                 implementation(project(":world-io"))
@@ -95,6 +96,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
         jvmTest.dependencies {
+            implementation(libs.ktor.client.mock)
             implementation(libs.ktor.server.test.host)
             implementation(libs.okio.fakefilesystem)
         }

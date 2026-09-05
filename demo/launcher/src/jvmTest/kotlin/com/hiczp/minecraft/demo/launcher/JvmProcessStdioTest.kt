@@ -11,6 +11,15 @@ import kotlin.test.assertTrue
 
 class JvmProcessStdioTest {
     @Test
+    fun currentPlatformDetectsAnOsVersionIncludingTheWindowsBuild() {
+        val launcherPlatform = LauncherPlatform.current()
+        val osVersion = launcherPlatform.osVersion
+
+        assertTrue(osVersion.matches(Regex("""\d+(?:\.\d+)+""")))
+        if (launcherPlatform.osName == "windows") assertTrue(osVersion.split('.').size >= 3)
+    }
+
+    @Test
     fun javaProbeStartsWithoutAnInvalidInputRedirect() = runTest {
         val gameProcessService = GameProcessService(FakeFileSystem(), "/launcher".toPath())
 

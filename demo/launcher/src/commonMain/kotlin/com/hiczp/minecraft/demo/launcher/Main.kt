@@ -12,17 +12,16 @@ import okio.Path.Companion.toPath
 import okio.SYSTEM
 
 fun main() {
+    val launcherPlatform = LauncherPlatform.current()
     val fileSystem = FileSystem.SYSTEM
     val launcherRoot = fileSystem.canonicalize(".".toPath())
     val httpClient = HttpClient { configureLauncherHttpClient() }
     val coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val launcherPlatform = LauncherPlatform.current()
     val launcherStore = LauncherStore(fileSystem, launcherRoot)
-    val mojangApi = createMojangApi(httpClient)
     val launcherController = LauncherController(
         coroutineScope = coroutineScope,
         launcherStore = launcherStore,
-        installationService = InstallationService(mojangApi, fileSystem, launcherStore, launcherPlatform),
+        installationService = InstallationService(httpClient, fileSystem, launcherStore, launcherPlatform),
         accountService = AccountService(httpClient, launcherStore),
         processService = GameProcessService(fileSystem, launcherRoot),
         launcherPlatform = launcherPlatform,

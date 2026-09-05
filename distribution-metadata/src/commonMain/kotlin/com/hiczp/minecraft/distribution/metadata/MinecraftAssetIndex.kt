@@ -23,20 +23,18 @@ data class MinecraftAssetObject(
     val size: Long,
 )
 
-fun MinecraftAssetObject.toDownload(): MinecraftDownload {
+/** Derives the asset object's relative path from its lowercased hash, without validating it or accessing a filesystem. */
+fun minecraftAssetPath(hash: String): String {
     val normalizedSha1 = hash.lowercase()
-    val url = URLBuilder(
-        protocol = URLProtocol.HTTPS,
-        host = MINECRAFT_ASSET_OBJECT_HOST,
-    ).apply {
-        appendPathSegments(normalizedSha1.take(SHA1_PATH_PREFIX_LENGTH), normalizedSha1)
-    }.buildString()
-    return MinecraftDownload(
-        sha1 = normalizedSha1,
-        size = size,
-        url = url,
-    )
+    return "${normalizedSha1.take(SHA1_PATH_PREFIX_LENGTH)}/$normalizedSha1"
 }
+
+internal fun minecraftAssetUrl(hash: String): String = URLBuilder(
+    protocol = URLProtocol.HTTPS,
+    host = MINECRAFT_ASSET_OBJECT_HOST,
+).apply {
+    appendPathSegments(minecraftAssetPath(hash))
+}.buildString()
 
 private const val MINECRAFT_ASSET_OBJECT_HOST = "resources.download.minecraft.net"
 private const val SHA1_PATH_PREFIX_LENGTH = 2

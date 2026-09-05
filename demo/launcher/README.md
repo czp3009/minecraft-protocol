@@ -23,14 +23,18 @@ stored unencrypted in `auth.json`; use the demo only in a trusted local environm
 
 ## Supported versions
 
-The version list comes from Mojang, but the demo intentionally accepts only metadata it can launch without guessing. It
-supports the modern structured `arguments` format and ordinary library/artifact and asset-index layouts. It rejects
-legacy `minecraftArguments`, native-classifier/extraction libraries, virtual or resource-mapped assets, unsafe paths,
-and unknown launch rules. An entry that uses one of those shapes remains visible in the manifest but fails with an
-explanation when installation is attempted.
+The version list, installation metadata, and download streams come from
+[distribution-metadata](../../distribution-metadata/README.md).
+The launcher supports that module's modern schema; historical entries remain visible in the manifest but fail to decode
+if they lack required modern fields. Installation rejects unsafe paths and unknown launch rules.
 
-Downloaded client, library, and asset files are checked against the size and SHA-1 declared by Mojang metadata before an
-installation is recorded.
+Launches use the metadata's default user JVM options followed by its version JVM arguments, preserving rule order and
+individual argument boundaries. OS version ranges use the detected host version, including the Windows build number;
+rules for other operating systems or architectures are skipped. The demo has no custom JVM-options setting.
+
+Downloaded client, library, logging, and asset files are checked against their declared size and SHA-1 before an
+installation is recorded. Metadata documents are decoded through the shared HTTP client, and the asset index is saved
+as JSON without metadata hash or size checks.
 
 ## Interface
 

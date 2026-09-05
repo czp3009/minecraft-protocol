@@ -30,7 +30,7 @@ The project is split by capability, so applications can start at the appropriate
 | Data packs     | [`protocol-datapack-vanilla`](protocol-datapack-vanilla/README.md) | Release-matched vanilla packs, registries, and defaults        |
 | Networking     | [`protocol-transport`](protocol-transport/README.md)               | Low-level frames, compression, encryption, and sockets         |
 | Networking     | [`protocol-session`](protocol-session/README.md)                   | Typed packet channels, state transitions, and loader profiles  |
-| Distribution   | [`distribution-metadata`](distribution-metadata/README.md)         | Modern Mojang version, asset, and Java runtime metadata        |
+| Distribution   | [`distribution-metadata`](distribution-metadata/README.md)         | Modern Mojang metadata and streaming downloads                 |
 | Authentication | [`account-auth`](account-auth/README.md)                           | Launcher-side Microsoft, Xbox, and Minecraft Services login    |
 | Authentication | [`protocol-auth`](protocol-auth/README.md)                         | Game Login, Session Server, profile keys, and signed chat      |
 | Connections    | [`protocol-client`](protocol-client/README.md)                     | Connecting to a server and entering Play                       |

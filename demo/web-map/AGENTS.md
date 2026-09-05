@@ -21,7 +21,8 @@ This private application demonstrates library composition. Prefer existing repos
   no Block follows air.
 - `serverMain` owns official client-asset download, verification, ZIP extraction, model interpretation, PNG transparency
   analysis, immutable kRPC resource serving, live Region reads, and surface projection. Asset progress begins at runtime
-  startup and is exposed as a separate `Flow`. HTTP serves only the browser bundle.
+  startup and is exposed as a separate `Flow`. Use `distribution-metadata` for metadata and streaming download requests;
+  the repository owns client JAR buffering, progress, and integrity checks. HTTP serves only the browser bundle.
 - Organize the server surface cache by dimension and Region, but version and lock each entry at Chunk granularity. The
   sole cache version is `RegionChunkInfo.timestampEpochSeconds`; the Region header remains authoritative for inline and
   external Chunks, so never compare `.mca` or `.mcc` filesystem modification times. Serialize rebuilds of the same Chunk

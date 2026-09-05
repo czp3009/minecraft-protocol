@@ -1,5 +1,7 @@
 package com.hiczp.minecraft.demo.launcher
 
+import com.hiczp.minecraft.distribution.metadata.MinecraftLatestVersions
+import com.hiczp.minecraft.distribution.metadata.MinecraftVersionManifest
 import com.hiczp.minecraft.protocol.auth.MinecraftOnlineIdentity
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
@@ -102,8 +104,8 @@ class LauncherControllerTest {
             launcherController.state.first {
                 it.versionManifestState is VersionManifestState.Ready && it.installedState.installations.isNotEmpty()
             }
-            launcherController.confirmInstall(installFixture.versionEntry)
-            launcherController.install(installFixture.versionEntry)
+            launcherController.confirmInstall(installFixture.minecraftVersionReference)
+            launcherController.install(installFixture.minecraftVersionReference)
             installFixture.activeContentDownloads.first { it == 3 }
 
             assertIs<LauncherDestination.Installing>(launcherController.state.value.launcherDestination)
@@ -138,12 +140,12 @@ class LauncherControllerTest {
             launcherController.state.first {
                 it.versionManifestState is VersionManifestState.Ready && it.installedState.installations.isNotEmpty()
             }
-            launcherController.confirmInstall(installFixture.versionEntry)
-            launcherController.install(installFixture.versionEntry)
+            launcherController.confirmInstall(installFixture.minecraftVersionReference)
+            launcherController.install(installFixture.minecraftVersionReference)
             installFixture.activeAssetIndexDownloads.first { it == 1 }
 
             assertIs<LauncherDestination.PreparingInstall>(launcherController.state.value.launcherDestination)
-            val installedVersion = InstalledVersion(installFixture.versionEntry.id)
+            val installedVersion = InstalledVersion(installFixture.minecraftVersionReference.id)
             assertEquals(listOf(installedVersion), launcherController.installedVersions())
             assertEquals(1, installFixture.launcherStore.loadInstalled().installations.size)
             launcherController.cancelInstallation()
@@ -165,7 +167,7 @@ class LauncherControllerTest {
         val launcherStore = LauncherStore(fakeFileSystem, root)
         val launcherPlatform = testPlatform()
         val installationService =
-            InstallationService(createMojangApi(httpClient), fakeFileSystem, launcherStore, launcherPlatform)
+            InstallationService(httpClient, fakeFileSystem, launcherStore, launcherPlatform)
         val accountService = AccountService(httpClient, launcherStore) {
             throw IllegalStateException("browser failed")
         }
@@ -244,7 +246,7 @@ class LauncherControllerTest {
         val launcherController = LauncherController(
             backgroundScope,
             launcherStore,
-            InstallationService(createMojangApi(httpClient), fakeFileSystem, launcherStore, launcherPlatform),
+            InstallationService(httpClient, fakeFileSystem, launcherStore, launcherPlatform),
             AccountService(httpClient, launcherStore, BrowserService {}),
             GameProcessService(fakeFileSystem, root),
             launcherPlatform,
@@ -304,7 +306,7 @@ class LauncherControllerTest {
         )
         val recordingGameProcessRuntime = RecordingGameProcessRuntime()
         try {
-            installFixture.installationService.install(installFixture.versionEntry)
+            installFixture.installationService.install(installFixture.minecraftVersionReference)
             installFixture.launcherStore.authMemory.update {
                 selectedIdentityId = minecraftOnlineIdentity.id
                 accounts = listOf(StoredAccount(minecraftOnlineIdentity, "old-refresh-token", 0))
@@ -321,8 +323,8 @@ class LauncherControllerTest {
             refreshStarted.await()
             launcherController.state.first { it.accountCredentials[minecraftOnlineIdentity.id] == AccountCredentialState.REFRESHING }
 
-            launcherController.showVersionActions(installFixture.versionEntry.id)
-            launcherController.launchGame(installFixture.versionEntry.id)
+            launcherController.showVersionActions(installFixture.minecraftVersionReference.id)
+            launcherController.launchGame(installFixture.minecraftVersionReference.id)
             val loadingState = launcherController.state.first {
                 (it.launcherDestination as? LauncherDestination.Loading)?.launcherOperation == LauncherOperation.REFRESH_ACCOUNT
             }
@@ -348,7 +350,7 @@ class LauncherControllerTest {
         val installFixture = InstallFixture()
         val failingGameProcessRuntime = FailingGameProcessRuntime()
         try {
-            installFixture.installationService.install(installFixture.versionEntry)
+            installFixture.installationService.install(installFixture.minecraftVersionReference)
             val accountService =
                 AccountService(installFixture.httpClient, installFixture.launcherStore, BrowserService {})
             val launcherController = LauncherController(
@@ -363,8 +365,8 @@ class LauncherControllerTest {
             launcherController.state.first {
                 it.versionManifestState is VersionManifestState.Ready && it.installedState.installations.isNotEmpty()
             }
-            launcherController.showVersionActions(installFixture.versionEntry.id)
-            launcherController.launchGame(installFixture.versionEntry.id)
+            launcherController.showVersionActions(installFixture.minecraftVersionReference.id)
+            launcherController.launchGame(installFixture.minecraftVersionReference.id)
 
             val errorState = launcherController.state.first { it.launcherDestination is LauncherDestination.Error }
             val error = assertIs<LauncherDestination.Error>(errorState.launcherDestination)
@@ -422,7 +424,7 @@ private class ControllerFixture(coroutineScope: CoroutineScope, httpClient: Http
             fakeFileSystem,
             root,
             launcherStore,
-            InstallationService(createMojangApi(httpClient), fakeFileSystem, launcherStore, launcherPlatform),
+            InstallationService(httpClient, fakeFileSystem, launcherStore, launcherPlatform),
             launcherPlatform,
         )
     }
@@ -446,12 +448,12 @@ private fun createController(
 )
 
 private fun emptyManifestBytes(): ByteArray = launcherJson.encodeToString(
-    VersionManifest(
-        latest = VersionManifest.Latest(release = "none", snapshot = "none"),
+    MinecraftVersionManifest(
+        latest = MinecraftLatestVersions(release = "none", snapshot = "none"),
         versions = emptyList(),
     ),
 ).encodeToByteArray()
 
 private fun jsonHeaders() = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
 
-private fun testPlatform() = LauncherPlatform("windows", "x86_64", ";", "windows-x86_64")
+private fun testPlatform() = LauncherPlatform("windows", "x86_64", ";", "windows-x86_64", "10.0.22631")

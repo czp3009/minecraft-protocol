@@ -1,8 +1,8 @@
 # Launcher demo
 
-This subproject is a private terminal application that demonstrates `account-auth` and `protocol-auth`; it is not a
-published library or a protocol-client example. It downloads an official game layout, manages offline and Microsoft
-accounts, and starts the official Java client.
+This subproject is a private terminal application that demonstrates `distribution-metadata`, `account-auth`, and
+`protocol-auth`. It downloads an official game layout, manages offline and Microsoft accounts, and starts the official
+Java client.
 
 ## Local design
 
@@ -13,11 +13,17 @@ accounts, and starts the official Java client.
   launcher targets on one machine start the same official Java client from the same game directory.
 - `AccountService` owns the loopback OAuth callback, account replacement, entitlement/profile completion, and serialized
   refresh per identity. A failed refresh remains visible as expired login state until an explicit sign-in succeeds.
-- `MetadataPlanner` is intentionally strict: it accepts only metadata shapes it can evaluate safely, preserves argument
-  boundaries and rule order, and rejects traversal, legacy arguments, native-classifier libraries, and unsupported asset
-  layouts. Do not silently guess how to launch an unsupported version.
-- `ResourceDownloader` streams into a sibling temporary file, verifies the declared size and SHA-1, and publishes with
-  an atomic move. Cancellation stops retries and incomplete downloads never become installed state.
+- `MetadataPlanner` consumes the modern models from `distribution-metadata`, preserves argument boundaries and rule
+  order, and rejects unsafe installation paths and unknown launch rules. Use the module's `toDownload()` projections and
+  `minecraftAssetPath(hash)`; the planner supplies installation directory prefixes. Expand `defaultUserJvm` before the
+  version's `jvm` arguments; only user-supplied JVM options may replace `defaultUserJvm` if such an option is added.
+- `LauncherPlatform` detects the host OS version with system commands shared by JVM and Native. Preserve the Windows
+  build number for version ranges; evaluate ranges only after the rule's OS and architecture match.
+- `InstallationService` reads metadata through the shared HTTP client's distribution API and writes the typed asset
+  index atomically. `ResourceDownloader` consumes the distribution API's download streams, verifies their declared size
+  and SHA-1, and publishes with an atomic move. Cancellation stops retries and incomplete downloads never become
+  installed
+  state.
 - `GameProcessService` validates the available Java major, removes its temporary argument file, drains both output
   streams, normalizes terminal text, and redacts the online access token. The token must never enter the Java argument
   file or an error shown by the TUI.
