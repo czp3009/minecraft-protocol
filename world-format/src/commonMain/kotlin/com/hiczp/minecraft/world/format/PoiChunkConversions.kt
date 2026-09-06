@@ -3,31 +3,41 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.nbt.NbtDocument
 import kotlinx.io.Sink
 
-/** Decodes compressed POI content while applying the Region entry's absolute Chunk position. */
 fun CompressedChunk.toPoiChunk(
-    chunkPosition: ChunkPosition,
-    poiChunkNbtCodec: PoiChunkNbtCodec = PoiChunkNbtCodec(),
-    compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = poiChunkNbtCodec.nbtFormat),
-): PoiChunk = toNbtDocument(compressedNbtFormat).toPoiChunk(chunkPosition, poiChunkNbtCodec)
+    poiChunkNbtDecoder: PoiChunkNbtDecoder,
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): PoiChunkNbtDecodeResult = decodeCompressedValue(this, compressionRegistry, poiChunkNbtDecoder::decode)
 
-/** Projects a generic NBT tree into a semantic POI Chunk at [chunkPosition]. */
-fun NbtDocument.toPoiChunk(
-    chunkPosition: ChunkPosition,
-    poiChunkNbtCodec: PoiChunkNbtCodec = PoiChunkNbtCodec(),
-): PoiChunk = poiChunkNbtCodec.decodeDocument(this, chunkPosition)
+fun CompressedChunk.toPoiChunk(
+    poiChunkNbtDecoderContext: PoiChunkNbtDecoderContext,
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): PoiChunkNbtDecodeResult = toPoiChunk(PoiChunkNbtDecoder(poiChunkNbtDecoderContext), compressionRegistry)
 
-/** Converts this semantic POI Chunk to a generic NBT tree. */
-fun PoiChunk.toNbtDocument(poiChunkNbtCodec: PoiChunkNbtCodec = PoiChunkNbtCodec()): NbtDocument =
-    poiChunkNbtCodec.encodeDocument(this)
+fun NbtDocument.toPoiChunk(poiChunkNbtDecoder: PoiChunkNbtDecoder): PoiChunkNbtDecodeResult =
+    poiChunkNbtDecoder.decodeDocument(this)
 
-/** Converts this semantic POI Chunk directly to detached compressed content. */
+fun NbtDocument.toPoiChunk(poiChunkNbtDecoderContext: PoiChunkNbtDecoderContext): PoiChunkNbtDecodeResult =
+    toPoiChunk(PoiChunkNbtDecoder(poiChunkNbtDecoderContext))
+
+fun PoiChunk.toNbtDocument(poiChunkNbtEncoder: PoiChunkNbtEncoder): NbtDocument =
+    poiChunkNbtEncoder.encodeDocument(this)
+
+fun PoiChunk.toNbtDocument(poiChunkNbtEncoderContext: PoiChunkNbtEncoderContext): NbtDocument =
+    toNbtDocument(PoiChunkNbtEncoder(poiChunkNbtEncoderContext))
+
 fun PoiChunk.toCompressedChunk(
-    poiChunkNbtCodec: PoiChunkNbtCodec = PoiChunkNbtCodec(),
+    poiChunkNbtEncoder: PoiChunkNbtEncoder,
     compression: Compression = Compression.ZLIB,
-    compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = poiChunkNbtCodec.nbtFormat),
-): CompressedChunk = toNbtDocument(poiChunkNbtCodec).toCompressedChunk(compression, compressedNbtFormat)
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): CompressedChunk = encodeCompressedValue(compression, compressionRegistry) { poiChunkNbtEncoder.encode(this, it) }
 
-/** Writes this semantic POI Chunk as complete unnamed-root NBT without closing [sink]. */
-fun PoiChunk.writeTo(sink: Sink, poiChunkNbtCodec: PoiChunkNbtCodec = PoiChunkNbtCodec()) {
-    poiChunkNbtCodec.encodeToSink(this, sink)
-}
+fun PoiChunk.toCompressedChunk(
+    poiChunkNbtEncoderContext: PoiChunkNbtEncoderContext,
+    compression: Compression = Compression.ZLIB,
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): CompressedChunk = toCompressedChunk(PoiChunkNbtEncoder(poiChunkNbtEncoderContext), compression, compressionRegistry)
+
+fun PoiChunk.writeTo(sink: Sink, poiChunkNbtEncoder: PoiChunkNbtEncoder) = poiChunkNbtEncoder.encode(this, sink)
+
+fun PoiChunk.writeTo(sink: Sink, poiChunkNbtEncoderContext: PoiChunkNbtEncoderContext) =
+    writeTo(sink, PoiChunkNbtEncoder(poiChunkNbtEncoderContext))

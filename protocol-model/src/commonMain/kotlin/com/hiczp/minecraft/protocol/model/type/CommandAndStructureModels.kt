@@ -5,13 +5,13 @@ package com.hiczp.minecraft.protocol.model.type
 import com.hiczp.minecraft.protocol.model.wire.VarInt
 import com.hiczp.minecraft.protocol.model.wire.WrappedEnum
 import com.hiczp.minecraft.protocol.model.wire.ZeroFallbackEnum
+import kotlin.jvm.JvmInline
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlin.jvm.JvmInline
 
 @Serializable
 enum class CommandBlockMode {
@@ -21,7 +21,7 @@ enum class CommandBlockMode {
 }
 
 @Serializable(with = CommandBlockFlagsSerializer::class)
-data class CommandBlockFlags(
+internal data class CommandBlockFlags(
     val trackOutput: Boolean,
     val conditional: Boolean,
     val automatic: Boolean,
@@ -210,7 +210,7 @@ internal object StructureIntegritySerializer : KSerializer<StructureIntegrity> {
 }
 
 @Serializable(with = StructureBlockFlagsSerializer::class)
-data class StructureBlockFlags(
+internal data class StructureBlockFlags(
     val ignoreEntities: Boolean,
     val showAir: Boolean,
     val showBoundingBox: Boolean,
@@ -274,16 +274,6 @@ enum class TestBlockMode {
     ACCEPT,
 }
 
-@Serializable
-enum class TestInstanceAction {
-    INIT,
-    QUERY,
-    SET,
-    RESET,
-    SAVE,
-    EXPORT,
-    RUN,
-}
 
 @Serializable
 enum class TestInstanceStatus {

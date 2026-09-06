@@ -1,15 +1,15 @@
 package com.hiczp.minecraft.protocol.auth
 
-import com.hiczp.minecraft.protocol.model.packet.ChatMessagePacket
-import com.hiczp.minecraft.protocol.model.packet.PlayerChatMessagePacket
-import com.hiczp.minecraft.protocol.model.packet.SignedChatCommandPacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundPlayerChatPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundChatCommandSignedPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundChatPacket
 import com.hiczp.minecraft.protocol.model.type.*
 
-fun ChatMessagePacket.toSignedMessageBody(
+fun ServerboundChatPacket.toSignedMessageBody(
     lastSeen: List<ByteString>,
 ): SignedMessageBody = SignedMessageBody(
     content = message,
-    timestampEpochMillis = timestampEpochMillis,
+    timestampEpochMillis = timeStamp,
     salt = salt,
     lastSeen = lastSeen,
 )
@@ -23,27 +23,27 @@ fun PackedSignedMessageBody.toSignedMessageBody(
     lastSeen = lastSeen,
 )
 
-fun SignedChatCommandPacket.toSignedMessageBody(
+fun ServerboundChatCommandSignedPacket.toSignedMessageBody(
     signableCommandArgument: SignableCommandArgument,
     lastSeen: List<ByteString>,
 ): SignedMessageBody = SignedMessageBody(
     content = signableCommandArgument.value,
-    timestampEpochMillis = timestampEpochMillis,
+    timestampEpochMillis = timeStamp,
     salt = salt,
     lastSeen = lastSeen,
 )
 
 suspend fun MinecraftServerboundChatChainVerifier.verify(
-    chatMessagePacket: ChatMessagePacket,
+    serverboundChatPacket: ServerboundChatPacket,
     lastSeen: List<ByteString>,
 ): MinecraftChatVerificationResult = verifyNext(
-    signedMessageBody = chatMessagePacket.toSignedMessageBody(lastSeen),
-    signature = chatMessagePacket.signature,
+    signedMessageBody = serverboundChatPacket.toSignedMessageBody(lastSeen),
+    signature = serverboundChatPacket.signature,
 )
 
 /** The supplied arguments are the caller's Brigadier-derived signable name/value pairs. */
 suspend fun MinecraftServerboundChatChainVerifier.verify(
-    signedChatCommandPacket: SignedChatCommandPacket,
+    serverboundChatCommandSignedPacket: ServerboundChatCommandSignedPacket,
     signableArguments: List<SignableCommandArgument>,
     lastSeen: List<ByteString>,
 ): MinecraftChatBatchVerificationResult {
@@ -54,14 +54,14 @@ suspend fun MinecraftServerboundChatChainVerifier.verify(
             failedAt = 0,
         )
     }
-    if (signedChatCommandPacket.arguments.entries.isEmpty() && signableArguments.isNotEmpty()) {
+    if (serverboundChatCommandSignedPacket.argumentSignatures.entries.isEmpty() && signableArguments.isNotEmpty()) {
         return MinecraftChatBatchVerificationResult.Invalid(
             minecraftChatChainFailure = MinecraftChatChainFailure.MISSING_SIGNATURE,
             failedAt = 0,
         )
     }
     val seenNames = mutableSetOf<String>()
-    val inputs = signedChatCommandPacket.arguments.entries.mapIndexed { index, entry ->
+    val inputs = serverboundChatCommandSignedPacket.argumentSignatures.entries.mapIndexed { index, entry ->
         val signableCommandArgument =
             argumentsByName[entry.name] ?: return MinecraftChatBatchVerificationResult.Invalid(
                 minecraftChatChainFailure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
@@ -69,43 +69,46 @@ suspend fun MinecraftServerboundChatChainVerifier.verify(
             )
         seenNames += entry.name
         MinecraftChatSignatureInput(
-            signedMessageBody = signedChatCommandPacket.toSignedMessageBody(signableCommandArgument, lastSeen),
+            signedMessageBody = serverboundChatCommandSignedPacket.toSignedMessageBody(
+                signableCommandArgument,
+                lastSeen
+            ),
             signature = entry.signature,
         )
     }
     if (!seenNames.containsAll(argumentsByName.keys)) {
         return MinecraftChatBatchVerificationResult.Invalid(
             minecraftChatChainFailure = MinecraftChatChainFailure.ARGUMENT_MISMATCH,
-            failedAt = signedChatCommandPacket.arguments.entries.size,
+            failedAt = serverboundChatCommandSignedPacket.argumentSignatures.entries.size,
         )
     }
     return verifyAll(inputs)
 }
 
 suspend fun MinecraftClientboundChatChainVerifier.verify(
-    playerChatMessagePacket: PlayerChatMessagePacket,
+    clientboundPlayerChatPacket: ClientboundPlayerChatPacket,
     lastSeen: List<ByteString>,
 ): MinecraftChatVerificationResult = verify(
-    index = playerChatMessagePacket.index,
-    packetSender = playerChatMessagePacket.sender,
-    signedMessageBody = playerChatMessagePacket.body.toSignedMessageBody(lastSeen),
-    signature = playerChatMessagePacket.signature,
+    index = clientboundPlayerChatPacket.index,
+    packetSender = clientboundPlayerChatPacket.sender,
+    signedMessageBody = clientboundPlayerChatPacket.body.toSignedMessageBody(lastSeen),
+    signature = clientboundPlayerChatPacket.signature,
 )
 
-suspend fun MinecraftChatChainSigner.signChatMessagePacket(
+suspend fun MinecraftChatChainSigner.signServerboundChatPacket(
     message: String,
     timestampEpochMillis: Long,
     salt: Long,
     lastSeen: List<ByteString>,
     lastSeenMessagesUpdate: LastSeenMessagesUpdate,
-): ChatMessagePacket = sign(
+): ServerboundChatPacket = sign(
     SignedMessageBody(
         content = message,
         timestampEpochMillis = timestampEpochMillis,
         salt = salt,
         lastSeen = lastSeen,
     ),
-).toChatMessagePacket(lastSeenMessagesUpdate)
+).toServerboundChatPacket(lastSeenMessagesUpdate)
 
 suspend fun MinecraftChatChainSigner.signCommandArguments(
     arguments: List<SignableCommandArgument>,
@@ -130,24 +133,24 @@ suspend fun MinecraftChatChainSigner.signCommandArguments(
     )
 }
 
-fun MinecraftSignedMessage.toChatMessagePacket(
+fun MinecraftSignedMessage.toServerboundChatPacket(
     lastSeenMessagesUpdate: LastSeenMessagesUpdate,
-): ChatMessagePacket = ChatMessagePacket(
+): ServerboundChatPacket = ServerboundChatPacket(
     message = signedMessageBody.content,
-    timestampEpochMillis = signedMessageBody.timestampEpochMillis,
+    timeStamp = signedMessageBody.timestampEpochMillis,
     salt = signedMessageBody.salt,
     signature = signature,
     lastSeenMessages = lastSeenMessagesUpdate,
 )
 
 /** Builds the recipient-specific clientbound packet after the caller packs its last-seen signature cache. */
-fun MinecraftSignedMessage.toPlayerChatMessagePacket(
+fun MinecraftSignedMessage.toClientboundPlayerChatPacket(
     globalIndex: Int,
     boundChatType: BoundChatType,
     packedLastSeen: List<PackedMessageSignature>,
     unsignedContent: TextComponent? = null,
     filterMask: FilterMask = FilterMask.PassThrough,
-): PlayerChatMessagePacket = PlayerChatMessagePacket(
+): ClientboundPlayerChatPacket = ClientboundPlayerChatPacket(
     globalIndex = globalIndex,
     sender = signedMessageLink.sender,
     index = signedMessageLink.index,

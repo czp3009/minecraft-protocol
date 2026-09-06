@@ -13,9 +13,9 @@ import kotlin.uuid.Uuid
     PacketDirection.CLIENTBOUND,
     officialName = "player_combat_end",
 )
-data class EndCombatPacket(
+data class ClientboundPlayerCombatEndPacket(
     @VarInt
-    val durationTicks: Int,
+    val duration: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -25,7 +25,7 @@ data class EndCombatPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "player_combat_enter",
 )
-data object EnterCombatPacket : PlayStatePacket, ClientboundPacket
+data object ClientboundPlayerCombatEnterPacket : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -34,7 +34,7 @@ data object EnterCombatPacket : PlayStatePacket, ClientboundPacket
     PacketDirection.CLIENTBOUND,
     officialName = "player_combat_kill",
 )
-data class CombatDeathPacket(
+data class ClientboundPlayerCombatKillPacket(
     @VarInt
     val playerId: Int,
     val message: TextComponent,
@@ -47,7 +47,7 @@ data class CombatDeathPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "player_info_remove",
 )
-data class PlayerInfoRemovePacket(
+data class ClientboundPlayerInfoRemovePacket(
     val profileIds: List<Uuid>,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -57,8 +57,9 @@ data class PlayerInfoRemovePacket(
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_look_at",
+    shapeException = "LookAtTarget is a sealed position-or-entity value that excludes mismatched atEntity, entity and anchor combinations.",
 )
-data class LookAtPacket(
+data class ClientboundPlayerLookAtPacket(
     val fromAnchor: EntityAnchor,
     val target: LookTarget,
 ) : PlayStatePacket, ClientboundPacket
@@ -70,9 +71,9 @@ data class LookAtPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "player_position",
 )
-data class SynchronizePlayerPositionPacket(
+data class ClientboundPlayerPositionPacket(
     @VarInt
-    val teleportId: Int,
+    val id: Int,
     val change: PositionMoveRotation,
     val relatives: RelativeMovements,
 ) : PlayStatePacket, ClientboundPacket
@@ -84,11 +85,11 @@ data class SynchronizePlayerPositionPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "player_rotation",
 )
-data class PlayerRotationPacket(
-    val yaw: Float,
-    val relativeYaw: Boolean,
-    val pitch: Float,
-    val relativePitch: Boolean,
+data class ClientboundPlayerRotationPacket(
+    val yRot: Float,
+    val relativeY: Boolean,
+    val xRot: Float,
+    val relativeX: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -98,9 +99,9 @@ data class PlayerRotationPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "recipe_book_remove",
 )
-data class RecipeBookRemovePacket(
+data class ClientboundRecipeBookRemovePacket(
     @VarIntElements
-    val recipeDisplayIds: List<Int>,
+    val recipes: List<Int>,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -110,8 +111,8 @@ data class RecipeBookRemovePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "recipe_book_settings",
 )
-data class RecipeBookSettingsPacket(
-    val settings: RecipeBookSettings,
+data class ClientboundRecipeBookSettingsPacket(
+    val bookSettings: RecipeBookSettings,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -121,7 +122,7 @@ data class RecipeBookSettingsPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "remove_entities",
 )
-data class RemoveEntitiesPacket(
+data class ClientboundRemoveEntitiesPacket(
     @VarIntElements
     val entityIds: List<Int>,
 ) : PlayStatePacket, ClientboundPacket
@@ -133,11 +134,11 @@ data class RemoveEntitiesPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "remove_mob_effect",
 )
-data class RemoveEntityEffectPacket(
+data class ClientboundRemoveMobEffectPacket(
     @VarInt
     val entityId: Int,
     @VarInt
-    val effectTypeId: Int,
+    val effect: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -147,7 +148,7 @@ data class RemoveEntityEffectPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "reset_score",
 )
-data class ResetScorePacket(
+data class ClientboundResetScorePacket(
     @MaxLength(32_767)
     val owner: String,
     @MaxLength(32_767)
@@ -155,24 +156,26 @@ data class ResetScorePacket(
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
+@PacketInfo(0x08, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "resource_pack_pop")
 @PacketInfo(
     0x50,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "resource_pack_pop",
 )
-data class PlayRemoveResourcePackPacket(
+data class ClientboundResourcePackPopPacket(
     val id: Uuid?,
-) : PlayStatePacket, ClientboundPacket
+) : ConfigurationStatePacket, PlayStatePacket, ClientboundPacket
 
 @Serializable
+@PacketInfo(0x09, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "resource_pack_push")
 @PacketInfo(
     0x51,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "resource_pack_push",
 )
-data class PlayAddResourcePackPacket(
+data class ClientboundResourcePackPushPacket(
     val id: Uuid,
     @MaxLength(32_767)
     val url: String,
@@ -180,7 +183,7 @@ data class PlayAddResourcePackPacket(
     val hash: String,
     val required: Boolean,
     val prompt: TextComponent?,
-) : PlayStatePacket, ClientboundPacket
+) : ConfigurationStatePacket, PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -189,10 +192,10 @@ data class PlayAddResourcePackPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "rotate_head",
 )
-data class SetHeadRotationPacket(
+data class ClientboundRotateHeadPacket(
     @VarInt
     val entityId: Int,
-    val headYaw: Angle,
+    val yHeadRot: Angle,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -201,9 +204,10 @@ data class SetHeadRotationPacket(
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "section_blocks_update",
+    shapeException = "Each SectionBlockChange couples a local position and state; one list excludes mismatched lengths in the official parallel arrays.",
 )
-data class UpdateSectionBlocksPacket(
-    val sectionPosition: SectionPosition,
+data class ClientboundSectionBlocksUpdatePacket(
+    val sectionPos: SectionPosition,
     @VarLongElements
     val blocks: List<SectionBlockChange>,
 ) : PlayStatePacket, ClientboundPacket
@@ -215,7 +219,7 @@ data class UpdateSectionBlocksPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "select_advancements_tab",
 )
-data class SelectAdvancementsTabPacket(
+data class ClientboundSelectAdvancementsTabPacket(
     val tab: Identifier?,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -226,10 +230,10 @@ data class SelectAdvancementsTabPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "server_data",
 )
-data class ServerDataPacket(
+data class ClientboundServerDataPacket(
     val motd: TextComponent,
     @MaxByteLength(Int.MAX_VALUE)
-    val iconPng: ByteString?,
+    val iconBytes: ByteString?,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -239,7 +243,7 @@ data class ServerDataPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_action_bar_text",
 )
-data class SetActionBarTextPacket(
+data class ClientboundSetActionBarTextPacket(
     val text: TextComponent,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -250,9 +254,9 @@ data class SetActionBarTextPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_center",
 )
-data class SetBorderCenterPacket(
-    val x: Double,
-    val z: Double,
+data class ClientboundSetBorderCenterPacket(
+    val newCenterX: Double,
+    val newCenterZ: Double,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -262,11 +266,11 @@ data class SetBorderCenterPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_lerp_size",
 )
-data class SetBorderLerpSizePacket(
-    val oldDiameter: Double,
-    val newDiameter: Double,
+data class ClientboundSetBorderLerpSizePacket(
+    val oldSize: Double,
+    val newSize: Double,
     @VarLong
-    val speedMilliseconds: Long,
+    val lerpTime: Long,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -276,8 +280,8 @@ data class SetBorderLerpSizePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_size",
 )
-data class SetBorderSizePacket(
-    val diameter: Double,
+data class ClientboundSetBorderSizePacket(
+    val size: Double,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -287,9 +291,9 @@ data class SetBorderSizePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_warning_delay",
 )
-data class SetBorderWarningDelayPacket(
+data class ClientboundSetBorderWarningDelayPacket(
     @VarInt
-    val warningTimeSeconds: Int,
+    val warningDelay: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -299,7 +303,7 @@ data class SetBorderWarningDelayPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_warning_distance",
 )
-data class SetBorderWarningDistancePacket(
+data class ClientboundSetBorderWarningDistancePacket(
     @VarInt
     val warningBlocks: Int,
 ) : PlayStatePacket, ClientboundPacket
@@ -311,9 +315,9 @@ data class SetBorderWarningDistancePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_camera",
 )
-data class SetCameraPacket(
+data class ClientboundSetCameraPacket(
     @VarInt
-    val cameraEntityId: Int,
+    val cameraId: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -323,11 +327,11 @@ data class SetCameraPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_chunk_cache_center",
 )
-data class SetCenterChunkPacket(
+data class ClientboundSetChunkCacheCenterPacket(
     @VarInt
-    val chunkX: Int,
+    val x: Int,
     @VarInt
-    val chunkZ: Int,
+    val z: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -337,9 +341,9 @@ data class SetCenterChunkPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_chunk_cache_radius",
 )
-data class SetRenderDistancePacket(
+data class ClientboundSetChunkCacheRadiusPacket(
     @VarInt
-    val viewDistance: Int,
+    val radius: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -349,6 +353,6 @@ data class SetRenderDistancePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_default_spawn_position",
 )
-data class SetDefaultSpawnPositionPacket(
+data class ClientboundSetDefaultSpawnPositionPacket(
     val respawnData: RespawnData,
 ) : PlayStatePacket, ClientboundPacket

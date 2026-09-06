@@ -1,16 +1,20 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.datapack.ProtocolData
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
+import com.hiczp.minecraft.protocol.configuration.ConfigurationData
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaConfigurationData
 import com.hiczp.minecraft.protocol.model.type.GameMode
+import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.world.format.DimensionId
 import kotlin.random.Random
 import kotlin.uuid.Uuid
 
 /** Values consumed while serving Status or moving one connection from Handshake through its first Play Login. */
 data class MinecraftServerNegotiationOptions(
-    val protocolData: ProtocolData = VanillaProtocolData,
+    val configurationData: ConfigurationData = VanillaConfigurationData,
+    /** World dimension entered in Play; it need not have the same identifier as its dimension type. */
     val initialDimensionId: DimensionId = DimensionId.Overworld,
+    /** Dimension-type registry entry resolved from [configurationData] by the default Play Login builder. */
+    val initialDimensionTypeId: Identifier = Identifier("overworld"),
     val dimensionIds: Set<DimensionId> = setOf(initialDimensionId),
     val compressionThreshold: Int? = 256,
     val sessionId: Uuid = Uuid.fromLongs(

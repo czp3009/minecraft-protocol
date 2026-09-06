@@ -62,13 +62,6 @@ data class AttributeModifier(
     val operation: AttributeModifierOperation,
 )
 
-@Serializable
-data class AttributeSnapshot(
-    @VarInt
-    val attributeTypeId: Int,
-    val baseValue: Double,
-    val modifiers: List<AttributeModifier>,
-)
 
 @Serializable
 @JvmInline

@@ -16,17 +16,17 @@ import kotlin.uuid.Uuid
 class PlayClientboundWorldPacketTest {
     @Test
     fun `spawn entity follows the 26_2 field order and LpVec3 codec`() {
-        val spawnEntityPacket = SpawnEntityPacket(
-            entityId = 1,
-            entityUuid = ZERO_UUID,
-            typeId = 2,
+        val clientboundAddEntityPacket = ClientboundAddEntityPacket(
+            id = 1,
+            uuid = ZERO_UUID,
+            type = 2,
             x = 1.0,
             y = -2.0,
             z = 0.0,
-            velocity = Vector3d(0.0, 0.0, 0.0),
-            pitch = Angle(1),
-            yaw = Angle(0xFE.toByte()),
-            headYaw = Angle(0x7F),
+            movement = Vector3d(0.0, 0.0, 0.0),
+            xRot = Angle(1),
+            yRot = Angle(0xFE.toByte()),
+            yHeadRot = Angle(0x7F),
             data = 300,
         )
         val expected =
@@ -34,11 +34,11 @@ class PlayClientboundWorldPacketTest {
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(spawnEntityPacket),
+            MinecraftPacketPayloadFormat.encodeToByteArray(clientboundAddEntityPacket),
         )
         assertEquals(
-            expected = spawnEntityPacket,
-            actual = MinecraftProtocolFormat.decodeFromByteArray<SpawnEntityPacket>(expected),
+            expected = clientboundAddEntityPacket,
+            actual = MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundAddEntityPacket>(expected),
         )
     }
 
@@ -63,15 +63,15 @@ class PlayClientboundWorldPacketTest {
         )
 
         for ((bossBarAction, actionHex) in actions) {
-            val bossBarPacket = BossBarPacket(ZERO_UUID, bossBarAction)
+            val clientboundBossEventPacket = ClientboundBossEventPacket(ZERO_UUID, bossBarAction)
             val expected = "00000000000000000000000000000000$actionHex".hexToByteArray()
             assertContentEquals(
                 expected,
-                MinecraftProtocolFormat.encodeToByteArray(bossBarPacket),
+                MinecraftPacketPayloadFormat.encodeToByteArray(clientboundBossEventPacket),
             )
             assertEquals(
-                expected = bossBarPacket,
-                actual = MinecraftProtocolFormat.decodeFromByteArray<BossBarPacket>(expected),
+                expected = clientboundBossEventPacket,
+                actual = MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundBossEventPacket>(expected),
             )
         }
     }
@@ -81,13 +81,13 @@ class PlayClientboundWorldPacketTest {
         val clientboundChangeDifficultyPacket = ClientboundChangeDifficultyPacket(Difficulty.HARD, locked = false)
         assertContentEquals(
             "0300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 clientboundChangeDifficultyPacket,
             ),
         )
         assertEquals(
             clientboundChangeDifficultyPacket,
-            MinecraftProtocolFormat.decodeFromByteArray<ClientboundChangeDifficultyPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundChangeDifficultyPacket>(
                 "ff0100".hexToByteArray(),
             ),
         )
@@ -95,40 +95,39 @@ class PlayClientboundWorldPacketTest {
 
     @Test
     fun `chunk biome data uses packed Z then X and enforces vanilla byte limit`() {
-        val chunkBiomesPacket = ChunkBiomesPacket(
+        val clientboundChunksBiomesPacket = ClientboundChunksBiomesPacket(
             listOf(
-                ChunkBiomeData(
-                    chunkZ = 2,
-                    chunkX = 1,
-                    data = ByteString(byteArrayOf(0xAA.toByte(), 0xBB.toByte())),
+                ClientboundChunksBiomesPacket.ChunkBiomeData(
+                    pos = ChunkPos(1, 2),
+                    buffer = ByteString(byteArrayOf(0xAA.toByte(), 0xBB.toByte())),
                 ),
             ),
         )
         val expected = "01000000020000000102aabb".hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(chunkBiomesPacket),
+            MinecraftPacketPayloadFormat.encodeToByteArray(clientboundChunksBiomesPacket),
         )
         assertEquals(
-            expected = chunkBiomesPacket,
-            actual = MinecraftProtocolFormat.decodeFromByteArray<ChunkBiomesPacket>(expected),
+            expected = clientboundChunksBiomesPacket,
+            actual = MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundChunksBiomesPacket>(expected),
         )
     }
 
     @Test
     fun `block entity requires the compound NBT used by the official codec`() {
-        val blockEntityDataPacket = BlockEntityDataPacket(
+        val clientboundBlockEntityDataPacket = ClientboundBlockEntityDataPacket(
             BlockPosition(0, 0, 0),
-            typeId = 1,
-            data = NbtCompound(mapOf("key" to NbtString("value"))),
+            type = 1,
+            tag = NbtCompound(mapOf("key" to NbtString("value"))),
         )
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(blockEntityDataPacket)
+        val encoded = MinecraftPacketPayloadFormat.encodeToByteArray(clientboundBlockEntityDataPacket)
         assertEquals(
-            blockEntityDataPacket,
-            MinecraftProtocolFormat.decodeFromByteArray<BlockEntityDataPacket>(encoded),
+            clientboundBlockEntityDataPacket,
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundBlockEntityDataPacket>(encoded),
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<BlockEntityDataPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundBlockEntityDataPacket>(
                 // Position, type ID, then a no-name NBT Int instead of Compound.
                 "0000000000000000010300000000".hexToByteArray(),
             )

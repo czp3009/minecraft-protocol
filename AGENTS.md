@@ -18,31 +18,38 @@ and verification steps, but must not repeat this file.
   owns the behavior.
 - Gameplay, authoritative world ticking, permission systems, persistence policy, and a general-purpose Minecraft server
   are outside this library's scope.
+- Runtime libraries provide data and conversion capabilities only; there is no library-owned application layer.
+  Keep concrete game-content bindings and algorithms, such as chest/hopper/furnace state and merchant rules, in test
+  source sets. `demo` applications are the only production-source exception. Protocol packet schemas, saved-file
+  schemas and generated official data remain format/data contracts, not gameplay implementations.
 
 ## Module boundaries
 
 Runtime libraries are arranged from reusable formats and models toward connection orchestration:
 
-| Module                      | Responsibility                                                                          |
-|-----------------------------|-----------------------------------------------------------------------------------------|
-| `nbt`                       | Format-independent NBT values and the logical serializer handoff                        |
-| `nbt-serialization`         | Binary NBT, SNBT, and their `kotlinx.serialization` formats                             |
-| `protocol-model`            | Packet payloads, shared protocol values, logical serializers, and wire annotations      |
-| `protocol-serialization`    | Physical packet payload encoding and packet registries                                  |
-| `protocol-datapack`         | Data-pack resolution, Configuration projection, and protocol/world Chunk adapters       |
-| `protocol-datapack-vanilla` | Generated defaults for the repository-selected official release                         |
-| `protocol-transport`        | Ktor sockets, framing, compression envelopes, and stream encryption                     |
-| `protocol-session`          | Typed packet dispatch, direction, state transitions, and loader negotiation profiles    |
-| `distribution-metadata`     | Modern version, asset-index, and Java runtime metadata plus streaming downloads         |
-| `account-auth`              | Launcher-side Microsoft, Xbox, and Minecraft Services HTTP APIs                         |
-| `protocol-auth`             | Game identities, Session/Services HTTP APIs, Login cryptography, and chat signing       |
-| `protocol-client`           | Client orchestration through entry into Play plus received world projections            |
-| `protocol-server`           | Server orchestration through entry into Play plus finite initial-view projection        |
-| `world-format`              | Filesystem-independent world schemas, data packs, Anvil containers, and semantic chunks |
-| `world-io`                  | Okio paths, world leases, files, and filesystem-backed stores                           |
+| Module                           | Responsibility                                                                          |
+|----------------------------------|-----------------------------------------------------------------------------------------|
+| `nbt`                            | Format-independent NBT values and the logical serializer handoff                        |
+| `nbt-serialization`              | Binary NBT, SNBT, and their `kotlinx.serialization` formats                             |
+| `protocol-model`                 | Packet payloads, shared protocol values, logical serializers, and wire annotations      |
+| `protocol-serialization`         | Physical packet payload encoding and packet registries                                  |
+| `protocol-world`                 | Directional conversion between semantic world values and packets                        |
+| `protocol-configuration`         | Configuration projection, received registry views and dimension resolution              |
+| `protocol-configuration-vanilla` | Generated official registries and Configuration defaults                                |
+| `datapack-vanilla`               | Generated official pack archives, parsed packs and stack completion                     |
+| `protocol-transport`             | Ktor sockets, framing, compression envelopes, and stream encryption                     |
+| `protocol-session`               | Typed packet dispatch, direction, state transitions, and loader negotiation profiles    |
+| `distribution-metadata`          | Modern version, asset-index, and Java runtime metadata plus streaming downloads         |
+| `account-auth`                   | Launcher-side Microsoft, Xbox, and Minecraft Services HTTP APIs                         |
+| `protocol-auth`                  | Game identities, Session/Services HTTP APIs, Login cryptography, and chat signing       |
+| `protocol-client`                | Client orchestration through entry into Play plus received world projections            |
+| `protocol-server`                | Server orchestration through entry into Play plus finite initial-view projection        |
+| `world-format`                   | Filesystem-independent world schemas, data packs, Anvil containers, and semantic chunks |
+| `world-io`                       | Okio paths, world leases, files, and filesystem-backed stores                           |
 
 Use the representation-stage names consistently across module boundaries: `DataPackArchive` is raw file bytes,
-`DataPack` is parsed content, `DataPackStack`/`ResolvedDataPackStack` are priority views, `ResolvedProtocolData` is the
+`DataPack` is parsed content, `DataPackStack`/`ResolvedDataPackStack` are priority views, `ResolvedConfigurationData` is
+the
 server-side Configuration projection, `DataPackConfigurationSnapshot` is the client-visible capture, and
 `ClientRegistryView` is its resolved lookup view. Variables use the corresponding lower-camel name where the full type
 name remains readable.
@@ -54,7 +61,7 @@ Private development infrastructure has separate boundaries:
 - `protocol-symbol-processor` owns KSP generation derived from source annotations.
 - `minecraft-test-support` owns the portable kRPC fixture contract and test-process client.
 - `minecraft-test-fixture-host` owns the private JVM host, processes, workspaces, and host filesystem implementation.
-- `demo/launcher` is an example application, not a reusable runtime layer.
+- `demo/launcher` and `demo/web-map` are example applications, not reusable runtime layers.
 
 Keep physical byte encoding out of models, socket and framing behavior out of serialization, filesystem behavior out of
 `world-format`, and generators or test launchers out of runtime source sets.
@@ -72,21 +79,34 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   orchestration and endpoint policy around the shared model.
 - Name packet declarations, packet-owned nested values, and fields after the matching official Java simple names,
   record components, and stable members by default, preserving direction, runtime terms, nesting, and field order.
+  Preserve the exact official simple name even when it omits `Packet`; do not add or remove a suffix for uniformity.
   Document a narrowly scoped exception only for a real shared logical model, name conflict, Kotlin representation
-  limit, intentional stronger aggregate, or an official runtime/container type that cannot cross the current layer;
-  an in-memory domain type's reason for omitting an official runtime-container term does not apply to a packet.
+  limit, intentional stronger aggregate, or an official runtime/container type that cannot cross the current layer.
+  A shape exception does not authorize unrelated renaming, and a domain type's omission of a runtime-container term
+  does not apply to a packet name.
 - Exposing a lower-layer type is correct when it is the natural contract. Do not create wrappers solely to conceal a
   valid downward dependency.
+- A high-level operation requests only facts it needs that its receiver or other authoritative input does not already
+  retain. Do not require a live connection, world owner, or duplicate configuration merely to retrieve data already in
+  a result or snapshot. Keep independent facts distinct; a dimension ID does not identify its dimension type. Required
+  I/O owners, policy callbacks and explicit codec contexts remain inputs when they supply an actual operation need.
 - Name representation-boundary directions relative to the in-memory domain value: decoding converts a persisted or
   network representation into that value, and encoding converts the value into the representation. This rule does not
   split a bidirectional physical `Format` that operates wholly inside one representation layer.
-- Give every directional encoder and decoder its own explicitly named context, such as `ChunkNbtEncoderContext` or
-  `ChunkNbtDecoderContext`, and supply that complete context when constructing the codec. A codec context may contain a
-  domain context; a decoder may pass the same domain-context reference to its result, but an encoder never derives its
-  configuration from `value.context`.
-- Treat explicitly constructed directional encoders/decoders and their complete contexts as the plain, normative API
+- Keep each representation's data confined to its own facts. Persistence metadata, connection-local IDs and encoding
+  scratch state do not become semantic properties. Conversion results may return representation-specific metadata
+  beside the domain value; representation-dependent fields require explicit semantic mappings in both directions.
+- Give paired representation conversions matching encoder/decoder types and operation names. Each direction accepts a
+  context only when it needs configurable input; include only that direction's required facts. Name a dedicated context
+  after its codec, such as `ChunkNbtEncoderContext`, when one is needed. Reuse a data context directly when it already
+  expresses the complete configuration, and do not add empty contexts or wrappers solely for symmetry. A data context
+  independently holds shared facts belonging to that data representation; not every representation needs one. A decoder
+  may pass the same data-context reference to its result, but an encoder never derives configuration from
+  `value.context`.
+- Treat explicitly constructed directional encoders/decoders and any required contexts as the plain, normative API
   for representation-to-domain conversion. Fluent extensions and orchestration facades are caller conveniences: they
-  accept prebuilt codecs, or complete contexts from which they construct them, and delegate one or more adjacent plain
+  accept prebuilt codecs, complete contexts, or an authoritative result plus only the facts it lacks to construct a
+  complete context, and delegate one or more adjacent plain
   conversions or physical formats without implementing conversion again. They may provide end-to-end orchestration but
   do not create a separate cross-layer codec or bypass the intermediate domain value. Production components do not
   consume those conveniences outside the adapter that defines them, and read-only context properties or raw inspection
@@ -272,6 +292,10 @@ configuration, or Fixture Host wiring.
 - Coroutine tests use `runTest`, explicit signals, and observed readiness. Do not use `runBlocking`, `Dispatchers.IO`,
   delays, sleeps, arbitrary timeouts, or scheduler luck to prove ordering. Ktor selector loops use `Dispatchers.Default`
   where Native selectors block.
+- When a bounded packet channel can fill, run the producer and consumer concurrently and prove progress with explicit
+  signals. For an official-fixture timeout, inspect ordering and process diagnostics before changing synchronization
+  or adding retries; host CPU pressure alone is not evidence of a race. Outer test-runner watchdogs must allow the
+  scenario budget plus diagnostic and cleanup time.
 - External HTTP API tests use deterministic Ktor mock engines and never live services or credentials.
 
 Fixture preparation and lifecycle details belong in the nearest guides under `buildSrc`, `minecraft-test-support`, and
@@ -279,6 +303,9 @@ Fixture preparation and lifecycle details belong in the nearest guides under `bu
 
 ## Documentation
 
+- Give key public data types, contexts, codecs and workflow entry points KDoc that explains their purpose and the
+  caller-visible contract. Document non-obvious input provenance, missing-data behavior, mutation, resource ownership
+  and completion boundaries where relevant; do not merely restate the declaration name or repeat trivial accessors.
 - A README describes the public contract visible in current source. Do not promise planned behavior, infer target
   support, or copy generated release constants.
 - README files, AGENTS guides, and project skills refer to release and tool versions through their owning selector or by
@@ -289,8 +316,15 @@ Fixture preparation and lifecycle details belong in the nearest guides under `bu
 - Every value in an example has a discoverable origin before first use: a parameter, a local declaration, a clearly
   continued earlier example, or an immediately described producer. Identify receiver types for unqualified DSL
   properties.
+- For a library-typed input, naming a function parameter alone is not sufficient: show its construction or explain its
+  producing constructor, method or earlier step before the example. Present connected examples in dependency and
+  execution order; a reference to setup introduced later does not establish an input's origin. Consume or return
+  intermediate results, and identify application callbacks and the values they receive.
 - Prefer short examples that demonstrate stable entry points. Link to the owning module instead of copying another
   module's full workflow.
+- For a capability with both plain and convenience APIs, the owning subproject README demonstrates both using the same
+  inputs and explains what the convenience derives. Show codec construction and parameter origins on the plain path;
+  the root README uses the convenience path. Do not invent a second API solely to give every module two examples.
 - Every Gradle subproject keeps `README.md` and `AGENTS.md` in its project directory. A directory used only to group
   subprojects does not duplicate its child's guides; `buildSrc` keeps both files because it is an independently
   maintained build layer.

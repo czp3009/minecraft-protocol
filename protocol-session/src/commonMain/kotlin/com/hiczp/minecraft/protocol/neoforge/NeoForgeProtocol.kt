@@ -157,12 +157,12 @@ object NeoForgeProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        minecraftProtocolFormat = minecraftProtocolFormat,
+        minecraftPacketPayloadFormat = minecraftPacketPayloadFormat,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )
@@ -290,7 +290,7 @@ private class NeoForgeRegistrationCodec<T : NeoForgeChannelRegistrationPacket>(
     private val factory: (Set<Identifier>) -> T,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: T,
         sink: Sink,
     ) {
@@ -313,19 +313,19 @@ private class NeoForgeRegistrationCodec<T : NeoForgeChannelRegistrationPacket>(
             byteArray.copyInto(output, destinationOffset = offset)
             offset += byteArray.size + 1
         }
-        minecraftProtocolFormat.encodeToSink(
+        minecraftPacketPayloadFormat.encodeToSink(
             RemainingRegistrationBody(ByteString(output)),
             sink,
         )
     }
 
     override fun decode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T {
-        val byteArray = minecraftProtocolFormat.decodeFromSource<RemainingRegistrationBody>(
+        val byteArray = minecraftPacketPayloadFormat.decodeFromSource<RemainingRegistrationBody>(
             source,
             byteCount,
         ).bytes.toByteArray()

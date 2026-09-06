@@ -3,8 +3,9 @@
 ## Resolve packet identity
 
 Use the selected release's Gradle-produced `packets.json` for state, direction, protocol ID, and namespace-free
-`@PacketInfo.officialName`. The report currently describes the official packet inventory, not payload fields. Allow only
-the explicitly modeled legacy unframed server-list ping outside that inventory.
+`@PacketInfo.officialName`. This report describes the official packet inventory; the separate `officialMinecraftPackets`
+artifact adds registered Java classes and ordered members for KSP. Allow only the explicitly modeled legacy unframed
+server-list ping outside that inventory.
 
 Locate the corresponding official packet class through the official protocol registration and `PacketType`, then inspect
 its `STREAM_CODEC`, constructors, record components, fields, accessors, and handling paths. For clientbound data,
@@ -12,8 +13,21 @@ inspect the official server producer and client consumer; reverse the roles for 
 classes remain primary evidence.
 
 For an exhaustive protocol-model audit, iterate every official report entry and every nested shared value it reaches.
-KSP coverage proves identity inventory only; it is not permission to sample packet fields or assume an unchanged class
-retained its previous shape.
+KSP validates the inventory and declared names/order, including documented exceptions. It does not establish types,
+nullability or conditional wire behavior; an unchanged class still requires that semantic audit.
+
+## Audit class names
+
+For a naming-only audit, join every official registered route `(state, direction, protocol_id)` to the generated
+`GeneratedPacketDefinitions` entry, then compare the official Java simple/nested class name with `packetClass`.
+Normalize Java's nested `$` separator to Kotlin's `.` only; preserve direction, runtime terms and suffixes literally.
+An official name without `Packet` stays without it. Review the legacy unframed ping separately because it is outside
+the normal packet report.
+
+Search source for `nameException` and inspect every nonempty reason. An aggregate/container `shapeException` is not a
+class-name exception. Remove conventions that merely regularize spelling or suffixes, update all callers and let KSP
+rebuild normally. Keep a disposable route comparison for review; do not add another permanent validator that duplicates
+KSP. State explicitly whether the work checked class names only or also nested member semantics.
 
 ## Preserve names and shapes
 

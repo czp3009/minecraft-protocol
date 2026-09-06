@@ -200,17 +200,17 @@ class RegionHandle internal constructor(
     suspend inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    suspend fun <B : Any, M : Any> readChunk(
+    suspend fun readChunk(
         localChunkPosition: LocalChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = withOperation {
-        owner.readChunk(entry, localChunkPosition, chunkNbtCodec)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? = withOperation {
+        owner.readChunk(entry, localChunkPosition, chunkNbtDecoder)
     }
 
-    suspend fun <B : Any, M : Any> readChunk(
+    suspend fun readChunk(
         chunkPosition: ChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(local(chunkPosition), chunkNbtCodec)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? = readChunk(local(chunkPosition), chunkNbtDecoder)
 
     suspend fun writeChunkNbtDocument(
         localChunkPosition: LocalChunkPosition,
@@ -279,12 +279,12 @@ class RegionHandle internal constructor(
     )
 
     /** Writes [chunk] at its retained position after validating Region membership. */
-    suspend fun <B : Any, M : Any> writeChunk(
-        chunk: Chunk<B, M>,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    suspend fun writeChunk(
+        chunk: Chunk,
+        chunkNbtEncoder: ChunkNbtEncoder,
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = withOperation {
-        owner.writeChunk(entry, chunk, chunkNbtCodec, compression)
+        owner.writeChunk(entry, chunk, chunkNbtEncoder, compression)
     }
 
     suspend inline fun <reified T> writeChunkNbt(
@@ -311,12 +311,12 @@ class RegionHandle internal constructor(
         block(RegionReadScope(this, chunkNbtFormat))
     }
 
-    /** Retains [chunkNbtCodec] throughout one coordinated read admission and Header snapshot. */
-    suspend fun <B : Any, M : Any, R> withReadScope(
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-        block: DecodedChunkRegionReadScope<B, M>.() -> R,
+    /** Retains [chunkNbtDecoder] throughout one coordinated read admission and Header snapshot. */
+    suspend fun <R> withReadScope(
+        chunkNbtDecoder: ChunkNbtDecoder,
+        block: DecodedChunkRegionReadScope.() -> R,
     ): R = withReadScopeCore {
-        block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtCodec))
+        block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtDecoder))
     }
 
     internal suspend fun <R> withReadScopeCore(block: RegionReadScopeCore.() -> R): R = withOperation {

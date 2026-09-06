@@ -15,18 +15,18 @@ class PlayServerboundInitialPacketTest {
     @Test
     fun `teleport attack and block query use VarInt identifiers`() {
         assertPacketBytes(
-            ConfirmTeleportationPacket(300),
-            ConfirmTeleportationPacket.serializer(),
+            ServerboundAcceptTeleportationPacket(300),
+            ServerboundAcceptTeleportationPacket.serializer(),
             "ac02",
         )
         assertPacketBytes(
-            AttackPacket(300),
-            AttackPacket.serializer(),
+            ServerboundAttackPacket(300),
+            ServerboundAttackPacket.serializer(),
             "ac02",
         )
         assertPacketBytes(
-            QueryBlockEntityTagPacket(300, BlockPosition(0, 0, 0)),
-            QueryBlockEntityTagPacket.serializer(),
+            ServerboundBlockEntityTagQueryPacket(300, BlockPosition(0, 0, 0)),
+            ServerboundBlockEntityTagQueryPacket.serializer(),
             "ac020000000000000000",
         )
     }
@@ -34,12 +34,12 @@ class PlayServerboundInitialPacketTest {
     @Test
     fun `bundle selection accepts only minus one or nonnegative indices`() {
         assertPacketBytes(
-            BundleItemSelectedPacket(slotId = 1, selectedItemIndex = -1),
-            BundleItemSelectedPacket.serializer(),
+            ServerboundSelectBundleItemPacket(slotId = 1, selectedItemIndex = -1),
+            ServerboundSelectBundleItemPacket.serializer(),
             "01ffffffff0f",
         )
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray<BundleItemSelectedPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundSelectBundleItemPacket>(
                 "01feffffff0f".hexToByteArray(),
             )
         }
@@ -54,38 +54,38 @@ class PlayServerboundInitialPacketTest {
         )
         assertEquals(
             Difficulty.HARD,
-            MinecraftProtocolFormat.decodeFromByteArray<ServerboundChangeDifficultyPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundChangeDifficultyPacket>(
                 "ff01".hexToByteArray(),
             ).difficulty,
         )
         assertPacketBytes(
-            ChangeGameModePacket(GameMode.SPECTATOR),
-            ChangeGameModePacket.serializer(),
+            ServerboundChangeGameModePacket(GameMode.SPECTATOR),
+            ServerboundChangeGameModePacket.serializer(),
             "03",
         )
         assertEquals(
             GameMode.SURVIVAL,
-            MinecraftProtocolFormat.decodeFromByteArray<ChangeGameModePacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundChangeGameModePacket>(
                 "7f".hexToByteArray(),
-            ).gameMode,
+            ).mode,
         )
     }
 
     @Test
     fun `chat acknowledgement command and chunk batch keep primitive shapes`() {
         assertPacketBytes(
-            AcknowledgeMessagePacket(300),
-            AcknowledgeMessagePacket.serializer(),
+            ServerboundChatAckPacket(300),
+            ServerboundChatAckPacket.serializer(),
             "ac02",
         )
         assertPacketBytes(
-            ChatCommandPacket("x"),
-            ChatCommandPacket.serializer(),
+            ServerboundChatCommandPacket("x"),
+            ServerboundChatCommandPacket.serializer(),
             "0178",
         )
         assertPacketBytes(
-            ChunkBatchReceivedPacket(1.0f),
-            ChunkBatchReceivedPacket.serializer(),
+            ServerboundChunkBatchReceivedPacket(1.0f),
+            ServerboundChunkBatchReceivedPacket.serializer(),
             "3f800000",
         )
     }
@@ -93,20 +93,20 @@ class PlayServerboundInitialPacketTest {
     @Test
     fun `client status includes the new game-rule request action`() {
         assertPacketBytes(
-            ClientStatusPacket(ClientStatusAction.REQUEST_GAME_RULE_VALUES),
-            ClientStatusPacket.serializer(),
+            ServerboundClientCommandPacket(ServerboundClientCommandPacket.Action.REQUEST_GAMERULE_VALUES),
+            ServerboundClientCommandPacket.serializer(),
             "02",
         )
         assertPacketBytes(
-            ClientTickEndPacket,
-            ClientTickEndPacket.serializer(),
+            ServerboundClientTickEndPacket,
+            ServerboundClientTickEndPacket.serializer(),
             "",
         )
     }
 
     @Test
     fun `play client information reuses the complete common payload`() {
-        val playClientInformationPacket = PlayClientInformationPacket(
+        val serverboundClientInformationPacket = ServerboundClientInformationPacket(
             ClientInformation(
                 locale = "en_us",
                 viewDistance = 10,
@@ -120,8 +120,8 @@ class PlayServerboundInitialPacketTest {
             ),
         )
         assertPacketBytes(
-            playClientInformationPacket,
-            PlayClientInformationPacket.serializer(),
+            serverboundClientInformationPacket,
+            ServerboundClientInformationPacket.serializer(),
             "05656e5f75730a0101ff01000102",
         )
     }
@@ -129,18 +129,18 @@ class PlayServerboundInitialPacketTest {
     @Test
     fun `command suggestions use the official 32500 character limit`() {
         assertPacketBytes(
-            CommandSuggestionsRequestPacket(300, "x"),
-            CommandSuggestionsRequestPacket.serializer(),
+            ServerboundCommandSuggestionPacket(300, "x"),
+            ServerboundCommandSuggestionPacket.serializer(),
             "ac020178",
         )
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                CommandSuggestionsRequestPacket(1, "x".repeat(32_501)),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundCommandSuggestionPacket(1, "x".repeat(32_501)),
             )
         }
         assertPacketBytes(
-            AcknowledgeConfigurationPacket,
-            AcknowledgeConfigurationPacket.serializer(),
+            ServerboundConfigurationAcknowledgedPacket,
+            ServerboundConfigurationAcknowledgedPacket.serializer(),
             "",
         )
     }
@@ -153,11 +153,11 @@ class PlayServerboundInitialPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

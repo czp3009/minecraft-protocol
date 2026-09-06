@@ -14,18 +14,18 @@ class PlayClientboundMovementPacketTest {
     @Test
     fun `world event and low disk warning use official fixed shapes`() {
         assertPacketBytes(
-            WorldEventPacket(
-                eventId = 1000,
-                location = ZERO_POSITION,
+            ClientboundLevelEventPacket(
+                type = 1000,
+                pos = ZERO_POSITION,
                 data = -1,
-                disableRelativeVolume = true,
+                globalEvent = true,
             ),
-            WorldEventPacket.serializer(),
+            ClientboundLevelEventPacket.serializer(),
             "000003e8${ZERO_POSITION_HEX}ffffffff01",
         )
         assertPacketBytes(
-            LowDiskSpaceWarningPacket,
-            LowDiskSpaceWarningPacket.serializer(),
+            ClientboundLowDiskSpaceWarningPacket,
+            ClientboundLowDiskSpaceWarningPacket.serializer(),
             "",
         )
     }
@@ -33,46 +33,46 @@ class PlayClientboundMovementPacketTest {
     @Test
     fun `relative entity moves preserve shorts and raw angle bytes`() {
         assertPacketBytes(
-            UpdateEntityPositionPacket(
+            ClientboundMoveEntityPacket.Pos(
                 entityId = 300,
-                deltaX = 1,
-                deltaY = -2,
-                deltaZ = Short.MAX_VALUE,
+                xa = 1,
+                ya = -2,
+                za = Short.MAX_VALUE,
                 onGround = true,
             ),
-            UpdateEntityPositionPacket.serializer(),
+            ClientboundMoveEntityPacket.Pos.serializer(),
             "ac020001fffe7fff01",
         )
         assertPacketBytes(
-            UpdateEntityPositionAndRotationPacket(
+            ClientboundMoveEntityPacket.PosRot(
                 entityId = 1,
-                deltaX = 1,
-                deltaY = 2,
-                deltaZ = 3,
-                yaw = Angle(0x80.toByte()),
-                pitch = Angle(0x7F),
+                xa = 1,
+                ya = 2,
+                za = 3,
+                yRot = Angle(0x80.toByte()),
+                xRot = Angle(0x7F),
                 onGround = false,
             ),
-            UpdateEntityPositionAndRotationPacket.serializer(),
+            ClientboundMoveEntityPacket.PosRot.serializer(),
             "01000100020003807f00",
         )
         assertPacketBytes(
-            UpdateEntityRotationPacket(
+            ClientboundMoveEntityPacket.Rot(
                 entityId = 1,
-                yaw = Angle(0x40),
-                pitch = Angle(0xC0.toByte()),
+                yRot = Angle(0x40),
+                xRot = Angle(0xC0.toByte()),
                 onGround = true,
             ),
-            UpdateEntityRotationPacket.serializer(),
+            ClientboundMoveEntityPacket.Rot.serializer(),
             "0140c001",
         )
     }
 
     @Test
     fun `minecart step uses doubles then two angles then weight`() {
-        val moveMinecartAlongTrackPacket = MoveMinecartAlongTrackPacket(
+        val clientboundMoveMinecartPacket = ClientboundMoveMinecartPacket(
             entityId = 1,
-            steps = listOf(
+            lerpSteps = listOf(
                 MinecartStep(
                     position = Vector3d(1.0, 2.0, 3.0),
                     velocity = Vector3d(-1.0, 0.0, 0.5),
@@ -83,8 +83,8 @@ class PlayClientboundMovementPacketTest {
             ),
         )
         assertPacketBytes(
-            moveMinecartAlongTrackPacket,
-            MoveMinecartAlongTrackPacket.serializer(),
+            clientboundMoveMinecartPacket,
+            ClientboundMoveMinecartPacket.serializer(),
             "01013ff000000000000040000000000000004008000000000000bff000000000000000000000000000003fe000000000000040c03f800000",
         )
     }
@@ -94,29 +94,29 @@ class PlayClientboundMovementPacketTest {
         assertPacketBytes(
             ClientboundMoveVehiclePacket(
                 Vector3d(1.0, 2.0, 3.0),
-                yaw = 90.0f,
-                pitch = -45.0f,
+                yRot = 90.0f,
+                xRot = -45.0f,
             ),
             ClientboundMoveVehiclePacket.serializer(),
             "3ff00000000000004000000000000000400800000000000042b40000c2340000",
         )
         assertPacketBytes(
-            OpenBookPacket(InteractionHand.OFF_HAND),
-            OpenBookPacket.serializer(),
+            ClientboundOpenBookPacket(InteractionHand.OFF_HAND),
+            ClientboundOpenBookPacket.serializer(),
             "01",
         )
         assertPacketBytes(
-            OpenScreenPacket(
+            ClientboundOpenScreenPacket(
                 containerId = 300,
-                menuTypeId = 2,
+                type = 2,
                 title = TextComponent(NbtString("x")),
             ),
-            OpenScreenPacket.serializer(),
+            ClientboundOpenScreenPacket.serializer(),
             "ac020208000178",
         )
         assertPacketBytes(
-            OpenSignEditorPacket(ZERO_POSITION, frontText = true),
-            OpenSignEditorPacket.serializer(),
+            ClientboundOpenSignEditorPacket(ZERO_POSITION, isFrontText = true),
+            ClientboundOpenSignEditorPacket.serializer(),
             "${ZERO_POSITION_HEX}01",
         )
     }
@@ -129,8 +129,8 @@ class PlayClientboundMovementPacketTest {
             "ffffffff",
         )
         assertPacketBytes(
-            PongResponsePacket(0x0102030405060708),
-            PongResponsePacket.serializer(),
+            ClientboundPongResponsePacket(0x0102030405060708),
+            ClientboundPongResponsePacket.serializer(),
             "0102030405060708",
         )
     }
@@ -150,13 +150,13 @@ class PlayClientboundMovementPacketTest {
         val canonical = "0d3d4ccccd3dcccccd".hexToByteArray()
         assertContentEquals(
             canonical,
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 clientboundPlayerAbilitiesPacket,
             ),
         )
         assertEquals(
             clientboundPlayerAbilitiesPacket,
-            MinecraftProtocolFormat.decodeFromByteArray<ClientboundPlayerAbilitiesPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundPlayerAbilitiesPacket>(
                 "fd3d4ccccd3dcccccd".hexToByteArray(),
             ),
         )
@@ -171,11 +171,11 @@ class PlayClientboundMovementPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 

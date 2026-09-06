@@ -13,12 +13,11 @@ compression activation, extension routes, and loader negotiation profiles.
   vanilla response packet.
 - Clientbound Play bundles are logical session values. Enforce their size, nesting, and delimiter ownership at the
   packet-session boundary; the connection core never handles bundle structure. Deliberately do not inspect members for
-  terminal state-transition semantics: putting `StartConfigurationPacket` in a bundle is documented invalid caller
+  terminal state-transition semantics: putting `ClientboundStartConfigurationPacket` in a bundle is documented invalid
+  caller
   usage, not a library-side validation case.
-- `MinecraftConnectionDefinition` and loader definitions are shareable while their caller-owned inputs remain stable.
-  Connection profiles retain schemas, snapshots, registrations, and resolved contexts by reference.
-- Keep `MinecraftConnectionDefinition()` and the `VanillaClient`/`VanillaServer` profiles sufficient as the high-level
-  client/server defaults. Extension registrations and loader profiles remain explicit opt-ins.
+- `MinecraftConnectionDefinition()` and the `VanillaClient`/`VanillaServer` profiles are the concrete defaults consumed
+  by both high-level endpoints.
 - Preserve unknown valid extension routes as `UnknownPacket`. Apart from direct official Configuration/Play KeepAlive
   requests, propagate malformed bytes and state/order failures without inventing automatic replies.
 - Keep server-managed KeepAlive state in the server endpoint. Higher-level flows explicitly replace the Configuration

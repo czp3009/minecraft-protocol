@@ -1,32 +1,11 @@
 package com.hiczp.minecraft.protocol.session
 
-import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.time.Duration
 import kotlin.time.TimeSource
-
-/** Enables official server KeepAlive while the connection is in Configuration. */
-fun MinecraftServerPacketConnection.enableConfigurationKeepAlive(
-    interval: Duration = MinecraftServerPacketConnection.DEFAULT_KEEP_ALIVE_INTERVAL,
-) {
-    enableKeepAlive(
-        extractChallenge = { packet -> (packet as? ConfigurationServerboundKeepAlivePacket)?.id },
-        createRequest = ::ConfigurationClientboundKeepAlivePacket,
-        interval = interval,
-    )
-}
-
-/** Enables official server KeepAlive while the connection is in Play. */
-fun MinecraftServerPacketConnection.enablePlayKeepAlive(
-    interval: Duration = MinecraftServerPacketConnection.DEFAULT_KEEP_ALIVE_INTERVAL,
-) {
-    enableKeepAlive(
-        extractChallenge = { packet -> (packet as? PlayServerboundKeepAlivePacket)?.id },
-        createRequest = ::PlayClientboundKeepAlivePacket,
-        interval = interval,
-    )
-}
 
 internal class MinecraftServerKeepAliveController(
     private val minecraftPacketConnectionCore: MinecraftPacketConnectionCore<ServerboundPacket, ClientboundPacket>,

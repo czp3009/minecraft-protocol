@@ -3,30 +3,43 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.nbt.NbtDocument
 import kotlinx.io.Sink
 
-/** Decodes this compressed content using the Entity Chunk position carried by its NBT root. */
-fun <E : Any> CompressedChunk.toEntityChunk(
-    entityChunkNbtCodec: EntityChunkNbtCodec<E>,
-    compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = entityChunkNbtCodec.nbtFormat),
-): EntityChunk<E> = toNbtDocument(compressedNbtFormat).toEntityChunk(entityChunkNbtCodec)
+fun CompressedChunk.toEntityChunk(
+    entityChunkNbtDecoder: EntityChunkNbtDecoder,
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): EntityChunkNbtDecodeResult = decodeCompressedValue(this, compressionRegistry, entityChunkNbtDecoder::decode)
 
-/** Projects this generic NBT tree into a semantic Entity Chunk using its stored position. */
-fun <E : Any> NbtDocument.toEntityChunk(entityChunkNbtCodec: EntityChunkNbtCodec<E>): EntityChunk<E> =
-    entityChunkNbtCodec.decodeDocument(this)
+fun CompressedChunk.toEntityChunk(
+    entityChunkNbtDecoderContext: EntityChunkNbtDecoderContext,
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): EntityChunkNbtDecodeResult = toEntityChunk(EntityChunkNbtDecoder(entityChunkNbtDecoderContext), compressionRegistry)
 
-/** Converts this semantic Entity Chunk to a generic NBT tree at its retained position. */
-fun <E : Any> EntityChunk<E>.toNbtDocument(
-    entityChunkNbtCodec: EntityChunkNbtCodec<E>,
-): NbtDocument =
-    entityChunkNbtCodec.encodeDocument(this)
+fun NbtDocument.toEntityChunk(entityChunkNbtDecoder: EntityChunkNbtDecoder): EntityChunkNbtDecodeResult =
+    entityChunkNbtDecoder.decodeDocument(this)
 
-/** Converts this semantic Entity Chunk directly to detached compressed content. */
-fun <E : Any> EntityChunk<E>.toCompressedChunk(
-    entityChunkNbtCodec: EntityChunkNbtCodec<E>,
+fun NbtDocument.toEntityChunk(entityChunkNbtDecoderContext: EntityChunkNbtDecoderContext): EntityChunkNbtDecodeResult =
+    toEntityChunk(EntityChunkNbtDecoder(entityChunkNbtDecoderContext))
+
+fun EntityChunk.toNbtDocument(entityChunkNbtEncoder: EntityChunkNbtEncoder): NbtDocument =
+    entityChunkNbtEncoder.encodeDocument(this)
+
+fun EntityChunk.toNbtDocument(entityChunkNbtEncoderContext: EntityChunkNbtEncoderContext): NbtDocument =
+    toNbtDocument(EntityChunkNbtEncoder(entityChunkNbtEncoderContext))
+
+fun EntityChunk.toCompressedChunk(
+    entityChunkNbtEncoder: EntityChunkNbtEncoder,
     compression: Compression = Compression.ZLIB,
-    compressedNbtFormat: CompressedNbtFormat = CompressedNbtFormat(nbtFormat = entityChunkNbtCodec.nbtFormat),
-): CompressedChunk = toNbtDocument(entityChunkNbtCodec).toCompressedChunk(compression, compressedNbtFormat)
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): CompressedChunk = encodeCompressedValue(compression, compressionRegistry) { entityChunkNbtEncoder.encode(this, it) }
 
-/** Writes this semantic Entity Chunk as complete unnamed-root NBT without closing [sink]. */
-fun <E : Any> EntityChunk<E>.writeTo(sink: Sink, entityChunkNbtCodec: EntityChunkNbtCodec<E>) {
-    entityChunkNbtCodec.encodeToSink(this, sink)
-}
+fun EntityChunk.toCompressedChunk(
+    entityChunkNbtEncoderContext: EntityChunkNbtEncoderContext,
+    compression: Compression = Compression.ZLIB,
+    compressionRegistry: CompressionRegistry = CompressionRegistry,
+): CompressedChunk =
+    toCompressedChunk(EntityChunkNbtEncoder(entityChunkNbtEncoderContext), compression, compressionRegistry)
+
+fun EntityChunk.writeTo(sink: Sink, entityChunkNbtEncoder: EntityChunkNbtEncoder) =
+    entityChunkNbtEncoder.encode(this, sink)
+
+fun EntityChunk.writeTo(sink: Sink, entityChunkNbtEncoderContext: EntityChunkNbtEncoderContext) =
+    writeTo(sink, EntityChunkNbtEncoder(entityChunkNbtEncoderContext))

@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.serialization.internal
 import com.hiczp.minecraft.protocol.model.type.PackedLongArray
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
 import com.hiczp.minecraft.protocol.model.wire.PaletteKind
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 
 internal object PalettedContainerCodec {
@@ -11,9 +11,9 @@ internal object PalettedContainerCodec {
         minecraftWriter: MinecraftWriter,
         palettedContainer: PalettedContainer,
         paletteKind: PaletteKind,
-        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
+        minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,
     ) {
-        val registrySize = paletteKind.registrySize(minecraftProtocolFormatConfiguration)
+        val registrySize = paletteKind.registrySize(minecraftPacketPayloadFormatConfiguration)
         when (palettedContainer) {
             is PalettedContainer.Single -> {
                 validateRegistryId(palettedContainer.valueId, registrySize, paletteKind)
@@ -52,12 +52,13 @@ internal object PalettedContainerCodec {
     fun read(
         minecraftReader: MinecraftReader,
         paletteKind: PaletteKind,
-        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
+        minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,
     ): PalettedContainer {
-        val registrySize = paletteKind.registrySize(minecraftProtocolFormatConfiguration)
+        val registrySize = paletteKind.registrySize(minecraftPacketPayloadFormatConfiguration)
         val wireBits = minecraftReader.readUnsignedByte()
         if (wireBits == 0) {
-            val valueId = minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+            val valueId =
+                minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
             validateRegistryId(valueId, registrySize, paletteKind)
             return PalettedContainer.Single(valueId)
         }
@@ -66,21 +67,21 @@ internal object PalettedContainerCodec {
         if (indirectBits != null) {
             val capacity = 1 shl indirectBits
             val paletteSize =
-                minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+                minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
             if (paletteSize !in 0..capacity) {
                 throw MinecraftSerializationException(
                     "Invalid ${paletteKind.displayName} palette size $paletteSize; maximum is $capacity",
                 )
             }
             val palette = List(paletteSize) {
-                minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers).also {
+                minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers).also {
                     validateRegistryId(it, registrySize, paletteKind)
                 }
             }
             return PalettedContainer.Indirect(
                 indirectBits,
                 palette,
-                readPacked(minecraftReader, indirectBits, paletteKind, minecraftProtocolFormatConfiguration),
+                readPacked(minecraftReader, indirectBits, paletteKind, minecraftPacketPayloadFormatConfiguration),
             )
         }
 
@@ -93,7 +94,7 @@ internal object PalettedContainerCodec {
             )
         }
         return PalettedContainer.Direct(
-            readPacked(minecraftReader, globalBits, paletteKind, minecraftProtocolFormatConfiguration),
+            readPacked(minecraftReader, globalBits, paletteKind, minecraftPacketPayloadFormatConfiguration),
         )
     }
 
@@ -150,7 +151,7 @@ internal object PalettedContainerCodec {
         minecraftReader: MinecraftReader,
         bits: Int,
         paletteKind: PaletteKind,
-        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
+        minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,
     ): PackedLongArray {
         val count = packedLongCount(paletteKind.entryCount, bits)
         return PackedLongArray(LongArray(count) { minecraftReader.readLong() })
@@ -204,9 +205,9 @@ internal object PalettedContainerCodec {
         }
 
     private fun PaletteKind.registrySize(
-        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
+        minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,
     ): Int = when (this) {
-        PaletteKind.BLOCK_STATES -> minecraftProtocolFormatConfiguration.requireBlockStateRegistrySize()
-        PaletteKind.BIOMES -> minecraftProtocolFormatConfiguration.requireBiomeRegistrySize()
+        PaletteKind.BLOCK_STATES -> minecraftPacketPayloadFormatConfiguration.requireBlockStateRegistrySize()
+        PaletteKind.BIOMES -> minecraftPacketPayloadFormatConfiguration.requireBiomeRegistrySize()
     }
 }

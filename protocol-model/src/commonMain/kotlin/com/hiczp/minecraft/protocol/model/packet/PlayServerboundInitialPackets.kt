@@ -1,7 +1,6 @@
 package com.hiczp.minecraft.protocol.model.packet
 
 import com.hiczp.minecraft.protocol.model.type.BlockPosition
-import com.hiczp.minecraft.protocol.model.type.ClientInformation
 import com.hiczp.minecraft.protocol.model.type.Difficulty
 import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
@@ -16,9 +15,9 @@ import kotlinx.serialization.Serializable
     PacketDirection.SERVERBOUND,
     officialName = "accept_teleportation",
 )
-data class ConfirmTeleportationPacket(
+data class ServerboundAcceptTeleportationPacket(
     @VarInt
-    val teleportId: Int,
+    val id: Int,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -28,7 +27,7 @@ data class ConfirmTeleportationPacket(
     PacketDirection.SERVERBOUND,
     officialName = "attack",
 )
-data class AttackPacket(
+data class ServerboundAttackPacket(
     @VarInt
     val entityId: Int,
 ) : PlayStatePacket, ServerboundPacket
@@ -40,10 +39,10 @@ data class AttackPacket(
     PacketDirection.SERVERBOUND,
     officialName = "block_entity_tag_query",
 )
-data class QueryBlockEntityTagPacket(
+data class ServerboundBlockEntityTagQueryPacket(
     @VarInt
     val transactionId: Int,
-    val location: BlockPosition,
+    val pos: BlockPosition,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -53,7 +52,7 @@ data class QueryBlockEntityTagPacket(
     PacketDirection.SERVERBOUND,
     officialName = "bundle_item_selected",
 )
-data class BundleItemSelectedPacket(
+data class ServerboundSelectBundleItemPacket(
     @VarInt
     val slotId: Int,
     @VarInt
@@ -93,9 +92,9 @@ enum class GameMode {
     PacketDirection.SERVERBOUND,
     officialName = "change_game_mode",
 )
-data class ChangeGameModePacket(
+data class ServerboundChangeGameModePacket(
     @ZeroFallbackEnum
-    val gameMode: GameMode,
+    val mode: GameMode,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -105,7 +104,7 @@ data class ChangeGameModePacket(
     PacketDirection.SERVERBOUND,
     officialName = "chat_ack",
 )
-data class AcknowledgeMessagePacket(
+data class ServerboundChatAckPacket(
     @VarInt
     val offset: Int,
 ) : PlayStatePacket, ServerboundPacket
@@ -117,7 +116,7 @@ data class AcknowledgeMessagePacket(
     PacketDirection.SERVERBOUND,
     officialName = "chat_command",
 )
-data class ChatCommandPacket(
+data class ServerboundChatCommandPacket(
     @MaxLength(32_767)
     val command: String,
 ) : PlayStatePacket, ServerboundPacket
@@ -129,16 +128,10 @@ data class ChatCommandPacket(
     PacketDirection.SERVERBOUND,
     officialName = "chunk_batch_received",
 )
-data class ChunkBatchReceivedPacket(
+data class ServerboundChunkBatchReceivedPacket(
     val desiredChunksPerTick: Float,
 ) : PlayStatePacket, ServerboundPacket
 
-@Serializable
-enum class ClientStatusAction {
-    PERFORM_RESPAWN,
-    REQUEST_STATS,
-    REQUEST_GAME_RULE_VALUES,
-}
 
 @Serializable
 @PacketInfo(
@@ -147,9 +140,16 @@ enum class ClientStatusAction {
     PacketDirection.SERVERBOUND,
     officialName = "client_command",
 )
-data class ClientStatusPacket(
-    val action: ClientStatusAction,
-) : PlayStatePacket, ServerboundPacket
+data class ServerboundClientCommandPacket(
+    val action: Action,
+) : PlayStatePacket, ServerboundPacket {
+    @Serializable
+    enum class Action {
+        PERFORM_RESPAWN,
+        REQUEST_STATS,
+        REQUEST_GAMERULE_VALUES,
+    }
+}
 
 @Serializable
 @PacketInfo(
@@ -158,18 +158,7 @@ data class ClientStatusPacket(
     PacketDirection.SERVERBOUND,
     officialName = "client_tick_end",
 )
-data object ClientTickEndPacket : PlayStatePacket, ServerboundPacket
-
-@Serializable
-@PacketInfo(
-    0x0E,
-    ConnectionState.PLAY,
-    PacketDirection.SERVERBOUND,
-    officialName = "client_information",
-)
-data class PlayClientInformationPacket(
-    val information: ClientInformation,
-) : PlayStatePacket, ServerboundPacket
+data object ServerboundClientTickEndPacket : PlayStatePacket, ServerboundPacket
 
 @Serializable
 @PacketInfo(
@@ -178,11 +167,11 @@ data class PlayClientInformationPacket(
     PacketDirection.SERVERBOUND,
     officialName = "command_suggestion",
 )
-data class CommandSuggestionsRequestPacket(
+data class ServerboundCommandSuggestionPacket(
     @VarInt
-    val transactionId: Int,
+    val id: Int,
     @MaxLength(32_500)
-    val text: String,
+    val command: String,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -192,6 +181,6 @@ data class CommandSuggestionsRequestPacket(
     PacketDirection.SERVERBOUND,
     officialName = "configuration_acknowledged",
 )
-data object AcknowledgeConfigurationPacket :
+data object ServerboundConfigurationAcknowledgedPacket :
     PlayStatePacket,
     ServerboundPacket

@@ -7,6 +7,8 @@ import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
+import kotlin.test.*
+import kotlin.time.Duration
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.supervisorScope
@@ -14,8 +16,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
-import kotlin.test.*
-import kotlin.time.Duration
 
 class NeoForgeNegotiationProfileTest {
     @Test
@@ -55,7 +55,7 @@ class NeoForgeNegotiationProfileTest {
                 ),
             ),
         )
-        val sharedProtocolRegistryContext = staticRegistrySchema.resolve(
+        val sharedPacketCodecContext = staticRegistrySchema.resolve(
             neoForgeFrozenRegistrySync.remoteRegistrySnapshot,
         )
         val knownDataMaps = mapOf(
@@ -85,7 +85,7 @@ class NeoForgeNegotiationProfileTest {
             NeoForgeServerProfileDefinition(
                 neoForgeNetworkConfiguration = neoForgeNetworkConfiguration,
                 neoForgeFrozenRegistrySync = neoForgeFrozenRegistrySync,
-                protocolRegistryContext = sharedProtocolRegistryContext,
+                packetCodecContext = sharedPacketCodecContext,
                 configFiles = listOf(
                     NeoForgeConfigFilePacket(
                         "server.toml",
@@ -105,8 +105,8 @@ class NeoForgeNegotiationProfileTest {
         }
         repeat(6) {
             val clientboundPacket = neoForgeTestClientConnection.incoming.receive()
-            if (clientboundPacket is ConfigurationPingPacket) {
-                neoForgeTestClientConnection.outgoing.send(ConfigurationPongPacket(clientboundPacket.id))
+            if (clientboundPacket is ClientboundPingPacket) {
+                neoForgeTestClientConnection.outgoing.send(ServerboundPongPacket(clientboundPacket.id))
             } else {
                 assertTrue(
                     neoForgeClientProfile.handleConfigurationPacket(
@@ -144,24 +144,23 @@ class NeoForgeNegotiationProfileTest {
         }
         late.await()
 
-        val clientProtocolRegistryContext = neoForgeClientProfile.resolveProtocolRegistryContext(
+        val clientPacketCodecContext = neoForgeClientProfile.resolvePacketCodecContext(
             staticRegistrySchema.resolve().withRegistrySize(
-                ProtocolRegistryContext.BIOME_REGISTRY,
+                PacketCodecContext.BIOME_REGISTRY,
                 4,
-            ).withChunkSectionCount(24),
+            ),
         )
         assertEquals(
             Identifier("mod:new_block"),
-            clientProtocolRegistryContext.blockStates.first().block,
+            clientPacketCodecContext.blockStates.first().block,
         )
-        assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
-        assertEquals(24, clientProtocolRegistryContext.chunkSectionCount)
+        assertEquals(4, clientPacketCodecContext.biomeRegistrySize)
 
-        val serverProtocolRegistryContext = neoForgeServerProfile.resolveProtocolRegistryContext(
-            ProtocolRegistryContext.Empty.withChunkSectionCount(24),
+        val serverPacketCodecContext = neoForgeServerProfile.resolvePacketCodecContext(
+            PacketCodecContext.Empty,
         )
-        assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
-        assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
+        assertSame(sharedPacketCodecContext.registries, serverPacketCodecContext.registries)
+        assertSame(sharedPacketCodecContext.blockStates, serverPacketCodecContext.blockStates)
 
         neoForgeClientProfile.preparePlay(neoForgeTestClientConnection)
         neoForgeTestClientConnection.currentState = ConnectionState.PLAY
@@ -331,7 +330,7 @@ private fun testStaticSchema(): StaticRegistrySchema = StaticRegistrySchema(
             Identifier("stone"),
             Identifier("mod:block"),
         ),
-        ProtocolRegistryContext.BIOME_REGISTRY to listOf(
+        PacketCodecContext.BIOME_REGISTRY to listOf(
             MinecraftBiomeIds.PLAINS,
         ),
     ),
@@ -364,15 +363,15 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
     private val outgoingDirection: PacketDirection,
 ) : MinecraftPacketConnection<Incoming, Outgoing> {
     var currentState: ConnectionState = ConnectionState.CONFIGURATION
-    private var mutableProtocolRegistryContext = ProtocolRegistryContext.Empty
+    private var mutablePacketCodecContext = PacketCodecContext.Empty
     private var activeRoutes = emptySet<PacketRouteKey>()
-    private val format = MinecraftProtocolFormat.Default
+    private val format = MinecraftPacketPayloadFormat.Default
 
     override val connectionState: ConnectionState
         get() = currentState
 
-    override val protocolRegistryContext: ProtocolRegistryContext
-        get() = mutableProtocolRegistryContext
+    override val packetCodecContext: PacketCodecContext
+        get() = mutablePacketCodecContext
 
     override val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = packetRegistry.declaredExtensionRoutes
@@ -384,8 +383,8 @@ private abstract class NeoForgeTestConnection<Incoming : Packet, Outgoing : Pack
 
     override suspend fun awaitClosed() = Unit
 
-    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
-        mutableProtocolRegistryContext = protocolRegistryContext
+    override fun installPacketCodecContext(packetCodecContext: PacketCodecContext) {
+        mutablePacketCodecContext = packetCodecContext
     }
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {

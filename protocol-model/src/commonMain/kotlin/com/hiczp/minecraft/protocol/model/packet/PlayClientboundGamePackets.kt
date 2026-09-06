@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.protocol.model.packet
 
 import com.hiczp.minecraft.protocol.model.type.BlockPosition
+import com.hiczp.minecraft.protocol.model.type.ChunkPos
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.PositionMoveRotation
 import com.hiczp.minecraft.protocol.model.wire.*
@@ -13,7 +14,7 @@ import kotlinx.serialization.Serializable
     PacketDirection.CLIENTBOUND,
     officialName = "entity_event",
 )
-data class EntityEventPacket(
+data class ClientboundEntityEventPacket(
     val entityId: Int,
     val eventId: Byte,
 ) : PlayStatePacket, ClientboundPacket
@@ -25,9 +26,9 @@ data class EntityEventPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "entity_position_sync",
 )
-data class TeleportEntityPacket(
+data class ClientboundEntityPositionSyncPacket(
     @VarInt
-    val entityId: Int,
+    val id: Int,
     val values: PositionMoveRotation,
     val onGround: Boolean,
 ) : PlayStatePacket, ClientboundPacket
@@ -39,9 +40,8 @@ data class TeleportEntityPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "forget_level_chunk",
 )
-data class UnloadChunkPacket(
-    val chunkZ: Int,
-    val chunkX: Int,
+data class ClientboundForgetLevelChunkPacket(
+    val pos: ChunkPos,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -69,10 +69,10 @@ enum class GameEventType {
     PacketDirection.CLIENTBOUND,
     officialName = "game_event",
 )
-data class GameEventPacket(
+data class ClientboundGameEventPacket(
     @EnumEncoding(EnumEncodingKind.UNSIGNED_BYTE)
     val event: GameEventType,
-    val value: Float,
+    val param: Float,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -82,7 +82,7 @@ data class GameEventPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "game_rule_values",
 )
-data class GameRuleValuesPacket(
+data class ClientboundGameRuleValuesPacket(
     @MaxLength(32_767)
     val values: Map<Identifier, String>,
 ) : PlayStatePacket, ClientboundPacket
@@ -94,9 +94,9 @@ data class GameRuleValuesPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "game_test_highlight_pos",
 )
-data class GameTestHighlightPositionPacket(
-    val absolutePosition: BlockPosition,
-    val relativePosition: BlockPosition,
+data class ClientboundGameTestHighlightPosPacket(
+    val absolutePos: BlockPosition,
+    val relativePos: BlockPosition,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -106,7 +106,7 @@ data class GameTestHighlightPositionPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "mount_screen_open",
 )
-data class OpenHorseScreenPacket(
+data class ClientboundMountScreenOpenPacket(
     @VarInt
     val containerId: Int,
     @VarInt
@@ -121,9 +121,9 @@ data class OpenHorseScreenPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "hurt_animation",
 )
-data class HurtAnimationPacket(
+data class ClientboundHurtAnimationPacket(
     @VarInt
-    val entityId: Int,
+    val id: Int,
     val yaw: Float,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -134,28 +134,17 @@ data class HurtAnimationPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "initialize_border",
 )
-data class InitializeWorldBorderPacket(
-    val centerX: Double,
-    val centerZ: Double,
-    val oldDiameter: Double,
-    val newDiameter: Double,
+data class ClientboundInitializeBorderPacket(
+    val newCenterX: Double,
+    val newCenterZ: Double,
+    val oldSize: Double,
+    val newSize: Double,
     @VarLong
-    val speedMilliseconds: Long,
+    val lerpTime: Long,
     @VarInt
-    val portalTeleportBoundary: Int,
+    val newAbsoluteMaxSize: Int,
     @VarInt
     val warningBlocks: Int,
     @VarInt
-    val warningTimeSeconds: Int,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
-@PacketInfo(
-    0x2C,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "keep_alive",
-)
-data class PlayClientboundKeepAlivePacket(
-    val id: Long,
+    val warningTime: Int,
 ) : PlayStatePacket, ClientboundPacket

@@ -1,9 +1,8 @@
 package com.hiczp.minecraft.protocol.session
 
 import com.hiczp.minecraft.protocol.model.packet.*
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 
@@ -27,7 +26,7 @@ fun createMinecraftClientPacketConnection(
     val minecraftClientPacketSession = MinecraftClientPacketSession(
         minecraftFrameStream = minecraftFrameStream,
         packetRegistry = minecraftConnectionDefinition.packetRegistry,
-        minecraftProtocolFormat = minecraftConnectionDefinition.minecraftProtocolFormat,
+        minecraftPacketPayloadFormat = minecraftConnectionDefinition.minecraftPacketPayloadFormat,
     )
     val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
         minecraftPacketSession = minecraftClientPacketSession,
@@ -48,7 +47,6 @@ private class MinecraftClientPacketConnectionImplementation(
     private val minecraftPacketConnectionCore: MinecraftPacketConnectionCore<ClientboundPacket, ServerboundPacket>,
 ) : MinecraftClientPacketConnection,
     MinecraftPacketConnection<ClientboundPacket, ServerboundPacket> by minecraftPacketConnectionCore {
-    private val initialPlayContext = CompletableDeferred<Unit>()
 
     fun start() {
         minecraftPacketConnectionCore.start(::handleIncoming)
@@ -56,8 +54,7 @@ private class MinecraftClientPacketConnectionImplementation(
 
     private suspend fun handleIncoming(clientboundPacket: ClientboundPacket) {
         val keepAliveResponse = when (clientboundPacket) {
-            is ConfigurationClientboundKeepAlivePacket -> ConfigurationServerboundKeepAlivePacket(clientboundPacket.id)
-            is PlayClientboundKeepAlivePacket -> PlayServerboundKeepAlivePacket(clientboundPacket.id)
+            is ClientboundKeepAlivePacket -> ServerboundKeepAlivePacket(clientboundPacket.id)
             else -> null
         }
         if (keepAliveResponse != null) {
@@ -65,12 +62,10 @@ private class MinecraftClientPacketConnectionImplementation(
             return
         }
         minecraftPacketConnectionCore.publishIncoming(clientboundPacket)
-        if (clientboundPacket is PlayLoginPacket) initialPlayContext.await()
     }
 
-    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
-        minecraftPacketConnectionCore.installProtocolRegistryContext(protocolRegistryContext)
-        if (protocolRegistryContext.chunkSectionCount != null) initialPlayContext.complete(Unit)
+    override fun installPacketCodecContext(packetCodecContext: PacketCodecContext) {
+        minecraftPacketConnectionCore.installPacketCodecContext(packetCodecContext)
     }
 
     override fun prepareOutboundEncryption(sharedSecret: ByteArray) {

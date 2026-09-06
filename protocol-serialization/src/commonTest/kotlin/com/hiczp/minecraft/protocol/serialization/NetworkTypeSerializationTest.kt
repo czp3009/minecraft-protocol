@@ -1,12 +1,12 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.type.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
-import kotlin.test.Test
-import kotlin.test.assertEquals
 
 class NetworkTypeSerializationTest {
     @Test
@@ -56,7 +56,7 @@ class NetworkTypeSerializationTest {
         val samples = entityDataValueSamples()
         val serializerIds = samples.map { namedNetworkTypeSample ->
             leadingVarInt(
-                MinecraftProtocolFormat.encodeToByteArray(
+                MinecraftPacketPayloadFormat.encodeToByteArray(
                     namedNetworkTypeSample.value,
                 ),
             )
@@ -64,12 +64,12 @@ class NetworkTypeSerializationTest {
         assertEquals((0..42).toSet(), serializerIds)
 
         samples.forEach { namedNetworkTypeSample ->
-            val byteArray = MinecraftProtocolFormat.encodeToByteArray(
+            val byteArray = MinecraftPacketPayloadFormat.encodeToByteArray(
                 namedNetworkTypeSample.value,
             )
             assertEquals(
                 namedNetworkTypeSample.value,
-                MinecraftProtocolFormat.decodeFromByteArray<EntityDataValue>(
+                MinecraftPacketPayloadFormat.decodeFromByteArray<EntityDataValue>(
                     byteArray,
                 ),
                 namedNetworkTypeSample.name,
@@ -82,10 +82,10 @@ class NetworkTypeSerializationTest {
         samples: List<T>,
     ) {
         samples.forEach { sample ->
-            val byteArray = MinecraftProtocolFormat.encodeToByteArray(kSerializer, sample)
+            val byteArray = MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, sample)
             assertEquals(
                 sample,
-                MinecraftProtocolFormat.decodeFromByteArray(kSerializer, byteArray),
+                MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, byteArray),
             )
         }
     }

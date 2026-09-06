@@ -1,84 +1,48 @@
 # minecraft-protocol
 
-> This is an early-stage experimental project and is not ready for production use.
+A Kotlin Multiplatform toolkit for Minecraft: Java Edition, from typed packets and client/server connections to mutable
+world data and files. This is an experimental project, not yet ready for production use.
 
-`minecraft-protocol` is a Kotlin Multiplatform toolkit for Minecraft: Java Edition. It covers the network protocol from
-packet models and wire encoding through client/server negotiation, and it also provides NBT, data-pack, Anvil, and
-filesystem-backed world APIs.
+- **Typed connections:** coroutine-based client/server negotiation through Play, with release-matched vanilla defaults
+  and explicit extension points for custom packets, registries and loader negotiation.
+- **World data you can compute on:** mutable `Chunk`, `EntityChunk`, `PoiChunk` and nested values, with shared dynamic
+  properties that application code can read, wrap and modify directly.
+- **Disk, memory and network conversion:** directional codecs with explicit contexts, NBT/SNBT serialization, Anvil
+  regions, coordinated world writes and live read-only access. Network projections carry only transmitted data.
+- **Launcher building blocks:** Microsoft/Xbox/Minecraft authentication, game Login and signed chat, distribution
+  metadata and streaming downloads.
 
-Use it to build tools such as:
+The library provides data and protocol capabilities. Applications own gameplay, ticking, world authority and persistence
+policy. Vanilla defaults are generated from the repository-selected official release.
 
-- protocol clients, bots, proxies, and specialized servers;
-- launchers that authenticate Microsoft accounts and start official game versions;
-- map editors, converters, analyzers, and live world inspectors;
-- mod-aware integrations with custom packets and dynamic registries.
+## Choose an entry point
 
-It is infrastructure rather than a complete game server. Gameplay, ticking, permissions, player management,
-authoritative world state, and application persistence policy remain application concerns.
+| Task                                   | Modules                                                                                                                                                                                                    |
+|----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Connect or accept players              | [protocol-client](protocol-client/README.md), [protocol-server](protocol-server/README.md)                                                                                                                 |
+| Work with worlds                       | [world-format](world-format/README.md), [world-io](world-io/README.md), [protocol-world](protocol-world/README.md)                                                                                         |
+| Resolve data packs and registries      | [protocol-configuration](protocol-configuration/README.md), [protocol-configuration-vanilla](protocol-configuration-vanilla/README.md), [datapack-vanilla](datapack-vanilla/README.md)                     |
+| Own lower-level protocol behavior      | [protocol-model](protocol-model/README.md), [protocol-serialization](protocol-serialization/README.md), [protocol-session](protocol-session/README.md), [protocol-transport](protocol-transport/README.md) |
+| Build authentication or launcher flows | [account-auth](account-auth/README.md), [protocol-auth](protocol-auth/README.md), [distribution-metadata](distribution-metadata/README.md)                                                                 |
+| Use NBT independently                  | [nbt](nbt/README.md), [nbt-serialization](nbt-serialization/README.md)                                                                                                                                     |
 
-## Choose the modules you need
+Target support follows capability: portable layers include browser targets, socket layers use Node on JS/WasmJS, and
+world filesystem access supports JS Node but not browser or Wasm. Each module's build script lists its exact targets.
 
-The project is split by capability, so applications can start at the appropriate layer:
+## Client: connect to a server
 
-| Area           | Module                                                             | Use it for                                                     |
-|----------------|--------------------------------------------------------------------|----------------------------------------------------------------|
-| NBT            | [`nbt`](nbt/README.md)                                             | Constructing and inspecting NBT values                         |
-| NBT            | [`nbt-serialization`](nbt-serialization/README.md)                 | Binary NBT, SNBT, and serializable Kotlin models               |
-| Protocol       | [`protocol-model`](protocol-model/README.md)                       | Packet payloads and shared protocol values                     |
-| Protocol       | [`protocol-serialization`](protocol-serialization/README.md)       | Packet payload encoding and custom packet registries           |
-| Data packs     | [`protocol-datapack`](protocol-datapack/README.md)                 | Pack projection, Configuration views, and world Chunk adapters |
-| Data packs     | [`protocol-datapack-vanilla`](protocol-datapack-vanilla/README.md) | Release-matched vanilla packs, registries, and defaults        |
-| Networking     | [`protocol-transport`](protocol-transport/README.md)               | Low-level frames, compression, encryption, and sockets         |
-| Networking     | [`protocol-session`](protocol-session/README.md)                   | Typed packet channels, state transitions, and loader profiles  |
-| Distribution   | [`distribution-metadata`](distribution-metadata/README.md)         | Modern Mojang metadata and streaming downloads                 |
-| Authentication | [`account-auth`](account-auth/README.md)                           | Launcher-side Microsoft, Xbox, and Minecraft Services login    |
-| Authentication | [`protocol-auth`](protocol-auth/README.md)                         | Game Login, Session Server, profile keys, and signed chat      |
-| Connections    | [`protocol-client`](protocol-client/README.md)                     | Connecting to a server and entering Play                       |
-| Connections    | [`protocol-server`](protocol-server/README.md)                     | Accepting clients and sending an initial world view            |
-| Worlds         | [`world-format`](world-format/README.md)                           | Semantic Chunk/Entity/POI values and Anvil formats             |
-| Worlds         | [`world-io`](world-io/README.md)                                   | Reading and writing actual world directories                   |
-
-Use `protocol-client` or `protocol-server` for the maintained connection lifecycle; drop to `protocol-session`,
-`protocol-serialization`, or `protocol-transport` only when the application needs to own that lower-level boundary.
-Launcher authentication in `account-auth` ends with caller-managed tokens and profiles. Game-connection authentication
-in `protocol-auth` consumes those values; neither authentication module depends on the other.
-
-Target availability follows capability. The model, serialization, authentication, data-pack, and portable world-format
-layers include configured browser targets; real-socket modules use JS/WasmJS on Node; `world-io` supports JS Node but
-does not expose partial browser or Wasm filesystem APIs. Each module's build script is the exact target list.
-
-## Demo
-
-The [launcher demo](demo/launcher/README.md) is a terminal application that combines account management,
-official-version installation, and game launch.
-
-The [web map demo](demo/web-map/README.md) composes live world-file reads, vanilla data-pack projection, kRPC, and a
-Kotlin/JS browser map that prepares official block textures before displaying the world.
-
-## Quick starts
-
-### Connect a client
-
-For a game connection, `negotiate()` handles Handshake, Login, Configuration, dynamic registries, and the first
-`PlayLoginPacket`. The initial-world bootstrap and Chunk batches arrive afterwards through `incoming`. The vanilla
-packet definition, transport settings, negotiation profile, Known Packs, registries, and client options are all
-defaults. This example therefore supplies only the server address and player identity; online identities are shown in
-the
-[`protocol-client` guide](protocol-client/README.md#online-login):
+Create a caller-owned Ktor `SelectorManager(Dispatchers.Default)` and keep it open until its connections close. Supply
+the server address; the example constructs an offline identity. `handlePacket` receives the open connection, negotiation
+result and each incoming packet. Vanilla protocol and registry defaults are provided:
 
 ```kotlin
 suspend fun runClient(
     selectorManager: SelectorManager,
     host: String,
-    handlePacket: suspend (
-        MinecraftClientConnection,
-        MinecraftClientNegotiationResult,
-        ClientboundPacket,
-    ) -> Unit,
+    handlePacket: suspend (MinecraftClientConnection, MinecraftClientNegotiationResult, ClientboundPacket) -> Unit,
 ) {
     MinecraftClientConnection.connect(selectorManager, host).use { minecraftClientConnection ->
         val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(MinecraftOfflineIdentity("Player"))
-
         for (clientboundPacket in minecraftClientConnection.incoming) {
             handlePacket(minecraftClientConnection, minecraftClientNegotiationResult, clientboundPacket)
         }
@@ -86,49 +50,26 @@ suspend fun runClient(
 }
 ```
 
-The caller owns the single packet loop after negotiation returns. That loop applies the initial player position before
-replying with `ConfirmTeleportationPacket`, decodes each Chunk batch, and replies to every
-`ChunkBatchFinishedPacket` with `ChunkBatchReceivedPacket`. See
-[`protocol-client`](protocol-client/README.md#receive-the-initial-world) for that progressive flow, custom Configuration
-data, status queries, Chunk/Entity projection, loader profiles, and online Login. Direct official KeepAlive requests are
-answered by the client endpoint and do not appear in this application packet loop.
+After negotiation, the application's packet loop applies world updates and sends teleport and Chunk-batch
+acknowledgements. See [the client guide](protocol-client/README.md#receive-the-initial-world) for that loop and online
+Login.
 
-### Accept clients on a server
+## Server: accept client connections
 
-`MinecraftServer` supplies the listener and typed connection. `negotiate()` stops after the first `PlayLoginPacket`, so
-the server then sends a finite initial world before it starts its application packet loop. The application owns the
-accept loop and chooses one coroutine per connection:
+Bind a listener with vanilla offline defaults, then handle each connection in a child coroutine:
 
 ```kotlin
 suspend fun runServer(
     selectorManager: SelectorManager,
-    handlePacket: suspend (
-        MinecraftServerConnection,
-        MinecraftServerNegotiationResult,
-        ServerboundPacket,
-    ) -> Unit,
+    handlePlay: suspend (MinecraftServerConnection, MinecraftServerNegotiationResult) -> Unit,
 ) = coroutineScope {
     MinecraftServer.bind(selectorManager).use { minecraftServer ->
         while (minecraftServer.isOpen) {
             val minecraftServerConnection = minecraftServer.accept()
             launch {
-                minecraftServerConnection.use minecraftServerConnectionUse@{
-                    val minecraftServerNegotiationResult =
-                        minecraftServerConnection.negotiate() ?: return@minecraftServerConnectionUse
-                    val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
-                        minecraftServerNegotiationResult = minecraftServerNegotiationResult,
-                        chunkRadius = 1,
-                    )
-                    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
-                    minecraftServerConnection.requestFlush()
-
-                    for (serverboundPacket in minecraftServerConnection.incoming) {
-                        handlePacket(
-                            minecraftServerConnection,
-                            minecraftServerNegotiationResult,
-                            serverboundPacket,
-                        )
-                    }
+              minecraftServerConnection.use connectionUse@{
+                val minecraftServerNegotiationResult = minecraftServerConnection.negotiate() ?: return@connectionUse
+                handlePlay(minecraftServerConnection, minecraftServerNegotiationResult)
                 }
             }
         }
@@ -136,110 +77,73 @@ suspend fun runServer(
 }
 ```
 
-`bind()` and `negotiate()` default to the vanilla packet definition, transport behavior, offline authentication,
-negotiation profile, Configuration data, and negotiation policy. `synchronizeInitialWorld()` enqueues the bootstrap, one
-complete Chunk batch, and the finite Entity view; `requestFlush()` publishes them. It does not wait for
-`ConfirmTeleportationPacket` or `ChunkBatchReceivedPacket`, which arrive through the application packet loop. The
-[`protocol-server` guide](protocol-server/README.md#enter-play-and-send-a-finite-world) shows the exact boundary and how
-a long-running server replaces this finite example with feedback-controlled Chunk batches across its own ticks. Preset
-negotiation also starts the official server KeepAlive service; matching replies are validated and consumed before the
-application packet loop.
+`negotiate()` answers Status requests and returns `null`, or completes Login and Configuration and returns an open Play
+connection's result. `handlePlay` then owns world synchronization and the packet loop. The
+[server guide](protocol-server/README.md) covers online authentication, configuration and Chunk flow control.
 
-### Read a world
+## Read and send world data
 
-Use `MinecraftWorldAccess` when your process owns the world directory:
+Continue inside `handlePlay` above, with its connection and negotiation result. Open the world once with
+`MinecraftWorldAccess.open("world".toPath())`, keeping it open until all handlers finish. Prepare these application
+inputs:
+
+- `dimensionChunkReads`: select
+  `world.dimensions[minecraftServerNegotiationResult.minecraftDimensionContext.dimensionId]`
+  and call `.chunks(chunkNbtDecoderContext)` with the [NBT context](world-format/README.md#decode-and-encode-nbt) for
+  that
+  dimension and game-time base; `world` is the opened `MinecraftWorldAccess`.
+- `chunkPacketWriteMappings`: construct `ChunkPacketWriteMappings(blockEntityUpdateTag)` with the application's public
+  update-tag callback. Construct `chunkPacketRequiredDataProvider` as shown in the
+  [server example](protocol-server/README.md#convert-semantic-chunks-to-packets) to supply missing counts/heights/light.
+- `minecraftInitialWorldBootstrap`: construct the player's spawn, abilities and position using the
+  [bootstrap example](protocol-server/README.md#send-only-the-bootstrap). `handlePacket` handles incoming serverbound
+  packets.
+
+This example chooses air/plains defaults for both the NBT context and packet encoder. The shortcut takes dimension and
+registry facts directly from the negotiation result:
 
 ```kotlin
-suspend fun readChunk(
-    worldPath: Path,
-    chunkPosition: ChunkPosition,
-    chunkNbtCodec: ChunkNbtCodec<BlockStateDescriptor, String>,
-): Chunk<BlockStateDescriptor, String>? = MinecraftWorldAccess.open(worldPath).use { minecraftWorldAccess ->
-    minecraftWorldAccess.dimensions.overworld.openRegion(chunkPosition.regionPosition).use { regionHandle ->
-        regionHandle.readChunk(chunkPosition, chunkNbtCodec)
+val chunkPacketEncoder = minecraftServerNegotiationResult.chunkPacketEncoder(
+  defaultBlockState = BlockState(BlockId("minecraft:air")),
+  defaultBiome = BiomeId("minecraft:plains"),
+  chunkPacketWriteMappings = chunkPacketWriteMappings,
+  chunkPacketRequiredDataProvider = chunkPacketRequiredDataProvider,
+)
+coroutineScope {
+  launch {
+    val decoded = requireNotNull(dimensionChunkReads.readChunk(ChunkPosition(0, 0)))
+    check(decoded.chunk.isFullyGenerated)
+    minecraftServerConnection.synchronizeInitialWorld(
+      MinecraftInitialWorld(minecraftInitialWorldBootstrap, listOf(decoded.chunk), chunkPacketEncoder),
+    )
+    minecraftServerConnection.requestFlush()
+  }
+  for (serverboundPacket in minecraftServerConnection.incoming) {
+    handlePacket(serverboundPacket)
     }
 }
 ```
 
-Use `LiveMinecraftWorldAccess` for read-only observation of a world that another process may be changing. The live world
-access itself has no close lifecycle, but each live Chunk, Entity, or POI Region handle is a synchronous `use` resource
-that independently retains its `.mca` file for consecutive reads. See [`world-format`](world-format/README.md) for
-constructing the codec and [`world-io`](world-io/README.md) for scopes, consistency limits, locking, writes, Entity and
-POI Regions, stateless stores, exact-path access, standalone files, and data packs.
+`handlePacket` receives teleport and Chunk-batch acknowledgements while the sender enqueues the bootstrap and one Chunk
+batch. The decoded Chunk is ordinary mutable data, so application code can modify
+it before sending. The [complete disk/memory/network flow](world-io/README.md#disk-to-memory-to-packets) shows the
+conversion boundaries in more detail. The linked module guides show both explicit codec construction and shortcuts.
 
-### Move world data between disk, memory, and packets
+## Demos
 
-The three paths compose at public values while keeping filesystem, semantic formats, packet projection, and transport in
-their owning modules:
-
-1. **Server disk → computational values.** Open one `MinecraftWorldAccess`, read the enabled data packs and
-   `WorldGenSettingsData`, and call `resolveMinecraftWorld()`. The resulting per-dimension `MinecraftChunkContext`
-   supplies the ordinary Region's `chunkNbtCodec`; Entity and POI Region handles directly return
-   `EntityChunk<NbtCompound>` and `PoiChunk`. The complete code is in
-   [`world-io`](world-io/README.md#read-computational-world-values-from-disk).
-2. **Server memory → clientbound network.** Encode each semantic Chunk with
-   `minecraftChunkContext.packetEncoder(isAir, hasFluid)`, then send the snapshots through
-   `synchronizeInitialWorld()` or send later packets inside explicit Chunk batch boundaries. Persisted Entities first
-   need connection-local runtime IDs and tracking state before `toMinecraftEntitySnapshot()` can create pairing bundles.
-   See the [`protocol-server` Chunk path](protocol-server/README.md#convert-semantic-chunks-to-packets) and
-   [Entity path](protocol-server/README.md#send-entity-pairing-bundles). `PoiChunk` has no vanilla clientbound packet.
-3. **Client network → computational values.** `MinecraftClientConnection.incoming` yields typed packets. After
-   negotiation, build a decoder with
-   `minecraftDimensionContext.createMinecraftChunkContext().packetDecoder()` and decode each complete
-   `ChunkDataAndUpdateLightPacket`; use `MinecraftEntityPacketDecoder` for Entity pairing bundles. The
-   [`protocol-client` examples](protocol-client/README.md#decode-chunk-packets) show both operations and the
-   [current projection boundary](protocol-client/README.md#know-the-client-projection-boundary): later incremental Chunk
-   and Entity packets are typed but must be applied to application-owned state.
-
-Only the semantic `Chunk` has a direct full-payload projection on both disk and network paths. `EntityChunk` is a
-persistent grouping whereas the client receives runtime `Entity` state, and POI remains server-side storage. A
-packet-derived Chunk is computationally usable but not a complete persistent record: its storage metadata is absent and
-its Block Entity tags contain only the server's update payload. Writing it to disk therefore requires an explicit merge
-or reconstruction of the omitted persistent state.
-
-Callers working directly between a packet value and an encoded payload can use
-[`PacketRegistry`](protocol-serialization/README.md#compose-a-packet-registry); framing, compression envelopes,
-encryption, and sockets remain in `protocol-transport` and `protocol-session`.
+- [Launcher](demo/launcher/README.md): terminal account management, official-version installation and game launch.
+- [Web map](demo/web-map/README.md): live world inspection with a browser map and official block textures.
 
 ## Build and test
 
-Requirements:
-
-- a JDK whose `java` command is on `PATH`; the required major version is selected in `BuildVersions.JAVA_VERSION`;
-- an Android SDK only when building Android targets;
-- network access for the first dependency download and for official-peer fixture preparation.
-
-Use the checked-in Gradle wrapper:
-
-```shell
-./gradlew build
-./gradlew :protocol-serialization:jvmTest
-./gradlew jvmTest
-./gradlew allTests
-```
-
-On Windows, use `./gradlew.bat` or `.\gradlew.bat` from PowerShell.
-
-Repository contributors can find the private development layers in the [`buildSrc`](buildSrc/README.md),
-[`protocol-symbol-processor`](protocol-symbol-processor/README.md),
-[`minecraft-test-support`](minecraft-test-support/README.md), and
-[`minecraft-test-fixture-host`](minecraft-test-fixture-host/README.md) guides. They are build and test infrastructure,
-not application dependencies.
-
-## Minecraft release
-
-The repository aligns all Minecraft-dependent modules to one selected release. Generated code exposes its release and
-protocol number:
-
-```kotlin
-val minecraftVersion = MinecraftProtocol.MINECRAFT_VERSION
-val protocolVersion = MinecraftProtocol.PROTOCOL_VERSION
-```
-
-Print the selected release without reading build source:
+Use the checked-in Gradle wrapper and a `java` on `PATH` matching `BuildVersions.JAVA_VERSION` or newer. Android builds
+also require the Android SDK. Initial builds and official-peer tests may download prepared artifacts.
 
 ```shell
 ./gradlew -q minecraftVersion
+./gradlew :protocol-serialization:jvmTest
+./gradlew allTests
 ```
 
-Each runtime-module README documents its own public entry points and examples.
+On Windows use `.\gradlew.bat`. [buildSrc](buildSrc/README.md) documents artifact preparation and test infrastructure;
+[AGENTS.md](AGENTS.md) contains contributor rules. Runtime consumers do not need the private generators or fixtures.

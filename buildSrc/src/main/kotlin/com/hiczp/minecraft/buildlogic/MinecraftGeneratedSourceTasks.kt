@@ -20,14 +20,14 @@ abstract class GenerateMinecraftProtocolSourceTask :
 
     @TaskAction
     fun generate() {
-        val minecraftProtocolTarget = targetFile.asFile.get().toPath()
+        val officialMinecraftTarget = targetFile.asFile.get().toPath()
             .readOfficialMinecraftTargetReport()
-            .minecraftProtocolTarget
-        val source = renderMinecraftProtocolSource(minecraftProtocolTarget)
+            .officialMinecraftTarget
+        val source = renderMinecraftProtocolSource(officialMinecraftTarget)
         val output = outputFile.asFile.get().toPath()
         output.atomicWriteText(source)
         logger.lifecycle(
-            "Generated Minecraft ${minecraftProtocolTarget.minecraftVersion} protocol ${minecraftProtocolTarget.protocolVersion}: $output",
+            "Generated Minecraft ${officialMinecraftTarget.minecraftVersion} protocol ${officialMinecraftTarget.protocolVersion}: $output",
         )
     }
 }
@@ -44,19 +44,19 @@ abstract class GenerateMinecraftWorldFormatSourceTask :
 
     @TaskAction
     fun generate() {
-        val minecraftProtocolTarget = targetFile.asFile.get().toPath()
+        val officialMinecraftTarget = targetFile.asFile.get().toPath()
             .readOfficialMinecraftTargetReport()
-            .minecraftProtocolTarget
-        val source = renderMinecraftWorldFormatSource(minecraftProtocolTarget.worldVersion)
+            .officialMinecraftTarget
+        val source = renderMinecraftWorldFormatSource(officialMinecraftTarget.worldVersion)
         val output = outputFile.asFile.get().toPath()
         output.atomicWriteText(source)
         logger.lifecycle(
-            "Generated Minecraft world format ${minecraftProtocolTarget.worldVersion}: $output",
+            "Generated Minecraft world format ${officialMinecraftTarget.worldVersion}: $output",
         )
     }
 }
 
-internal fun renderMinecraftProtocolSource(minecraftProtocolTarget: MinecraftProtocolTarget): String =
+internal fun renderMinecraftProtocolSource(officialMinecraftTarget: OfficialMinecraftTarget): String =
     FileSpec.builder(
         "com.hiczp.minecraft.protocol.model",
         "MinecraftProtocol",
@@ -67,12 +67,12 @@ internal fun renderMinecraftProtocolSource(minecraftProtocolTarget: MinecraftPro
             )
             .addProperty(
                 PropertySpec.builder("MINECRAFT_VERSION", String::class, CONST)
-                    .initializer("%S", minecraftProtocolTarget.minecraftVersion)
+                    .initializer("%S", officialMinecraftTarget.minecraftVersion)
                     .build(),
             )
             .addProperty(
                 PropertySpec.builder("PROTOCOL_VERSION", Int::class, CONST)
-                    .initializer("%L", minecraftProtocolTarget.protocolVersion)
+                    .initializer("%L", officialMinecraftTarget.protocolVersion)
                     .build(),
             )
             .build(),

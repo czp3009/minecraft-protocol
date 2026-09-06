@@ -1,18 +1,19 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaDataPacks
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaRegistryData
-import com.hiczp.minecraft.protocol.datapack.vanilla.toVanillaProtocolData
-import com.hiczp.minecraft.protocol.datapack.vanilla.vanillaDataPackRegistryProjectors
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaRegistryData
+import com.hiczp.minecraft.protocol.configuration.vanilla.toVanillaConfigurationData
+import com.hiczp.minecraft.protocol.configuration.vanilla.vanillaDataPackRegistryProjectors
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.test.*
+import com.hiczp.minecraft.world.format.EntityVector3d
 import com.hiczp.minecraft.world.format.datapack.DataPack
 import com.hiczp.minecraft.world.format.datapack.DataPackId
 import com.hiczp.minecraft.world.format.datapack.DataPackStack
+import com.hiczp.minecraft.world.format.datapack.vanilla.VanillaDataPacks
 import io.ktor.network.selector.*
 import kotlinx.coroutines.*
 import kotlin.time.Duration
@@ -36,7 +37,7 @@ internal object HeadlessClientEndToEndRunner {
         "official-client-cookie".encodeToByteArray(),
     )
     private val OPTIONS = MinecraftServerNegotiationOptions(
-        protocolData = projectedVanillaProtocolData(),
+        configurationData = projectedVanillaConfigurationData(),
         compressionThreshold = 64,
         viewDistance = 2,
         simulationDistance = 5,
@@ -44,7 +45,7 @@ internal object HeadlessClientEndToEndRunner {
     )
 
     /** Exercises every release-matched default disk-JSON to network-NBT registry projector. */
-    private fun projectedVanillaProtocolData() = VanillaDataPacks.coreDataPackStack.resolve(
+    private fun projectedVanillaConfigurationData() = VanillaDataPacks.coreDataPackStack.resolve(
         VanillaDataPacks.dataPackFormatVersion,
     ).let { resolvedCoreDataPackStack ->
         val projectedDataPack = DataPack(
@@ -62,7 +63,7 @@ internal object HeadlessClientEndToEndRunner {
                 }
             },
         )
-        DataPackStack(projectedDataPack).toVanillaProtocolData()
+        DataPackStack(projectedDataPack).toVanillaConfigurationData()
     }
 
     suspend fun run() {
@@ -97,7 +98,7 @@ internal object HeadlessClientEndToEndRunner {
             }
             val wrapped = AssertionError(
                 """
-                |Official client -> production initial-world E2E failed.
+                |Official client -> production initial-world E2E failed: $failure
                 |--- official client log ---
                 |$clientLog
                 """.trimMargin(),
@@ -197,7 +198,7 @@ internal object HeadlessClientEndToEndRunner {
     private suspend fun awaitPlayRoundTrip(
         minecraftServerConnection: MinecraftServerConnection,
         headlessMinecraftClient: HeadlessMinecraftClient,
-    ) {
+    ) = coroutineScope {
         check(MinecraftTestSupport.isAlive(headlessMinecraftClient)) {
             "Official client exited with ${MinecraftTestSupport.exitCode(headlessMinecraftClient)}"
         }
@@ -214,43 +215,23 @@ internal object HeadlessClientEndToEndRunner {
         checkNotNull(ready) {
             "Official client connection completed Status instead of entering Play"
         }
-        val recordingKeepAlive = minecraftServerConnection.enableRecordingPlayKeepAlive(5.seconds)
         try {
-            val pig = MinecraftEntitySnapshot(
-                entityId = 2,
-                uuid = Uuid.fromLongs(0, 2),
-                type = Identifier("pig"),
-                position = Vector3d(3.5, 65.0, 3.5),
+            val pig = testEntity(2, "pig", EntityVector3d(3.5, 65.0, 3.5))
+            val arrow = testEntity(3, "arrow", EntityVector3d(2.5, 66.0, 2.5), EntityVector3d(0.05, 0.0, 0.0))
+            val minecart = testEntity(4, "minecart", EntityVector3d(4.5, 65.0, 4.5))
+            val horse = testEntity(5, "horse", EntityVector3d(5.5, 65.0, 5.5))
+            val batch = testEntityBatch(
+                minecraftServerConnection.packetCodecContext, listOf(pig, arrow, minecart, horse),
+                mapOf(pig.uuid to 2, arrow.uuid to 3, minecart.uuid to 4, horse.uuid to 5),
             )
-            val arrow = MinecraftEntitySnapshot(
-                entityId = 3,
-                uuid = Uuid.fromLongs(0, 3),
-                type = Identifier("arrow"),
-                position = Vector3d(2.5, 66.0, 2.5),
-                velocity = Vector3d(0.05, 0.0, 0.0),
+            val minecraftInitialWorld = testInitialWorld(
+                minecraftServerNegotiationResult = ready, entityBatches = listOf(batch),
             )
-            val minecart = MinecraftEntitySnapshot(
-                entityId = 4,
-                uuid = Uuid.fromLongs(0, 4),
-                type = Identifier("minecart"),
-                position = Vector3d(4.5, 65.0, 4.5),
-            )
-            val horse = MinecraftEntitySnapshot(
-                entityId = 5,
-                uuid = Uuid.fromLongs(0, 5),
-                type = Identifier("horse"),
-                position = Vector3d(5.5, 65.0, 5.5),
-            )
-            val minecraftInitialWorld = MinecraftInitialWorld.flatVanilla(
-                minecraftServerNegotiationResult = ready,
-                entities = listOf(pig, arrow, minecart, horse),
-            )
-            runProtocolStage("managed Play KeepAlive request") {
-                recordingKeepAlive.requestCreated.await()
-            }
-            runProtocolStage("initial-world synchronization") {
-                minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
-                minecraftServerConnection.requestFlush()
+            val initialWorldSync = launch {
+                runProtocolStage("initial-world synchronization") {
+                    minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+                    minecraftServerConnection.requestFlush()
+                }
             }
             val observed = mutableListOf<String>()
             var teleportAcknowledged = false
@@ -271,13 +252,13 @@ internal object HeadlessClientEndToEndRunner {
                 )
                 observed += packet::class.simpleName ?: "<anonymous>"
                 when (packet) {
-                    is ConfirmTeleportationPacket ->
+                    is ServerboundAcceptTeleportationPacket ->
                         teleportAcknowledged =
-                            packet.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId
+                            packet.id == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId
 
-                    is ChunkBatchReceivedPacket -> chunkBatchAcknowledged = true
+                    is ServerboundChunkBatchReceivedPacket -> chunkBatchAcknowledged = true
 
-                    is ClientTickEndPacket -> clientTickObserved = true
+                    is ServerboundClientTickEndPacket -> clientTickObserved = true
 
                     else -> Unit
                 }
@@ -294,18 +275,36 @@ internal object HeadlessClientEndToEndRunner {
             ) {
                 "Initial acknowledgements incomplete: $initialState; packets=${observed.joinToString()}"
             }
+            initialWorldSync.join()
+            // Start the short observation probe only after the client acknowledges its initial world.
+            // Production negotiation keeps its normal KeepAlive active throughout initial synchronization.
+            val recordingKeepAlive = minecraftServerConnection.enableRecordingPlayKeepAlive(5.seconds)
             runProtocolStage("managed Play KeepAlive round trip") {
-                recordingKeepAlive.roundTrip.await()
+                coroutineScope {
+                    // Keep draining ordinary client ticks so backpressure cannot hide the managed reply.
+                    val incoming = launch {
+                        while (isActive) {
+                            val packet = receiveForStage(minecraftServerConnection, "waiting for managed KeepAlive")
+                            observed += packet::class.simpleName ?: "<anonymous>"
+                        }
+                    }
+                    try {
+                        recordingKeepAlive.roundTrip.await()
+                    } finally {
+                        incoming.cancelAndJoin()
+                    }
+                }
             }
 
             runProtocolStage("Play packet coverage") {
                 exercisePlayPackets(
                     minecraftServerConnection = minecraftServerConnection,
-                    playerEntityId = ready.playLoginPacket.playerId,
-                    minecraftEntitySnapshot = pig,
-                    projectile = arrow,
-                    vehicle = minecart,
-                    horse = horse,
+                    playerEntityId = ready.clientboundLoginPacket.playerId,
+                    pigEntityId = 2,
+                    pigPosition = Vector3d(pig.position.x, pig.position.y, pig.position.z),
+                    projectileEntityId = 3,
+                    vehicleEntityId = 4,
+                    horseEntityId = 5,
                     nextTeleportId = minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId + 1,
                     observed = observed,
                 )
@@ -313,7 +312,7 @@ internal object HeadlessClientEndToEndRunner {
             runProtocolStage("Respawn coverage") {
                 exerciseRespawn(
                     minecraftServerConnection = minecraftServerConnection,
-                    playLoginPacket = ready.playLoginPacket,
+                    clientboundLoginPacket = ready.clientboundLoginPacket,
                     minecraftInitialWorld = minecraftInitialWorld.copy(
                         minecraftInitialWorldBootstrap = minecraftInitialWorld.minecraftInitialWorldBootstrap.copy(
                             teleportId = minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId + 2,
@@ -325,7 +324,7 @@ internal object HeadlessClientEndToEndRunner {
             runProtocolStage("reconfiguration coverage") {
                 exerciseReconfiguration(
                     minecraftServerConnection = minecraftServerConnection,
-                    playLoginPacket = ready.playLoginPacket,
+                    clientboundLoginPacket = ready.clientboundLoginPacket,
                     minecraftInitialWorld = minecraftInitialWorld,
                     observedPlayPackets = observed,
                 )
@@ -341,10 +340,11 @@ internal object HeadlessClientEndToEndRunner {
     private suspend fun exercisePlayPackets(
         minecraftServerConnection: MinecraftServerConnection,
         playerEntityId: Int,
-        minecraftEntitySnapshot: MinecraftEntitySnapshot,
-        projectile: MinecraftEntitySnapshot,
-        vehicle: MinecraftEntitySnapshot,
-        horse: MinecraftEntitySnapshot,
+        pigEntityId: Int,
+        pigPosition: Vector3d,
+        projectileEntityId: Int,
+        vehicleEntityId: Int,
+        horseEntityId: Int,
         nextTeleportId: Int,
         observed: MutableList<String>,
     ) {
@@ -375,7 +375,7 @@ internal object HeadlessClientEndToEndRunner {
         val furnaceContainerTypeId = VanillaRegistryData
             .requireRegistry(Identifier("menu"))
             .requireRawId(Identifier("furnace"))
-        val emptyLight = LightUpdateData(
+        val emptyLight = ClientboundLightUpdatePacketData(
             skyYMask = BitSet(longArrayOf()),
             blockYMask = BitSet(longArrayOf()),
             emptySkyYMask = BitSet(longArrayOf()),
@@ -384,20 +384,20 @@ internal object HeadlessClientEndToEndRunner {
             blockUpdates = emptyList(),
         )
         val packets = listOf(
-            SetExperiencePacket(
-                experienceBar = 0.5f,
-                level = 5,
+            ClientboundSetExperiencePacket(
+                experienceProgress = 0.5f,
+                experienceLevel = 5,
                 totalExperience = 10,
             ),
-            SetHealthPacket(
+            ClientboundSetHealthPacket(
                 health = 20.0f,
                 food = 20,
                 saturation = 5.0f,
             ),
-            ClientboundSetHeldItemPacket(slot = 1),
-            UpdateTimePacket(
+            ClientboundSetHeldSlotPacket(slot = 1),
+            ClientboundSetTimePacket(
                 gameTime = 6_000,
-                clocks = mapOf(
+                clockUpdates = mapOf(
                     0 to ClockNetworkState(
                         totalTicks = 6_000,
                         partialTick = 0.25f,
@@ -405,43 +405,43 @@ internal object HeadlessClientEndToEndRunner {
                     ),
                 ),
             ),
-            SetTitleAnimationTimesPacket(
-                fadeInTicks = 1,
-                stayTicks = 5,
-                fadeOutTicks = 1,
+            ClientboundSetTitlesAnimationPacket(
+                fadeIn = 1,
+                stay = 5,
+                fadeOut = 1,
             ),
-            SetTitleTextPacket(
+            ClientboundSetTitleTextPacket(
                 TextComponent.literal("minecraft-protocol E2E"),
             ),
-            SetSubtitleTextPacket(
+            ClientboundSetSubtitleTextPacket(
                 TextComponent.literal(
                     "official ${MinecraftProtocol.MINECRAFT_VERSION} client",
                 ),
             ),
-            SystemChatMessagePacket(
+            ClientboundSystemChatPacket(
                 content = TextComponent.literal(
                     "Protocol clientbound packets accepted",
                 ),
                 overlay = false,
             ),
-            SetTabListHeaderAndFooterPacket(
+            ClientboundTabListPacket(
                 header = TextComponent.literal("minecraft-protocol"),
                 footer = TextComponent.literal("headless E2E"),
             ),
-            GameRuleValuesPacket(emptyMap()),
-            SetEntityVelocityPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                velocity = Vector3d(0.01, 0.0, -0.01),
+            ClientboundGameRuleValuesPacket(emptyMap()),
+            ClientboundSetEntityMotionPacket(
+                id = pigEntityId,
+                movement = Vector3d(0.01, 0.0, -0.01),
             ),
-            UpdateEntityPositionPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                deltaX = 64,
-                deltaY = 0,
-                deltaZ = -64,
+            ClientboundMoveEntityPacket.Pos(
+                entityId = pigEntityId,
+                xa = 64,
+                ya = 0,
+                za = -64,
                 onGround = true,
             ),
-            TeleportEntityPacket(
-                entityId = minecraftEntitySnapshot.entityId,
+            ClientboundEntityPositionSyncPacket(
+                id = pigEntityId,
                 values = PositionMoveRotation(
                     position = Vector3d(3.75, 65.0, 3.25),
                     deltaMovement = Vector3d(0.0, 0.0, 0.0),
@@ -450,7 +450,7 @@ internal object HeadlessClientEndToEndRunner {
                 ),
                 onGround = true,
             ),
-            PlayCustomReportDetailsPacket(
+            ClientboundCustomReportDetailsPacket(
                 listOf(
                     ReportDetail(
                         title = "E2E",
@@ -458,42 +458,42 @@ internal object HeadlessClientEndToEndRunner {
                     ),
                 ),
             ),
-            PlayServerLinksPacket(emptyList()),
-            ClearDialogPacket,
-            EntityAnimationPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                animationId = 0,
+            ClientboundServerLinksPacket(emptyList()),
+            ClientboundClearDialogPacket,
+            ClientboundAnimatePacket(
+                id = pigEntityId,
+                action = 0,
             ),
-            AwardStatisticsPacket(emptyList()),
-            AcknowledgeBlockChangePacket(sequenceId = 0),
-            SetBlockDestroyStagePacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                location = BlockPosition(0, 64, 0),
-                destroyStage = 0,
+            ClientboundAwardStatsPacket(emptyList()),
+            ClientboundBlockChangedAckPacket(sequence = 0),
+            ClientboundBlockDestructionPacket(
+                id = pigEntityId,
+                pos = BlockPosition(0, 64, 0),
+                progress = 0,
             ),
-            SetBlockDestroyStagePacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                location = BlockPosition(0, 64, 0),
-                destroyStage = 255,
+            ClientboundBlockDestructionPacket(
+                id = pigEntityId,
+                pos = BlockPosition(0, 64, 0),
+                progress = 255,
             ),
-            BlockUpdatePacket(
-                location = BlockPosition(0, 65, 0),
-                blockStateId = 0,
+            ClientboundBlockUpdatePacket(
+                pos = BlockPosition(0, 65, 0),
+                blockState = 0,
             ),
-            BlockActionPacket(
-                location = BlockPosition(0, 64, 0),
-                actionId = 0,
-                actionParameter = 0,
-                blockTypeId = blockTypeId,
+            ClientboundBlockEventPacket(
+                pos = BlockPosition(0, 64, 0),
+                b0 = 0,
+                b1 = 0,
+                block = blockTypeId,
             ),
-            BlockEntityDataPacket(
-                location = BlockPosition(0, 65, 0),
-                typeId = blockEntityTypeId,
-                data = NbtCompound(emptyMap()),
+            ClientboundBlockEntityDataPacket(
+                pos = BlockPosition(0, 65, 0),
+                type = blockEntityTypeId,
+                tag = NbtCompound(emptyMap()),
             ),
-            BossBarPacket(
-                uuid = bossBarId,
-                action = BossBarAction.Add(
+            ClientboundBossEventPacket(
+                id = bossBarId,
+                operation = BossBarAction.Add(
                     title = TextComponent.literal("Headless E2E"),
                     health = 1.0f,
                     color = BossBarColor.GREEN,
@@ -501,50 +501,50 @@ internal object HeadlessClientEndToEndRunner {
                     flags = 0,
                 ),
             ),
-            BossBarPacket(
-                uuid = bossBarId,
-                action = BossBarAction.UpdateHealth(0.5f),
+            ClientboundBossEventPacket(
+                id = bossBarId,
+                operation = BossBarAction.UpdateHealth(0.5f),
             ),
-            BossBarPacket(
-                uuid = bossBarId,
-                action = BossBarAction.UpdateTitle(
+            ClientboundBossEventPacket(
+                id = bossBarId,
+                operation = BossBarAction.UpdateTitle(
                     TextComponent.literal("Protocol probe"),
                 ),
             ),
-            BossBarPacket(
-                uuid = bossBarId,
-                action = BossBarAction.UpdateStyle(
+            ClientboundBossEventPacket(
+                id = bossBarId,
+                operation = BossBarAction.UpdateStyle(
                     color = BossBarColor.BLUE,
                     division = BossBarDivision.SIX_NOTCHES,
                 ),
             ),
-            BossBarPacket(
-                uuid = bossBarId,
-                action = BossBarAction.UpdateFlags(0),
+            ClientboundBossEventPacket(
+                id = bossBarId,
+                operation = BossBarAction.UpdateFlags(0),
             ),
-            BossBarPacket(
-                uuid = bossBarId,
-                action = BossBarAction.Remove,
+            ClientboundBossEventPacket(
+                id = bossBarId,
+                operation = BossBarAction.Remove,
             ),
-            ChunkBiomesPacket(emptyList()),
-            ClearTitlesPacket(reset = true),
-            ClientboundCloseContainerPacket(containerId = 0),
-            SetCooldownPacket(
+            ClientboundChunksBiomesPacket(emptyList()),
+            ClientboundClearTitlesPacket(resetTimes = true),
+            ClientboundContainerClosePacket(containerId = 0),
+            ClientboundCooldownPacket(
                 cooldownGroup = Identifier("minecraft-protocol:e2e"),
-                cooldownTicks = 0,
+                duration = 0,
             ),
-            ChatSuggestionsPacket(
-                action = ChatSuggestionsAction.SET,
+            ClientboundCustomChatCompletionsPacket(
+                action = ClientboundCustomChatCompletionsPacket.Action.SET,
                 entries = listOf("minecraft-protocol-e2e"),
             ),
-            CommandSuggestionsResponsePacket(
+            ClientboundCommandSuggestionsPacket(
                 id = 0,
                 start = 0,
                 length = 0,
-                matches = emptyList(),
+                suggestions = emptyList(),
             ),
-            CommandsPacket(
-                nodes = listOf(
+            ClientboundCommandsPacket(
+                entries = listOf(
                     CommandNode.Root(children = listOf(1)),
                     CommandNode.Literal(
                         name = "minecraft-protocol-e2e",
@@ -554,48 +554,47 @@ internal object HeadlessClientEndToEndRunner {
                 ),
                 rootIndex = 0,
             ),
-            PlayClientboundPluginMessagePacket(
+            ClientboundCustomPayloadPacket(
                 CustomPayload.Brand("minecraft-protocol"),
             ),
-            DamageEventPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                sourceTypeId = 0,
-                sourceCauseEntityId = null,
-                sourceDirectEntityId = null,
+            ClientboundDamageEventPacket(
+                entityId = pigEntityId,
+                sourceType = 0,
+                sourceCauseId = null,
+                sourceDirectId = null,
                 sourcePosition = null,
             ),
-            DebugBlockValuePacket(
-                location = BlockPosition(0, 64, 0),
+            ClientboundDebugBlockValuePacket(
+                blockPos = BlockPosition(0, 64, 0),
                 update = DebugSubscriptionUpdate(
                     type = DebugSubscriptionType.BEE_HIVE,
                     data = null,
                 ),
             ),
-            DebugChunkValuePacket(
-                chunkX = 0,
-                chunkZ = 0,
+            ClientboundDebugChunkValuePacket(
+                chunkPos = ChunkPos(0, 0),
                 update = DebugSubscriptionUpdate(
                     type = DebugSubscriptionType.VILLAGE_SECTION,
                     data = null,
                 ),
             ),
-            DebugEntityValuePacket(
-                entityId = minecraftEntitySnapshot.entityId,
+            ClientboundDebugEntityValuePacket(
+                entityId = pigEntityId,
                 update = DebugSubscriptionUpdate(
                     type = DebugSubscriptionType.BEE,
                     data = null,
                 ),
             ),
-            DebugEventPacket(
+            ClientboundDebugEventPacket(
                 DebugSubscriptionEvent(
                     DebugSubscriptionData.Raid(emptyList()),
                 ),
             ),
-            DebugSamplePacket(
+            ClientboundDebugSamplePacket(
                 sample = listOf(1),
-                type = DebugSampleType.TICK_TIME,
+                debugSampleType = DebugSampleType.TICK_TIME,
             ),
-            DisguisedChatPacket(
+            ClientboundDisguisedChatPacket(
                 message = TextComponent.literal(
                     "Official client accepted disguised chat",
                 ),
@@ -605,11 +604,11 @@ internal object HeadlessClientEndToEndRunner {
                     targetName = null,
                 ),
             ),
-            EntityEventPacket(
-                entityId = minecraftEntitySnapshot.entityId,
+            ClientboundEntityEventPacket(
+                entityId = pigEntityId,
                 eventId = 2,
             ),
-            ExplosionPacket(
+            ClientboundExplodePacket(
                 center = Vector3d(0.5, 65.0, 0.5),
                 radius = 0.0f,
                 blockCount = 0,
@@ -620,72 +619,72 @@ internal object HeadlessClientEndToEndRunner {
                 ),
                 blockParticles = emptyList(),
             ),
-            GameTestHighlightPositionPacket(
-                absolutePosition = BlockPosition(0, 65, 0),
-                relativePosition = BlockPosition(0, 0, 0),
+            ClientboundGameTestHighlightPosPacket(
+                absolutePos = BlockPosition(0, 65, 0),
+                relativePos = BlockPosition(0, 0, 0),
             ),
-            HurtAnimationPacket(
-                entityId = minecraftEntitySnapshot.entityId,
+            ClientboundHurtAnimationPacket(
+                id = pigEntityId,
                 yaw = 15.0f,
             ),
-            InitializeWorldBorderPacket(
-                centerX = 0.0,
-                centerZ = 0.0,
-                oldDiameter = 128.0,
-                newDiameter = 128.0,
-                speedMilliseconds = 0,
-                portalTeleportBoundary = 29_999_984,
+            ClientboundInitializeBorderPacket(
+                newCenterX = 0.0,
+                newCenterZ = 0.0,
+                oldSize = 128.0,
+                newSize = 128.0,
+                lerpTime = 0,
+                newAbsoluteMaxSize = 29_999_984,
                 warningBlocks = 5,
-                warningTimeSeconds = 15,
+                warningTime = 15,
             ),
-            LightUpdatePacket(
-                chunkX = 0,
-                chunkZ = 0,
-                data = emptyLight,
+            ClientboundLightUpdatePacket(
+                x = 0,
+                z = 0,
+                lightData = emptyLight,
             ),
-            LowDiskSpaceWarningPacket,
-            WorldEventPacket(
-                eventId = 1000,
-                location = BlockPosition(0, 65, 0),
+            ClientboundLowDiskSpaceWarningPacket,
+            ClientboundLevelEventPacket(
+                type = 1000,
+                pos = BlockPosition(0, 65, 0),
                 data = 0,
-                disableRelativeVolume = false,
+                globalEvent = false,
             ),
-            ParticlePacket(
+            ClientboundLevelParticlesPacket(
                 overrideLimiter = false,
                 alwaysShow = true,
                 x = 0.5,
                 y = 66.0,
                 z = 0.5,
-                offsetX = 0.0f,
-                offsetY = 0.0f,
-                offsetZ = 0.0f,
+                xDist = 0.0f,
+                yDist = 0.0f,
+                zDist = 0.0f,
                 maxSpeed = 0.0f,
                 count = 1,
                 particle = simpleParticle,
             ),
-            UpdateEntityPositionAndRotationPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                deltaX = 16,
-                deltaY = 0,
-                deltaZ = 16,
-                yaw = Angle.fromDegrees(45.0f),
-                pitch = Angle.fromDegrees(5.0f),
+            ClientboundMoveEntityPacket.PosRot(
+                entityId = pigEntityId,
+                xa = 16,
+                ya = 0,
+                za = 16,
+                yRot = Angle.fromDegrees(45.0f),
+                xRot = Angle.fromDegrees(5.0f),
                 onGround = true,
             ),
-            UpdateEntityRotationPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                yaw = Angle.fromDegrees(60.0f),
-                pitch = Angle.fromDegrees(0.0f),
+            ClientboundMoveEntityPacket.Rot(
+                entityId = pigEntityId,
+                yRot = Angle.fromDegrees(60.0f),
+                xRot = Angle.fromDegrees(0.0f),
                 onGround = true,
             ),
             ClientboundMoveVehiclePacket(
                 position = Vector3d(0.5, 65.0, 0.5),
-                yaw = 0.0f,
-                pitch = 0.0f,
+                yRot = 0.0f,
+                xRot = 0.0f,
             ),
-            MoveMinecartAlongTrackPacket(
-                entityId = vehicle.entityId,
-                steps = listOf(
+            ClientboundMoveMinecartPacket(
+                entityId = vehicleEntityId,
+                lerpSteps = listOf(
                     MinecartStep(
                         position = Vector3d(4.75, 65.0, 4.5),
                         velocity = Vector3d(0.05, 0.0, 0.0),
@@ -695,8 +694,8 @@ internal object HeadlessClientEndToEndRunner {
                     ),
                 ),
             ),
-            SynchronizeVehiclePositionPacket(
-                entityId = vehicle.entityId,
+            ClientboundTeleportEntityPacket(
+                id = vehicleEntityId,
                 change = PositionMoveRotation(
                     position = Vector3d(4.75, 65.0, 4.5),
                     deltaMovement = Vector3d(0.05, 0.0, 0.0),
@@ -706,15 +705,15 @@ internal object HeadlessClientEndToEndRunner {
                 relatives = RelativeMovements(emptySet()),
                 onGround = true,
             ),
-            PongResponsePacket(timestamp = 1),
-            UnloadChunkPacket(chunkX = 2, chunkZ = 2),
-            EnterCombatPacket,
-            EndCombatPacket(durationTicks = 1),
-            PlayerInfoUpdatePacket(
+            ClientboundPongResponsePacket(time = 1),
+            ClientboundForgetLevelChunkPacket(ChunkPos(2, 2)),
+            ClientboundPlayerCombatEnterPacket,
+            ClientboundPlayerCombatEndPacket(duration = 1),
+            ClientboundPlayerInfoUpdatePacket(
                 PlayerInfoUpdatePayload(
-                    actions = PlayerInfoAction.entries.toSet(),
+                    actions = ClientboundPlayerInfoUpdatePacket.Action.entries.toSet(),
                     entries = listOf(
-                        PlayerInfoEntry(
+                        ClientboundPlayerInfoUpdatePacket.Entry(
                             profileId = playerListProfileId,
                             profile = PlayerListProfile(
                                 name = "E2EProbe",
@@ -731,7 +730,7 @@ internal object HeadlessClientEndToEndRunner {
                     ),
                 ),
             ),
-            PlayerChatMessagePacket(
+            ClientboundPlayerChatPacket(
                 globalIndex = 0,
                 sender = playerListProfileId,
                 index = 0,
@@ -752,23 +751,23 @@ internal object HeadlessClientEndToEndRunner {
                     targetName = null,
                 ),
             ),
-            PlayerInfoRemovePacket(listOf(playerListProfileId)),
-            LookAtPacket(
+            ClientboundPlayerInfoRemovePacket(listOf(playerListProfileId)),
+            ClientboundPlayerLookAtPacket(
                 fromAnchor = EntityAnchor.EYES,
                 target = LookTarget.Entity(
-                    fallbackPosition = minecraftEntitySnapshot.position,
-                    entityId = minecraftEntitySnapshot.entityId,
+                    fallbackPosition = pigPosition,
+                    entityId = pigEntityId,
                     anchor = EntityAnchor.EYES,
                 ),
             ),
-            PlayerRotationPacket(
-                yaw = 0.0f,
-                relativeYaw = false,
-                pitch = 0.0f,
-                relativePitch = false,
+            ClientboundPlayerRotationPacket(
+                yRot = 0.0f,
+                relativeY = false,
+                xRot = 0.0f,
+                relativeX = false,
             ),
-            RecipeBookRemovePacket(emptyList()),
-            RecipeBookSettingsPacket(
+            ClientboundRecipeBookRemovePacket(emptyList()),
+            ClientboundRecipeBookSettingsPacket(
                 RecipeBookSettings(
                     crafting = closedRecipeBook,
                     furnace = closedRecipeBook,
@@ -776,118 +775,118 @@ internal object HeadlessClientEndToEndRunner {
                     smoker = closedRecipeBook,
                 ),
             ),
-            RemoveEntitiesPacket(emptyList()),
-            RemoveEntityEffectPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                effectTypeId = 0,
+            ClientboundRemoveEntitiesPacket(emptyList()),
+            ClientboundRemoveMobEffectPacket(
+                entityId = pigEntityId,
+                effect = 0,
             ),
-            PlayRemoveResourcePackPacket(id = null),
-            SetHeadRotationPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                headYaw = Angle.fromDegrees(75.0f),
+            ClientboundResourcePackPopPacket(id = null),
+            ClientboundRotateHeadPacket(
+                entityId = pigEntityId,
+                yHeadRot = Angle.fromDegrees(75.0f),
             ),
-            UpdateSectionBlocksPacket(
-                sectionPosition = SectionPosition(0, 4, 0),
+            ClientboundSectionBlocksUpdatePacket(
+                sectionPos = SectionPosition(0, 4, 0),
                 blocks = emptyList(),
             ),
-            SelectAdvancementsTabPacket(tab = null),
-            ServerDataPacket(
+            ClientboundSelectAdvancementsTabPacket(tab = null),
+            ClientboundServerDataPacket(
                 motd = TextComponent.literal("minecraft-protocol E2E"),
-                iconPng = null,
+                iconBytes = null,
             ),
-            SetActionBarTextPacket(
+            ClientboundSetActionBarTextPacket(
                 TextComponent.literal("Headless client packet probes"),
             ),
-            SetBorderCenterPacket(x = 0.0, z = 0.0),
-            SetBorderLerpSizePacket(
-                oldDiameter = 128.0,
-                newDiameter = 96.0,
-                speedMilliseconds = 1,
+            ClientboundSetBorderCenterPacket(newCenterX = 0.0, newCenterZ = 0.0),
+            ClientboundSetBorderLerpSizePacket(
+                oldSize = 128.0,
+                newSize = 96.0,
+                lerpTime = 1,
             ),
-            SetBorderSizePacket(diameter = 128.0),
-            SetBorderWarningDelayPacket(warningTimeSeconds = 15),
-            SetBorderWarningDistancePacket(warningBlocks = 5),
-            SetCameraPacket(cameraEntityId = playerEntityId),
-            SetEntityMetadataPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                metadata = EntityMetadata(emptyList()),
+            ClientboundSetBorderSizePacket(size = 128.0),
+            ClientboundSetBorderWarningDelayPacket(warningDelay = 15),
+            ClientboundSetBorderWarningDistancePacket(warningBlocks = 5),
+            ClientboundSetCameraPacket(cameraId = playerEntityId),
+            ClientboundSetEntityDataPacket(
+                id = pigEntityId,
+                packedItems = EntityMetadata(emptyList()),
             ),
-            LinkEntitiesPacket(
-                attachedEntityId = minecraftEntitySnapshot.entityId,
-                holdingEntityId = 0,
+            ClientboundSetEntityLinkPacket(
+                sourceId = pigEntityId,
+                destId = 0,
             ),
-            SetPassengersPacket(
-                vehicleEntityId = vehicle.entityId,
-                passengerEntityIds = listOf(minecraftEntitySnapshot.entityId),
+            ClientboundSetPassengersPacket(
+                vehicle = vehicleEntityId,
+                passengers = listOf(pigEntityId),
             ),
-            SetPassengersPacket(
-                vehicleEntityId = vehicle.entityId,
-                passengerEntityIds = emptyList(),
+            ClientboundSetPassengersPacket(
+                vehicle = vehicleEntityId,
+                passengers = emptyList(),
             ),
-            OpenBookPacket(InteractionHand.MAIN_HAND),
-            OpenScreenPacket(
+            ClientboundOpenBookPacket(InteractionHand.MAIN_HAND),
+            ClientboundOpenScreenPacket(
                 containerId = 1,
-                menuTypeId = genericContainerTypeId,
+                type = genericContainerTypeId,
                 title = TextComponent.literal("Headless E2E"),
             ),
-            SetContainerContentPacket(
+            ClientboundContainerSetContentPacket(
                 containerId = 1,
                 stateId = 0,
                 items = List(45) { ItemStack.Empty },
                 carriedItem = ItemStack.Empty,
             ),
-            SetContainerSlotPacket(
+            ClientboundContainerSetSlotPacket(
                 containerId = 1,
                 stateId = 1,
                 slot = 0,
-                item = ItemStack.Empty,
+                itemStack = ItemStack.Empty,
             ),
-            ClientboundCloseContainerPacket(containerId = 1),
-            OpenScreenPacket(
+            ClientboundContainerClosePacket(containerId = 1),
+            ClientboundOpenScreenPacket(
                 containerId = 2,
-                menuTypeId = merchantContainerTypeId,
+                type = merchantContainerTypeId,
                 title = TextComponent.literal("Merchant E2E"),
             ),
-            MerchantOffersPacket(
+            ClientboundMerchantOffersPacket(
                 containerId = 2,
                 offers = emptyList(),
                 villagerLevel = 1,
-                villagerExperience = 0,
+                villagerXp = 0,
                 showProgress = false,
                 canRestock = false,
             ),
-            ClientboundCloseContainerPacket(containerId = 2),
-            OpenHorseScreenPacket(
+            ClientboundContainerClosePacket(containerId = 2),
+            ClientboundMountScreenOpenPacket(
                 containerId = 3,
                 inventoryColumns = 2,
-                entityId = horse.entityId,
+                entityId = horseEntityId,
             ),
-            ClientboundCloseContainerPacket(containerId = 3),
-            OpenScreenPacket(
+            ClientboundContainerClosePacket(containerId = 3),
+            ClientboundOpenScreenPacket(
                 containerId = 4,
-                menuTypeId = furnaceContainerTypeId,
+                type = furnaceContainerTypeId,
                 title = TextComponent.literal("Furnace E2E"),
             ),
-            SetContainerPropertyPacket(
+            ClientboundContainerSetDataPacket(
                 containerId = 4,
-                property = 0,
+                id = 0,
                 value = 0,
             ),
-            ClientboundCloseContainerPacket(containerId = 4),
-            SetContainerSlotPacket(
+            ClientboundContainerClosePacket(containerId = 4),
+            ClientboundContainerSetSlotPacket(
                 containerId = -2,
                 stateId = 0,
                 slot = 0,
-                item = ItemStack.Empty,
+                itemStack = ItemStack.Empty,
             ),
-            SetCursorItemPacket(ItemStack.Empty),
-            SetPlayerInventorySlotPacket(
+            ClientboundSetCursorItemPacket(ItemStack.Empty),
+            ClientboundSetPlayerInventoryPacket(
                 slot = 0,
                 contents = ItemStack.Empty,
             ),
-            SetEquipmentPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                updates = EquipmentUpdates(
+            ClientboundSetEquipmentPacket(
+                entity = pigEntityId,
+                slots = EquipmentUpdates(
                     listOf(
                         EquipmentUpdate(
                             slot = EquipmentSlot.MAINHAND,
@@ -896,15 +895,15 @@ internal object HeadlessClientEndToEndRunner {
                     ),
                 ),
             ),
-            EntitySoundEffectPacket(
+            ClientboundSoundEntityPacket(
                 sound = sound,
                 source = SoundSource.NEUTRAL,
-                entityId = minecraftEntitySnapshot.entityId,
+                id = pigEntityId,
                 volume = 0.1f,
                 pitch = 1.0f,
                 seed = 1,
             ),
-            SoundEffectPacket.fromPosition(
+            ClientboundSoundPacket.fromPosition(
                 soundEventHolder = sound,
                 soundSource = SoundSource.MASTER,
                 x = 0.5,
@@ -914,64 +913,62 @@ internal object HeadlessClientEndToEndRunner {
                 pitch = 1.0f,
                 seed = 2,
             ),
-            StopSoundPacket(StopSound(source = null, sound = null)),
-            TagQueryResponsePacket(transactionId = 0, data = null),
-            TestInstanceBlockStatusPacket(
+            ClientboundStopSoundPacket(StopSound(source = null, sound = null)),
+            ClientboundTagQueryPacket(transactionId = 0, tag = null),
+            ClientboundTestInstanceBlockStatus(
                 status = TextComponent.literal("E2E"),
                 size = null,
             ),
-            SetTickingStatePacket(
+            ClientboundTickingStatePacket(
                 tickRate = 20.0f,
-                frozen = false,
+                isFrozen = false,
             ),
-            StepTickPacket(tickSteps = 0),
-            MapDataPacket(
+            ClientboundTickingStepPacket(tickSteps = 0),
+            ClientboundMapItemDataPacket(
                 mapId = 0,
                 scale = 0,
                 locked = false,
                 decorations = null,
                 colorPatch = null,
             ),
-            RecipeBookAddPacket(
+            ClientboundRecipeBookAddPacket(
                 entries = emptyList(),
                 replace = false,
             ),
-            UpdateAdvancementsPacket(
+            ClientboundUpdateAdvancementsPacket(
                 reset = false,
                 added = emptyList(),
                 removed = emptySet(),
                 progress = emptyMap(),
                 showAdvancements = false,
             ),
-            UpdateRecipesPacket(
+            ClientboundUpdateRecipesPacket(
                 itemSets = emptyMap(),
                 stonecutterRecipes = emptyList(),
             ),
-            UpdateAttributesPacket(
-                entityId = minecraftEntitySnapshot.entityId,
+            ClientboundUpdateAttributesPacket(
+                entityId = pigEntityId,
                 attributes = emptyList(),
             ),
-            ProjectilePowerPacket(
-                entityId = projectile.entityId,
-                power = 1.0,
+            ClientboundProjectilePowerPacket(
+                id = projectileEntityId,
+                accelerationPower = 1.0,
             ),
-            EntityEffectPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                effectTypeId = 0,
-                amplifier = 0,
-                durationTicks = 20,
+            ClientboundUpdateMobEffectPacket(
+                entityId = pigEntityId,
+                effect = 0,
+                effectAmplifier = 0,
+                effectDurationTicks = 20,
                 flags = MobEffectFlags(0),
             ),
-            RemoveEntityEffectPacket(
-                entityId = minecraftEntitySnapshot.entityId,
-                effectTypeId = 0,
+            ClientboundRemoveMobEffectPacket(
+                entityId = pigEntityId,
+                effect = 0,
             ),
-            PlayUpdateTagsPacket(
-                OPTIONS.protocolData.registryTags.associate { registryTags ->
-                    registryTags.registry to registryTags.tags
-                },
+            ClientboundUpdateTagsPacket(
+                OPTIONS.configurationData.registryTags,
             ),
-            SetObjectivePacket(
+            ClientboundSetObjectivePacket(
                 objectiveName = "headless-e2e",
                 update = ObjectiveUpdate.Add(
                     displayName = TextComponent.literal("Headless E2E"),
@@ -979,7 +976,7 @@ internal object HeadlessClientEndToEndRunner {
                     numberFormat = null,
                 ),
             ),
-            SetObjectivePacket(
+            ClientboundSetObjectivePacket(
                 objectiveName = "headless-e2e",
                 update = ObjectiveUpdate.Change(
                     displayName = TextComponent.literal("Protocol probes"),
@@ -987,11 +984,11 @@ internal object HeadlessClientEndToEndRunner {
                     numberFormat = NumberFormat.Blank,
                 ),
             ),
-            DisplayObjectivePacket(
+            ClientboundSetDisplayObjectivePacket(
                 slot = DisplaySlot.SIDEBAR,
                 objectiveName = "headless-e2e",
             ),
-            SetScorePacket(
+            ClientboundSetScorePacket(
                 owner = "E2EProbe",
                 objectiveName = "headless-e2e",
                 score = 1,
@@ -1000,22 +997,22 @@ internal object HeadlessClientEndToEndRunner {
                     TextComponent.literal("1"),
                 ),
             ),
-            ResetScorePacket(
+            ClientboundResetScorePacket(
                 owner = "E2EProbe",
                 objectiveName = "headless-e2e",
             ),
-            DisplayObjectivePacket(
+            ClientboundSetDisplayObjectivePacket(
                 slot = DisplaySlot.SIDEBAR,
                 objectiveName = "",
             ),
-            SetObjectivePacket(
+            ClientboundSetObjectivePacket(
                 objectiveName = "headless-e2e",
                 update = ObjectiveUpdate.Remove,
             ),
-            SetPlayerTeamPacket(
-                teamName = "headless-e2e",
+            ClientboundSetPlayerTeamPacket(
+                name = "headless-e2e",
                 update = TeamUpdate.Add(
-                    parameters = TeamParameters(
+                    parameters = ClientboundSetPlayerTeamPacket.Parameters(
                         displayName = TextComponent.literal("Headless E2E"),
                         playerPrefix = TextComponent.literal("[E2E] "),
                         playerSuffix = TextComponent.literal(""),
@@ -1027,10 +1024,10 @@ internal object HeadlessClientEndToEndRunner {
                     players = listOf("E2EProbe"),
                 ),
             ),
-            SetPlayerTeamPacket(
-                teamName = "headless-e2e",
+            ClientboundSetPlayerTeamPacket(
+                name = "headless-e2e",
                 update = TeamUpdate.Change(
-                    TeamParameters(
+                    ClientboundSetPlayerTeamPacket.Parameters(
                         displayName = TextComponent.literal("Protocol probes"),
                         playerPrefix = TextComponent.literal(""),
                         playerSuffix = TextComponent.literal(" [E2E]"),
@@ -1041,20 +1038,20 @@ internal object HeadlessClientEndToEndRunner {
                     ),
                 ),
             ),
-            SetPlayerTeamPacket(
-                teamName = "headless-e2e",
+            ClientboundSetPlayerTeamPacket(
+                name = "headless-e2e",
                 update = TeamUpdate.Join(listOf("SecondProbe")),
             ),
-            SetPlayerTeamPacket(
-                teamName = "headless-e2e",
+            ClientboundSetPlayerTeamPacket(
+                name = "headless-e2e",
                 update = TeamUpdate.Leave(listOf("SecondProbe")),
             ),
-            SetPlayerTeamPacket(
-                teamName = "headless-e2e",
+            ClientboundSetPlayerTeamPacket(
+                name = "headless-e2e",
                 update = TeamUpdate.Remove,
             ),
-            WaypointPacket(
-                operation = WaypointOperation.TRACK,
+            ClientboundTrackedWaypointPacket(
+                operation = ClientboundTrackedWaypointPacket.Operation.TRACK,
                 waypoint = TrackedWaypoint.Position(
                     identifier = waypointId,
                     icon = waypointIcon,
@@ -1063,8 +1060,8 @@ internal object HeadlessClientEndToEndRunner {
                     z = 0,
                 ),
             ),
-            WaypointPacket(
-                operation = WaypointOperation.UPDATE,
+            ClientboundTrackedWaypointPacket(
+                operation = ClientboundTrackedWaypointPacket.Operation.UPDATE,
                 waypoint = TrackedWaypoint.Position(
                     identifier = waypointId,
                     icon = waypointIcon,
@@ -1073,15 +1070,15 @@ internal object HeadlessClientEndToEndRunner {
                     z = 1,
                 ),
             ),
-            WaypointPacket(
-                operation = WaypointOperation.UNTRACK,
+            ClientboundTrackedWaypointPacket(
+                operation = ClientboundTrackedWaypointPacket.Operation.UNTRACK,
                 waypoint = TrackedWaypoint.Empty(
                     identifier = waypointId,
                     icon = waypointIcon,
                 ),
             ),
-            RemoveEntitiesPacket(
-                listOf(projectile.entityId, vehicle.entityId),
+            ClientboundRemoveEntitiesPacket(
+                listOf(projectileEntityId, vehicleEntityId),
             ),
         )
         packets.forEachIndexed { index, packet ->
@@ -1095,9 +1092,9 @@ internal object HeadlessClientEndToEndRunner {
         }
 
         minecraftServerConnection.outgoing.send(
-            PlayStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
+            ClientboundStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
-        minecraftServerConnection.outgoing.send(PlayCookieRequestPacket(COOKIE_KEY))
+        minecraftServerConnection.outgoing.send(ClientboundCookieRequestPacket(COOKIE_KEY))
         var cookieRoundTrip = false
         awaitPlayBarrier(
             minecraftServerConnection = minecraftServerConnection,
@@ -1107,7 +1104,7 @@ internal object HeadlessClientEndToEndRunner {
             additionalComplete = { cookieRoundTrip },
             onPacket = { packet ->
                 if (
-                    packet is PlayCookieResponsePacket &&
+                    packet is ServerboundCookieResponsePacket &&
                     packet.key == COOKIE_KEY
                 ) {
                     check(packet.payload == COOKIE_PAYLOAD) {
@@ -1119,8 +1116,8 @@ internal object HeadlessClientEndToEndRunner {
         )
 
         minecraftServerConnection.outgoing.send(
-            SynchronizePlayerPositionPacket(
-                teleportId = nextTeleportId,
+            ClientboundPlayerPositionPacket(
+                id = nextTeleportId,
                 change = PositionMoveRotation(
                     position = Vector3d(1.5, 65.0, 1.5),
                     deltaMovement = Vector3d(0.0, 0.0, 0.0),
@@ -1139,33 +1136,36 @@ internal object HeadlessClientEndToEndRunner {
             additionalComplete = { teleportAcknowledged },
             onPacket = { packet ->
                 if (
-                    packet is ConfirmTeleportationPacket &&
-                    packet.teleportId == nextTeleportId
+                    packet is ServerboundAcceptTeleportationPacket &&
+                    packet.id == nextTeleportId
                 ) {
                     teleportAcknowledged = true
                 }
             },
         )
-        check(playerEntityId != minecraftEntitySnapshot.entityId) {
+        check(playerEntityId != pigEntityId) {
             "Play probe entity unexpectedly reused the player entity ID"
         }
     }
 
     private suspend fun exerciseRespawn(
         minecraftServerConnection: MinecraftServerConnection,
-        playLoginPacket: PlayLoginPacket,
+        clientboundLoginPacket: ClientboundLoginPacket,
         minecraftInitialWorld: MinecraftInitialWorld,
         observed: MutableList<String>,
-    ) {
-        minecraftServerConnection.outgoing.send(
-            RespawnPacket(
-                spawnInfo = playLoginPacket.spawnInfo,
-                dataToKeep = RespawnPacket.KEEP_ALL_DATA.toByte(),
-            ),
-        )
-        minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
-        minecraftServerConnection.outgoing.send(ClientboundPingPacket(RESPAWN_PING_ID))
-        minecraftServerConnection.requestFlush()
+    ) = coroutineScope {
+        // Send a finite world batch while the parent consumes acknowledgements and ordinary client ticks.
+        launch {
+            minecraftServerConnection.outgoing.send(
+                ClientboundRespawnPacket(
+                    commonPlayerSpawnInfo = clientboundLoginPacket.commonPlayerSpawnInfo,
+                    dataToKeep = ClientboundRespawnPacket.KEEP_ALL_DATA.toByte(),
+                ),
+            )
+            minecraftServerConnection.synchronizeInitialWorld(minecraftInitialWorld)
+            minecraftServerConnection.outgoing.send(ClientboundPingPacket(RESPAWN_PING_ID))
+            minecraftServerConnection.requestFlush()
+        }
 
         var ping = false
         var tick = false
@@ -1189,17 +1189,17 @@ internal object HeadlessClientEndToEndRunner {
             )
             observed += packet::class.simpleName ?: "<anonymous>"
             when (packet) {
-                is PlayPongPacket ->
+                is ServerboundPongPacket ->
                     if (packet.id == RESPAWN_PING_ID) ping = true
 
-                is ConfirmTeleportationPacket ->
-                    if (packet.teleportId == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId) {
+                is ServerboundAcceptTeleportationPacket ->
+                    if (packet.id == minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId) {
                         teleport = true
                     }
 
-                is ChunkBatchReceivedPacket -> chunkBatch = true
-                PlayerLoadedPacket -> playerLoaded = true
-                is ClientTickEndPacket -> tick = true
+                is ServerboundChunkBatchReceivedPacket -> chunkBatch = true
+                ServerboundPlayerLoadedPacket -> playerLoaded = true
+                is ServerboundClientTickEndPacket -> tick = true
                 else -> Unit
             }
         }
@@ -1254,10 +1254,10 @@ internal object HeadlessClientEndToEndRunner {
                 )
                 observed += packet::class.simpleName ?: "<anonymous>"
                 when (packet) {
-                    is PlayPongPacket ->
+                    is ServerboundPongPacket ->
                         if (packet.id == pingId) pingRoundTrip = true
 
-                    is ClientTickEndPacket -> tickObserved = true
+                    is ServerboundClientTickEndPacket -> tickObserved = true
                     else -> Unit
                 }
                 onPacket(packet)
@@ -1281,11 +1281,11 @@ internal object HeadlessClientEndToEndRunner {
 
     private suspend fun exerciseReconfiguration(
         minecraftServerConnection: MinecraftServerConnection,
-        playLoginPacket: PlayLoginPacket,
+        clientboundLoginPacket: ClientboundLoginPacket,
         minecraftInitialWorld: MinecraftInitialWorld,
         observedPlayPackets: MutableList<String>,
-    ) {
-        var playerLoaded = observedPlayPackets.any { it == "PlayerLoadedPacket" }
+    ) = coroutineScope {
+        var playerLoaded = observedPlayPackets.any { it == "ServerboundPlayerLoadedPacket" }
         if (!playerLoaded) {
             awaitPlayBarrier(
                 minecraftServerConnection = minecraftServerConnection,
@@ -1294,11 +1294,11 @@ internal object HeadlessClientEndToEndRunner {
                 observed = observedPlayPackets,
                 additionalComplete = { playerLoaded },
                 onPacket = { packet ->
-                    if (packet == PlayerLoadedPacket) playerLoaded = true
+                    if (packet == ServerboundPlayerLoadedPacket) playerLoaded = true
                 },
             )
         }
-        minecraftServerConnection.outgoing.send(StartConfigurationPacket)
+        minecraftServerConnection.outgoing.send(ClientboundStartConfigurationPacket)
         var acknowledged = false
         var packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (packetBudget-- > 0 && !acknowledged) {
@@ -1308,7 +1308,7 @@ internal object HeadlessClientEndToEndRunner {
             )
             observedPlayPackets +=
                 packet::class.simpleName ?: "<anonymous>"
-            acknowledged = packet == AcknowledgeConfigurationPacket
+            acknowledged = packet == ServerboundConfigurationAcknowledgedPacket
         }
         check(acknowledged) {
             "Official client did not acknowledge reconfiguration"
@@ -1321,21 +1321,21 @@ internal object HeadlessClientEndToEndRunner {
         configurationKeepAlive.requestCreated.await()
 
         minecraftServerConnection.outgoing.send(
-            ConfigurationStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
+            ClientboundStoreCookiePacket(COOKIE_KEY, COOKIE_PAYLOAD),
         )
-        minecraftServerConnection.outgoing.send(ConfigurationCookieRequestPacket(COOKIE_KEY))
+        minecraftServerConnection.outgoing.send(ClientboundCookieRequestPacket(COOKIE_KEY))
         minecraftServerConnection.outgoing.send(
-            ConfigurationPingPacket(CONFIGURATION_PING_ID),
+            ClientboundPingPacket(CONFIGURATION_PING_ID),
         )
         minecraftServerConnection.outgoing.send(
-            ConfigurationClientboundPluginMessagePacket(
+            ClientboundCustomPayloadPacket(
                 CustomPayload.Brand("minecraft-protocol"),
             ),
         )
-        minecraftServerConnection.outgoing.send(ConfigurationRemoveResourcePackPacket(null))
-        minecraftServerConnection.outgoing.send(ResetChatPacket)
+        minecraftServerConnection.outgoing.send(ClientboundResourcePackPopPacket(null))
+        minecraftServerConnection.outgoing.send(ClientboundResetChatPacket)
         minecraftServerConnection.outgoing.send(
-            ConfigurationCustomReportDetailsPacket(
+            ClientboundCustomReportDetailsPacket(
                 listOf(
                     ReportDetail(
                         title = "E2E",
@@ -1344,27 +1344,27 @@ internal object HeadlessClientEndToEndRunner {
                 ),
             ),
         )
-        minecraftServerConnection.outgoing.send(ConfigurationServerLinksPacket(emptyList()))
-        minecraftServerConnection.outgoing.send(ConfigurationClearDialogPacket)
+        minecraftServerConnection.outgoing.send(ClientboundServerLinksPacket(emptyList()))
+        minecraftServerConnection.outgoing.send(ClientboundClearDialogPacket)
         minecraftServerConnection.outgoing.send(
-            FeatureFlagsPacket(OPTIONS.protocolData.enabledFeatureFlags),
+            ClientboundUpdateEnabledFeaturesPacket(OPTIONS.configurationData.enabledFeatureFlags),
         )
         minecraftServerConnection.outgoing.send(
-            ConfigurationClientboundKnownPacksPacket(
-                OPTIONS.protocolData.offeredKnownPacks,
+            ClientboundSelectKnownPacks(
+                OPTIONS.configurationData.offeredKnownPacks,
             ),
         )
 
         var cookieRoundTrip = false
         var pingRoundTrip = false
-        var configurationServerboundKnownPacksPacket: ConfigurationServerboundKnownPacksPacket? = null
+        var serverboundSelectKnownPacks: ServerboundSelectKnownPacks? = null
         packetBudget = MAXIMUM_PACKETS_PER_STAGE
         while (
             packetBudget-- > 0 &&
             !(
                     cookieRoundTrip &&
                             pingRoundTrip &&
-                            configurationServerboundKnownPacksPacket != null
+                            serverboundSelectKnownPacks != null
                     )
         ) {
             val packet = receiveForStage(
@@ -1372,7 +1372,7 @@ internal object HeadlessClientEndToEndRunner {
                 "waiting for Configuration cookie/keepalive/ping/Known Packs",
             )
             when (packet) {
-                is ConfigurationCookieResponsePacket ->
+                is ServerboundCookieResponsePacket ->
                     if (packet.key == COOKIE_KEY) {
                         check(packet.payload == COOKIE_PAYLOAD) {
                             "Official client returned the wrong Configuration cookie"
@@ -1380,13 +1380,13 @@ internal object HeadlessClientEndToEndRunner {
                         cookieRoundTrip = true
                     }
 
-                is ConfigurationPongPacket ->
+                is ServerboundPongPacket ->
                     if (packet.id == CONFIGURATION_PING_ID) {
                         pingRoundTrip = true
                     }
 
-                is ConfigurationServerboundKnownPacksPacket ->
-                    configurationServerboundKnownPacksPacket = packet
+                is ServerboundSelectKnownPacks ->
+                    serverboundSelectKnownPacks = packet
 
                 else -> Unit
             }
@@ -1394,24 +1394,28 @@ internal object HeadlessClientEndToEndRunner {
         val configurationState = listOf(
             "cookie=$cookieRoundTrip",
             "ping=$pingRoundTrip",
-            "knownPacks=${configurationServerboundKnownPacksPacket != null}",
+            "knownPacks=${serverboundSelectKnownPacks != null}",
         ).joinToString()
         check(
             cookieRoundTrip &&
                     pingRoundTrip &&
-                    configurationServerboundKnownPacksPacket != null,
+                    serverboundSelectKnownPacks != null,
         ) {
             "Configuration probes incomplete: $configurationState"
         }
         configurationKeepAlive.roundTrip.await()
-        val acceptedKnownPacks = configurationServerboundKnownPacksPacket.knownPacks
-        OPTIONS.protocolData
+        val acceptedKnownPacks = serverboundSelectKnownPacks.knownPacks
+        OPTIONS.configurationData
             .synchronizedRegistryPackets(acceptedKnownPacks)
-            .forEach { registryDataPacket -> minecraftServerConnection.outgoing.send(registryDataPacket) }
+            .forEach { clientboundRegistryDataPacket ->
+                minecraftServerConnection.outgoing.send(
+                    clientboundRegistryDataPacket
+                )
+            }
         minecraftServerConnection.outgoing.send(
-            ConfigurationUpdateTagsPacket(OPTIONS.protocolData.registryTags),
+            ClientboundUpdateTagsPacket(OPTIONS.configurationData.registryTags),
         )
-        minecraftServerConnection.outgoing.send(FinishConfigurationPacket)
+        minecraftServerConnection.outgoing.send(ClientboundFinishConfigurationPacket)
 
         var completed = false
         packetBudget = MAXIMUM_PACKETS_PER_STAGE
@@ -1420,7 +1424,7 @@ internal object HeadlessClientEndToEndRunner {
                 minecraftServerConnection,
                 "waiting for Finish Configuration acknowledgement",
             )
-            completed = packet == AcknowledgeFinishConfigurationPacket
+            completed = packet == ServerboundFinishConfigurationPacket
         }
         check(completed) {
             "Official client did not finish reconfiguration"
@@ -1432,17 +1436,17 @@ internal object HeadlessClientEndToEndRunner {
         val playKeepAlive = minecraftServerConnection.enableRecordingPlayKeepAlive(5.seconds)
         playKeepAlive.requestCreated.await()
 
-        minecraftServerConnection.outgoing.send(playLoginPacket)
         val reconfiguredWorld = minecraftInitialWorld.copy(
             minecraftInitialWorldBootstrap = minecraftInitialWorld.minecraftInitialWorldBootstrap.copy(
                 teleportId = minecraftInitialWorld.minecraftInitialWorldBootstrap.teleportId + 3,
             ),
         )
-        minecraftServerConnection.synchronizeInitialWorld(reconfiguredWorld)
-        minecraftServerConnection.outgoing.send(
-            ClientboundPingPacket(POST_CONFIGURATION_PING_ID),
-        )
-        minecraftServerConnection.requestFlush()
+        launch {
+            minecraftServerConnection.outgoing.send(clientboundLoginPacket)
+            minecraftServerConnection.synchronizeInitialWorld(reconfiguredWorld)
+            minecraftServerConnection.outgoing.send(ClientboundPingPacket(POST_CONFIGURATION_PING_ID))
+            minecraftServerConnection.requestFlush()
+        }
         var postPing = false
         var postTick = false
         var postTeleport = false
@@ -1466,21 +1470,21 @@ internal object HeadlessClientEndToEndRunner {
             observedPlayPackets +=
                 packet::class.simpleName ?: "<anonymous>"
             when (packet) {
-                is PlayPongPacket ->
+                is ServerboundPongPacket ->
                     if (packet.id == POST_CONFIGURATION_PING_ID) {
                         postPing = true
                     }
 
-                is ConfirmTeleportationPacket ->
-                    if (packet.teleportId == reconfiguredWorld.minecraftInitialWorldBootstrap.teleportId) {
+                is ServerboundAcceptTeleportationPacket ->
+                    if (packet.id == reconfiguredWorld.minecraftInitialWorldBootstrap.teleportId) {
                         postTeleport = true
                     }
 
-                is ChunkBatchReceivedPacket ->
+                is ServerboundChunkBatchReceivedPacket ->
                     postChunkBatch = true
 
-                PlayerLoadedPacket -> postPlayerLoaded = true
-                is ClientTickEndPacket -> postTick = true
+                ServerboundPlayerLoadedPacket -> postPlayerLoaded = true
+                is ServerboundClientTickEndPacket -> postTick = true
                 else -> Unit
             }
         }
@@ -1541,9 +1545,15 @@ internal object HeadlessClientEndToEndRunner {
         label: String,
         block: suspend () -> Unit,
     ) {
-        when (awaitExternal(PROTOCOL_STAGE_TIMEOUT, block)) {
-            is DeadlineResult.Completed -> Unit
-            DeadlineResult.TimedOut -> error("$label exceeded $PROTOCOL_STAGE_TIMEOUT")
+        try {
+            when (awaitExternal(PROTOCOL_STAGE_TIMEOUT, block)) {
+                is DeadlineResult.Completed -> Unit
+                DeadlineResult.TimedOut -> error("$label exceeded $PROTOCOL_STAGE_TIMEOUT")
+            }
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Throwable) {
+            throw AssertionError("$label failed: $failure", failure)
         }
     }
 

@@ -319,16 +319,18 @@ internal class CoordinatedRegionStore internal constructor(
         localChunkPosition: LocalChunkPosition,
     ): T? = readChunkNbt(regionPosition, localChunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    suspend fun <B : Any, M : Any> readChunk(
+    suspend fun readChunk(
         chunkPosition: ChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, chunkNbtCodec)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? =
+        readChunk(chunkPosition.regionPosition, chunkPosition.localChunkPosition, chunkNbtDecoder)
 
-    suspend fun <B : Any, M : Any> readChunk(
+    suspend fun readChunk(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = withRegionState(regionPosition) { entry -> readChunk(entry, localChunkPosition, chunkNbtCodec) }
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? =
+        withRegionState(regionPosition) { entry -> readChunk(entry, localChunkPosition, chunkNbtDecoder) }
 
     suspend fun writeChunkNbtDocument(
         chunkPosition: ChunkPosition,
@@ -423,12 +425,12 @@ internal class CoordinatedRegionStore internal constructor(
         chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
-    suspend fun <B : Any, M : Any> writeChunk(
-        chunk: Chunk<B, M>,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    suspend fun writeChunk(
+        chunk: Chunk,
+        chunkNbtEncoder: ChunkNbtEncoder,
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = withRegionState(chunk.chunkPosition.regionPosition) { entry ->
-        writeChunk(entry, chunk, chunkNbtCodec, compression)
+        writeChunk(entry, chunk, chunkNbtEncoder, compression)
     }
 
     internal suspend fun readAnvilRegion(entry: RegionState): PositionedAnvilRegion? = withReadAccess(entry) {
@@ -610,12 +612,12 @@ internal class CoordinatedRegionStore internal constructor(
         chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
-    internal suspend fun <B : Any, M : Any> readChunk(
+    internal suspend fun readChunk(
         entry: RegionState,
         localChunkPosition: LocalChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromOkio(source)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? = withChunkNbtSource(entry, localChunkPosition) { _, source ->
+        chunkNbtDecoder.decodeFromOkio(source)
     }
 
     internal suspend fun writeChunkNbtDocument(
@@ -638,7 +640,7 @@ internal class CoordinatedRegionStore internal constructor(
         block: (BufferedSink) -> Unit,
     ) {
         worldFileAccess.requireWritable()
-        val compressedChunk = encodeCompressedChunkFromOkio(chunkNbtFormat, compression, block)
+        val compressedChunk = encodeCompressedChunkFromOkio(chunkNbtFormat.compressionRegistry, compression, block)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }
@@ -671,15 +673,15 @@ internal class CoordinatedRegionStore internal constructor(
         chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
-    internal suspend fun <B : Any, M : Any> writeChunk(
+    internal suspend fun writeChunk(
         entry: RegionState,
-        chunk: Chunk<B, M>,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
+        chunk: Chunk,
+        chunkNbtEncoder: ChunkNbtEncoder,
         compression: Compression,
     ) {
         worldFileAccess.requireWritable()
         val localChunkPosition = entry.regionPosition.local(chunk.chunkPosition)
-        val compressedChunk = chunkNbtCodec.encodeFromOkio(chunk, chunkNbtFormat, compression)
+        val compressedChunk = chunkNbtEncoder.encodeFromOkio(chunk, chunkNbtFormat.compressionRegistry, compression)
         entry.logicalFileAccess.write {
             openedFileForWrite(entry).writeCompressedChunk(localChunkPosition, compressedChunk)
         }

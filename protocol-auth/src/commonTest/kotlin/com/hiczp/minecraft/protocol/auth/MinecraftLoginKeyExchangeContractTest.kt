@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.auth
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.test.runTest
 import kotlin.io.encoding.Base64
 import kotlin.test.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.test.runTest
 
 class MinecraftLoginKeyExchangeContractTest {
     @Test
@@ -38,11 +38,11 @@ class MinecraftLoginKeyExchangeContractTest {
             minecraftServerChallenge.encodedPublicKey,
         )
 
-        val encryptionRequestPacket = minecraftServerChallenge.toEncryptionRequestPacket()
-        assertEquals(minecraftServerChallenge.serverId, encryptionRequestPacket.serverId)
-        assertContentEquals(minecraftServerChallenge.encodedPublicKey, encryptionRequestPacket.publicKey.toByteArray())
-        assertContentEquals(minecraftServerChallenge.verifyToken, encryptionRequestPacket.verifyToken.toByteArray())
-        assertEquals(minecraftServerChallenge.shouldAuthenticate, encryptionRequestPacket.shouldAuthenticate)
+        val clientboundHelloPacket = minecraftServerChallenge.toClientboundHelloPacket()
+        assertEquals(minecraftServerChallenge.serverId, clientboundHelloPacket.serverId)
+        assertContentEquals(minecraftServerChallenge.encodedPublicKey, clientboundHelloPacket.publicKey.toByteArray())
+        assertContentEquals(minecraftServerChallenge.verifyToken, clientboundHelloPacket.challenge.toByteArray())
+        assertEquals(minecraftServerChallenge.shouldAuthenticate, clientboundHelloPacket.shouldAuthenticate)
     }
 
     @Test
@@ -69,9 +69,9 @@ class MinecraftLoginKeyExchangeContractTest {
         assertContentEquals(expectedSecret, minecraftClientKeyExchangeResult.sharedSecret)
 
         val packetAnswer = MinecraftClientKeyExchange.respond(
-            minecraftServerChallenge.toEncryptionRequestPacket(),
+            minecraftServerChallenge.toClientboundHelloPacket(),
         )
-        val packetAccepted = minecraftServerChallenge.accept(packetAnswer.toEncryptionResponsePacket())
+        val packetAccepted = minecraftServerChallenge.accept(packetAnswer.toServerboundKeyPacket())
         assertContentEquals(packetAnswer.sharedSecret, packetAccepted.sharedSecret)
     }
 

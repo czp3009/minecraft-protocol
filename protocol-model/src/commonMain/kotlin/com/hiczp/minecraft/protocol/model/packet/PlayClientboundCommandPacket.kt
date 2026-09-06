@@ -16,50 +16,50 @@ import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
-@Serializable(with = CommandsPacketSerializer::class)
+@Serializable(with = ClientboundCommandsPacketSerializer::class)
 @PacketInfo(
     0x10,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "commands",
 )
-data class CommandsPacket(
-    val nodes: List<CommandNode>,
+data class ClientboundCommandsPacket(
     val rootIndex: Int,
+    val entries: List<CommandNode>,
 ) : PlayStatePacket, ClientboundPacket
 
 /**
  * The packet-level serializer also performs the two graph-cycle checks made by
  * the vanilla packet constructor after all nodes have been decoded.
  */
-internal object CommandsPacketSerializer : KSerializer<CommandsPacket> {
+internal object ClientboundCommandsPacketSerializer : KSerializer<ClientboundCommandsPacket> {
     private val nodesSerializer: KSerializer<List<CommandNode>> = ListSerializer(CommandNodeSerializer)
 
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor(
-        "minecraft.CommandsPacket",
+        "minecraft.ClientboundCommandsPacket",
     ) {
-        element<List<CommandNode>>("nodes")
+        element<List<CommandNode>>("entries")
         element<Int>("rootIndex", annotations = listOf(VarInt()))
     }
 
-    override fun serialize(encoder: Encoder, value: CommandsPacket) {
-        validateGraph(value.nodes)
+    override fun serialize(encoder: Encoder, value: ClientboundCommandsPacket) {
+        validateGraph(value.entries)
         val output = encoder.beginStructure(descriptor)
         output.encodeSerializableElement(
             descriptor,
             NODES,
             nodesSerializer,
-            value.nodes,
+            value.entries,
         )
         output.encodeIntElement(descriptor, ROOT_INDEX, value.rootIndex)
         output.endStructure(descriptor)
     }
 
-    override fun deserialize(decoder: Decoder): CommandsPacket {
+    override fun deserialize(decoder: Decoder): ClientboundCommandsPacket {
         val input = decoder.beginStructure(descriptor)
-        val commandsPacket = if (input.decodeSequentially()) {
-            CommandsPacket(
-                nodes = input.decodeSerializableElement(
+        val clientboundCommandsPacket = if (input.decodeSequentially()) {
+            ClientboundCommandsPacket(
+                entries = input.decodeSerializableElement(
                     descriptor,
                     NODES,
                     nodesSerializer,
@@ -82,18 +82,18 @@ internal object CommandsPacketSerializer : KSerializer<CommandsPacket> {
 
                     -1 -> break
                     else -> throw SerializationException(
-                        "Unexpected CommandsPacket field $index",
+                        "Unexpected ClientboundCommandsPacket field $index",
                     )
                 }
             }
-            CommandsPacket(
-                nodes ?: throw SerializationException("Missing command nodes"),
-                rootIndex ?: throw SerializationException("Missing command rootIndex"),
+            ClientboundCommandsPacket(
+                entries = nodes ?: throw SerializationException("Missing command nodes"),
+                rootIndex = rootIndex ?: throw SerializationException("Missing command rootIndex"),
             )
         }
         input.endStructure(descriptor)
-        validateGraph(commandsPacket.nodes)
-        return commandsPacket
+        validateGraph(clientboundCommandsPacket.entries)
+        return clientboundCommandsPacket
     }
 
     private fun validateGraph(nodes: List<CommandNode>) {

@@ -1,6 +1,7 @@
 package com.hiczp.minecraft.world.io.fixturetest.hostfilesystem
 
 import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.test.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.data.*
@@ -527,12 +528,25 @@ class OfficialWorldStorageInteropTest {
             COMPRESSION_PROBES.forEachIndexed { index, compressionProbe ->
                 val nbtDocument = documents.getValue(compressionProbe.chunkPosition)
                 if (index == 0) {
-                    val chunkNbtCodec = strongChunkCodec(nbtDocument)
-                    val chunk = chunkNbtCodec.decodeDocument(nbtDocument)
-                    documents[compressionProbe.chunkPosition] = chunkNbtCodec.encodeDocument(chunk)
+                    val chunkContext = inspectedChunkContext(nbtDocument)
+                    val chunkNbtDecoder = ChunkNbtDecoder(
+                        ChunkNbtDecoderContext(chunkContext, NbtFormat, NbtPropertyReadMappings(), tickBase = 0),
+                    )
+                    val chunkNbtDecodeResult = chunkNbtDecoder.decodeDocument(nbtDocument)
+                    val chunkNbtEncoder = ChunkNbtEncoder(
+                        ChunkNbtEncoderContext(
+                            chunkContext.dimensionTypeLayout.chunkLayout,
+                            NbtFormat,
+                            NbtPropertyWriteMappings(),
+                            0,
+                            chunkNbtDecodeResult.chunkNbtMetadata
+                        ),
+                    )
+                    val chunk = chunkNbtDecodeResult.chunk
+                    documents[compressionProbe.chunkPosition] = chunkNbtEncoder.encodeDocument(chunk)
                     writingStore.writeChunk(
                         chunk,
-                        chunkNbtCodec,
+                        chunkNbtEncoder,
                         compressionProbe.compression
                     )
                 } else {
@@ -832,6 +846,14 @@ class OfficialWorldStorageInteropTest {
         val regionDiagnostics = RegionStorageDirectory.entries
             .associateWith { mutableListOf<String>() }
         val firstChunks = linkedMapOf<RegionStorageDirectory, ChunkPosition>()
+        val entityChunkNbtDecoder = EntityChunkNbtDecoder(
+            EntityChunkNbtDecoderContext(
+                EntityChunkContext(DimensionId.Overworld),
+                NbtFormat,
+                NbtPropertyReadMappings()
+            ),
+        )
+        var inspectedChunkLayout: ChunkLayout? = null
         RegionStorageDirectory.entries.forEach { regionStorageDirectory ->
             val directory = minecraftWorldPaths.regionDirectory(regionStorageDirectory)
             if (fileSystem.metadataOrNull(directory)?.isDirectory != true) {
@@ -852,13 +874,23 @@ class OfficialWorldStorageInteropTest {
                         val nbtDocument =
                             regionStorage.chunkNbtFormat.decodeDocument(checkNotNull(anvilChunkRecord.content))
                         if (regionStorageDirectory == RegionStorageDirectory.ENTITIES) {
-                            val entityChunk = EntityChunkNbtCodec(NbtEntityDataRegistry())
-                                .decodeDocument(nbtDocument)
-                            check(!entityChunk.isEmpty) {
+                            val entityChunk = entityChunkNbtDecoder.decodeDocument(nbtDocument).entityChunk
+                            check(entityChunk.rootEntities.isNotEmpty()) {
                                 "Official Entity storage retained an empty Chunk: $chunkPosition"
                             }
                         } else if (regionStorageDirectory == RegionStorageDirectory.POINTS_OF_INTEREST) {
-                            PoiChunkNbtCodec().decodeDocument(nbtDocument, chunkPosition)
+                            val poiChunkContext =
+                                PoiChunkContext(DimensionId.Overworld, checkNotNull(inspectedChunkLayout))
+                            PoiChunkNbtDecoder(
+                                PoiChunkNbtDecoderContext(
+                                    poiChunkContext,
+                                    chunkPosition,
+                                    NbtFormat,
+                                    NbtPropertyReadMappings()
+                                ),
+                            ).decodeDocument(nbtDocument)
+                        } else if (nbtDocument.root["Status"] == NbtString("minecraft:full")) {
+                            inspectedChunkLayout = inspectedChunkContext(nbtDocument).dimensionTypeLayout.chunkLayout
                         }
                         chunks[regionStorageDirectory] = checkNotNull(chunks[regionStorageDirectory]) + 1
                         if (!firstChunks.containsKey(regionStorageDirectory)) {
@@ -1044,7 +1076,7 @@ class OfficialWorldStorageInteropTest {
         return NbtDocument(NbtCompound(values))
     }
 
-    private fun strongChunkCodec(nbtDocument: NbtDocument): ChunkNbtCodec<BlockStateDescriptor, String> {
+    private fun inspectedChunkContext(nbtDocument: NbtDocument): ChunkContext {
         val minSectionY = (nbtDocument.root["yPos"] as? NbtInt)?.value
             ?: error("Official terrain Chunk has no integer yPos")
         val sections = nbtDocument.root["sections"] as? NbtList
@@ -1057,17 +1089,12 @@ class OfficialWorldStorageInteropTest {
         check(maxSemanticSectionY >= minSectionY) {
             "Official terrain Chunk has a semantic Section below yPos"
         }
-        return ChunkNbtCodec(
-            ChunkCodecContext(
-                chunkLayout = ChunkLayout(
-                    minSectionY = minSectionY,
-                    sectionCount = maxSemanticSectionY - minSectionY + 1,
-                ),
-                chunkDataRegistries = ChunkDataRegistries(
-                    blockStates = DescriptorBlockStateRegistry(),
-                    biomes = NamedBiomeRegistry(),
-                ),
-            ),
+        val height = (maxSemanticSectionY - minSectionY + 1) * 16
+        return ChunkContext(
+            DimensionId.Overworld,
+            DimensionTypeLayout(minSectionY * 16, height, height, true, false),
+            BlockState(BlockId("minecraft:air")),
+            BiomeId("minecraft:plains"),
         )
     }
 

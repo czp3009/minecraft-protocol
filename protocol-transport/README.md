@@ -28,42 +28,31 @@ val frame = minecraftFrameCodec.encodeFrame(packetData)
 check(minecraftFrameCodec.decodeFrame(frame).contentEquals(packetData))
 ```
 
-`MinecraftTransport` owns one Ktor `Socket` and exposes its `minecraftFrameStream`. A caller using this low-level API
-changes compression or encryption immediately after appending the complete transition packet frame. Here `socket` is a
-caller-connected Ktor socket, the two `...PacketData` values are already serialized packet payloads, and `sharedSecret`
-is the Login key-exchange result:
+## Socket ownership and flushing
+
+`MinecraftTransport` owns one connected Ktor `Socket` and exposes its `minecraftFrameStream`. This example takes
+ownership of a caller-connected socket, sends one serialized packet and receives the next packet-data value. Obtain
+that socket from Ktor `aSocket(selectorManager).tcp().connect(host, port)`, with a caller-owned
+`SelectorManager(Dispatchers.Default)` kept open for the socket lifetime. `packetData` is a serialized packet ID plus
+body, supplied by the session layer; the byte-array example above can exercise framing without Minecraft semantics:
 
 ```kotlin
-val minecraftTransport = MinecraftTransport(socket)
-val minecraftFrameStream = minecraftTransport.minecraftFrameStream
-
-minecraftFrameStream.sendPacketData(setCompressionPacketData)
-minecraftFrameStream.configureCompression(threshold = 256)
-
-minecraftFrameStream.sendPacketData(encryptionResponsePacketData)
-minecraftFrameStream.enableEncryption(sharedSecret)
-
-val packetData = minecraftFrameStream.receivePacketData()
-minecraftFrameStream.sendPacketData(packetData)
-minecraftFrameStream.flush()
-minecraftTransport.close()
+suspend fun exchangePacketData(socket: Socket, packetData: ByteArray): ByteArray =
+    MinecraftTransport(socket).use { minecraftTransport ->
+        val minecraftFrameStream = minecraftTransport.minecraftFrameStream
+        minecraftFrameStream.sendPacketData(packetData)
+        minecraftFrameStream.flush()
+        minecraftFrameStream.receivePacketData()
+    }
 ```
 
-Construct `MinecraftFrameStream` directly over any caller-owned `ByteReadChannel`/`ByteWriteChannel` pair when the
-connection is not a plain `Socket`. [`protocol-session`](../protocol-session/README.md) owns transition ordering for
-typed connections.
+Construct `MinecraftFrameStream` directly over a caller-owned `ByteReadChannel`/`ByteWriteChannel` pair for other
+transports. `sendPacketData` appends a complete frame without flushing its pending tail; `receivePacketData` reads the
+next frame's packet data. Use one sequential writer and one sequential reader, which may run concurrently.
 
-## Flush and socket backpressure
-
-`sendPacketData` writes one complete frame to the `ByteWriteChannel` without flushing its pending tail. This lets a
-caller encode several packets and publish them together. `minecraftFrameStream` is the stream created in the preceding
-example; `firstPacketData` and `secondPacketData` are two caller-serialized packet payloads:
-
-```kotlin
-minecraftFrameStream.sendPacketData(firstPacketData)
-minecraftFrameStream.sendPacketData(secondPacketData)
-minecraftFrameStream.flush()
-```
+[protocol-session](../protocol-session/README.md) owns compression/encryption transition ordering for typed connections.
+Low-level implementations use `sendPacketDataAndCommit` to append a transition frame and commit the corresponding state
+change at the same wire boundary. Flushing is a separate operation.
 
 For a Ktor `Socket`, `flush()` publishes the pending `ByteWriteChannel` bytes to the socket's writer coroutine. It may
 suspend when Ktor's bounded channel buffer has no free space, but returning means neither that the operating system has
@@ -71,7 +60,5 @@ delivered the bytes nor that the peer has decoded them. TCP and Minecraft acknow
 makes progress as its own write buffer fills. The explicit flush publishes the remaining tail at the caller's chosen
 boundary.
 
-One coroutine owns sequential reads and one coroutine owns sequential writes. The two directions may run concurrently;
-callers do not issue concurrent operations within one direction. The typed connection in `protocol-session` provides
-these two pumps and arbitrates public and endpoint-generated packets through one writer for ordinary use. Logical Bundle
-handling and KeepAlive policy remain above this transport layer.
+The typed connection in protocol-session supplies both packet pumps and arbitrates application and endpoint-generated
+packets through one writer. Bundle handling and KeepAlive remain above this transport layer.

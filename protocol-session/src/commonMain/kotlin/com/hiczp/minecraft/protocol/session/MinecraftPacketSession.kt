@@ -1,11 +1,8 @@
 package com.hiczp.minecraft.protocol.session
 
 import com.hiczp.minecraft.protocol.model.packet.*
-import com.hiczp.minecraft.protocol.model.type.ByteString
-import com.hiczp.minecraft.protocol.model.type.CustomPayload
-import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
+import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import kotlinx.coroutines.CancellationException
@@ -31,10 +28,10 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     protected val inboundDirection: PacketDirection,
     protected val outboundDirection: PacketDirection,
     private val packetRegistry: PacketRegistry,
-    minecraftProtocolFormat: MinecraftProtocolFormat,
+    minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
 ) {
     private val stateValue = MutableStateFlow(ConnectionState.HANDSHAKE)
-    private val formatValue = MutableStateFlow(minecraftProtocolFormat)
+    private val formatValue = MutableStateFlow(minecraftPacketPayloadFormat)
     private val activeRoutesValue = MutableStateFlow(emptySet<PacketRouteKey>())
     private val loginQueryMutex = Mutex()
     private val loginQueries = mutableMapOf<Int, Identifier>()
@@ -45,11 +42,11 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     internal val inboundState: ConnectionState
         get() = stateValue.value
 
-    val minecraftProtocolFormat: MinecraftProtocolFormat
+    val minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat
         get() = formatValue.value
 
-    val protocolRegistryContext: ProtocolRegistryContext
-        get() = formatValue.value.minecraftProtocolFormatConfiguration.protocolRegistryContext
+    val packetCodecContext: PacketCodecContext
+        get() = formatValue.value.minecraftPacketPayloadFormatConfiguration.packetCodecContext
 
     val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = packetRegistry.declaredExtensionRoutes
@@ -57,11 +54,11 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     val activeExtensionRoutes: Set<PacketRouteKey>
         get() = activeRoutesValue.value
 
-    fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
+    fun installPacketCodecContext(packetCodecContext: PacketCodecContext) {
         val current = formatValue.value
-        formatValue.value = MinecraftProtocolFormat(
-            minecraftProtocolFormatConfiguration = current.minecraftProtocolFormatConfiguration.copy(
-                protocolRegistryContext = protocolRegistryContext,
+        formatValue.value = MinecraftPacketPayloadFormat(
+            minecraftPacketPayloadFormatConfiguration = current.minecraftPacketPayloadFormatConfiguration.copy(
+                packetCodecContext = packetCodecContext,
             ),
             serializersModule = current.serializersModule,
         )
@@ -143,9 +140,9 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
             id = id,
             source = packetData,
             byteCount = packetData.size.toInt(),
-            minecraftProtocolFormat = formatValue.value,
+            minecraftPacketPayloadFormat = formatValue.value,
         )
-        val incoming = requireIncoming(liftIncoming(packet, id))
+        val incoming = requireIncoming(liftIncoming(packet, id, inboundState))
         applyInboundEffects(packet)
         return incoming
     }
@@ -343,39 +340,34 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     private suspend fun liftIncoming(
         packet: Packet,
         packetId: Int,
+        connectionState: ConnectionState,
     ): Packet = when (packet) {
-        is LoginPluginRequestPacket -> {
+        is ClientboundCustomQueryPacket -> {
             val loginQuery = PacketRoute.LoginQuery(
                 PacketDirection.CLIENTBOUND,
-                packet.messageId,
+                packet.transactionId,
                 packet.channel,
             )
             recordLoginQuery(loginQuery)
             liftRoute(loginQuery, packet.data)
         }
 
-        is LoginPluginResponsePacket -> {
-            val channel = consumeLoginQuery(packet.messageId) ?: return packet
+        is ServerboundCustomQueryAnswerPacket -> {
+            val channel = consumeLoginQuery(packet.transactionId) ?: return packet
             val loginQuery = PacketRoute.LoginQuery(
                 PacketDirection.SERVERBOUND,
-                packet.messageId,
+                packet.transactionId,
                 channel,
-                hasPayload = packet.data != null,
+                hasPayload = packet.payload != null,
             )
-            liftRoute(loginQuery, packet.data ?: ByteString(byteArrayOf()))
+            liftRoute(loginQuery, packet.payload ?: ByteString(byteArrayOf()))
         }
 
-        is ConfigurationClientboundPluginMessagePacket ->
-            liftCustomPayload(packet.payload, packetId, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND)
+        is ClientboundCustomPayloadPacket ->
+            liftCustomPayload(packet.payload, packetId, connectionState, PacketDirection.CLIENTBOUND)
 
-        is ConfigurationServerboundPluginMessagePacket ->
-            liftCustomPayload(packet.payload, packetId, ConnectionState.CONFIGURATION, PacketDirection.SERVERBOUND)
-
-        is PlayClientboundPluginMessagePacket ->
-            liftCustomPayload(packet.payload, packetId, ConnectionState.PLAY, PacketDirection.CLIENTBOUND)
-
-        is PlayServerboundPluginMessagePacket ->
-            liftCustomPayload(packet.payload, packetId, ConnectionState.PLAY, PacketDirection.SERVERBOUND)
+        is ServerboundCustomPayloadPacket ->
+            liftCustomPayload(packet.payload, packetId, connectionState, PacketDirection.SERVERBOUND)
 
         else -> packet
     }
@@ -386,18 +378,9 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         connectionState: ConnectionState,
         packetDirection: PacketDirection,
     ): Packet = when (customPayload) {
-        is CustomPayload.Brand -> when {
-            connectionState == ConnectionState.CONFIGURATION &&
-                    packetDirection == PacketDirection.CLIENTBOUND ->
-                ConfigurationClientboundPluginMessagePacket(customPayload)
-
-            connectionState == ConnectionState.CONFIGURATION ->
-                ConfigurationServerboundPluginMessagePacket(customPayload)
-
-            packetDirection == PacketDirection.CLIENTBOUND ->
-                PlayClientboundPluginMessagePacket(customPayload)
-
-            else -> PlayServerboundPluginMessagePacket(customPayload)
+        is CustomPayload.Brand -> when (packetDirection) {
+            PacketDirection.CLIENTBOUND -> ClientboundCustomPayloadPacket(customPayload)
+            PacketDirection.SERVERBOUND -> ServerboundCustomPayloadPacket(customPayload)
         }
 
         is CustomPayload.Unknown -> liftRoute(
@@ -441,14 +424,14 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
                 require(packetRoute.hasPayload) {
                     "A Login query request always has a payload body"
                 }
-                LoginPluginRequestPacket(
+                ClientboundCustomQueryPacket(
                     packetRoute.transactionId,
                     packetRoute.channel,
                     data,
                 )
             }
 
-            PacketDirection.SERVERBOUND -> LoginPluginResponsePacket(
+            PacketDirection.SERVERBOUND -> ServerboundCustomQueryAnswerPacket(
                 packetRoute.transactionId,
                 data.takeIf { packetRoute.hasPayload },
             )
@@ -488,19 +471,19 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     ): Packet = when {
         connectionState == ConnectionState.CONFIGURATION &&
                 packetDirection == PacketDirection.CLIENTBOUND ->
-            ConfigurationClientboundPluginMessagePacket(customPayload)
+            ClientboundCustomPayloadPacket(customPayload)
 
         connectionState == ConnectionState.CONFIGURATION &&
                 packetDirection == PacketDirection.SERVERBOUND ->
-            ConfigurationServerboundPluginMessagePacket(customPayload)
+            ServerboundCustomPayloadPacket(customPayload)
 
         connectionState == ConnectionState.PLAY &&
                 packetDirection == PacketDirection.CLIENTBOUND ->
-            PlayClientboundPluginMessagePacket(customPayload)
+            ClientboundCustomPayloadPacket(customPayload)
 
         connectionState == ConnectionState.PLAY &&
                 packetDirection == PacketDirection.SERVERBOUND ->
-            PlayServerboundPluginMessagePacket(customPayload)
+            ServerboundCustomPayloadPacket(customPayload)
 
         else -> throw MinecraftSessionException(
             "Custom payloads are not valid in $connectionState",
@@ -544,8 +527,8 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     }
 
     private fun applyInboundEffects(packet: Packet) {
-        if (packet is SetCompressionPacket) {
-            minecraftFrameStream.configureCompression(packet.threshold)
+        if (packet is ClientboundLoginCompressionPacket) {
+            minecraftFrameStream.configureCompression(packet.compressionThreshold)
         }
         transitionState(packet)?.let { nextState ->
             stateValue.value = nextState
@@ -557,9 +540,9 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         nextState: ConnectionState?,
         encryption: ByteArray?,
     ): Boolean = encryption != null ||
-            packet is LoginPluginRequestPacket ||
-            packet is LoginPluginResponsePacket ||
-            packet is SetCompressionPacket ||
+            packet is ClientboundCustomQueryPacket ||
+            packet is ServerboundCustomQueryAnswerPacket ||
+            packet is ClientboundLoginCompressionPacket ||
             nextState != null
 
     private suspend fun commitOutboundEffects(
@@ -568,19 +551,19 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
         encryption: ByteArray?,
     ) {
         when (packet) {
-            is LoginPluginRequestPacket -> recordLoginQuery(
+            is ClientboundCustomQueryPacket -> recordLoginQuery(
                 PacketRoute.LoginQuery(
                     packetDirection = PacketDirection.CLIENTBOUND,
-                    transactionId = packet.messageId,
+                    transactionId = packet.transactionId,
                     channel = packet.channel,
                 ),
             )
 
-            is LoginPluginResponsePacket -> consumeLoginQuery(packet.messageId)
+            is ServerboundCustomQueryAnswerPacket -> consumeLoginQuery(packet.transactionId)
             else -> Unit
         }
-        if (packet is SetCompressionPacket) {
-            minecraftFrameStream.configureCompression(packet.threshold)
+        if (packet is ClientboundLoginCompressionPacket) {
+            minecraftFrameStream.configureCompression(packet.compressionThreshold)
         }
         if (nextState != null) {
             stateValue.value = nextState
@@ -603,21 +586,17 @@ sealed class MinecraftPacketSession<Incoming : Packet, Outgoing : Packet> protec
     }
 
     private fun transitionState(packet: Packet): ConnectionState? = when (packet) {
-        is HandshakePacket -> when (packet.nextState) {
-            HandshakeNextState.STATUS -> ConnectionState.STATUS
-            HandshakeNextState.LOGIN,
-            HandshakeNextState.TRANSFER,
+        is ClientIntentionPacket -> when (packet.intention) {
+            ClientIntent.STATUS -> ConnectionState.STATUS
+            ClientIntent.LOGIN,
+            ClientIntent.TRANSFER,
                 -> ConnectionState.LOGIN
 
-            HandshakeNextState.UNUSED ->
-                throw MinecraftSessionException(
-                    "Handshake next state zero is invalid",
-                )
         }
 
-        is LoginAcknowledgedPacket -> ConnectionState.CONFIGURATION
-        is AcknowledgeFinishConfigurationPacket -> ConnectionState.PLAY
-        is AcknowledgeConfigurationPacket -> ConnectionState.CONFIGURATION
+        is ServerboundLoginAcknowledgedPacket -> ConnectionState.CONFIGURATION
+        is ServerboundFinishConfigurationPacket -> ConnectionState.PLAY
+        is ServerboundConfigurationAcknowledgedPacket -> ConnectionState.CONFIGURATION
         else -> null
     }
 

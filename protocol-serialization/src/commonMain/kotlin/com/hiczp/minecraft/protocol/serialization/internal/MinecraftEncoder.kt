@@ -9,7 +9,7 @@ import com.hiczp.minecraft.nbt.NbtTagSerializer
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.io.Buffer
 import kotlinx.io.writeString
@@ -19,7 +19,6 @@ import kotlinx.serialization.SerializationStrategy
 import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.encoding.AbstractEncoder
 import kotlinx.serialization.encoding.CompositeEncoder
 import kotlinx.serialization.encoding.Encoder
@@ -29,7 +28,7 @@ import kotlin.uuid.Uuid
 
 internal class MinecraftEncoder(
     private val minecraftWriter: MinecraftWriter,
-    private val minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
+    private val minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : AbstractEncoder(), NbtTagEncoder {
     private val nbtBinaryCodec: NbtBinaryCodec = NbtBinaryCodec
@@ -213,7 +212,7 @@ internal class MinecraftEncoder(
                     minecraftWriter,
                     value,
                     paletted.kind,
-                    minecraftProtocolFormatConfiguration,
+                    minecraftPacketPayloadFormatConfiguration,
                 )
             }
 
@@ -326,7 +325,7 @@ internal class MinecraftEncoder(
         val nestedWriter = Buffer()
         val nested = MinecraftEncoder(
             nestedWriter,
-            minecraftProtocolFormatConfiguration,
+            minecraftPacketPayloadFormatConfiguration,
             serializersModule,
         )
         encode(nested)
@@ -366,25 +365,11 @@ internal class MinecraftEncoder(
                 "Expected exactly ${fixedLength.bytes} elements, got $collectionSize",
             )
         }
-        if (hints.any { it is ChunkSectionCount }) {
-            if (serialDescriptor.kind != StructureKind.LIST) {
-                throw MinecraftSerializationException(
-                    "@ChunkSectionCount can only be used with a List",
-                )
-            }
-            val expected = minecraftProtocolFormatConfiguration.chunkSectionCount
-            if (expected != null && collectionSize != expected) {
-                throw MinecraftSerializationException(
-                    "Chunk has $collectionSize sections; active dimension requires $expected",
-                )
-            }
-        }
         if (
             hints.none {
                 it is Unprefixed ||
                         it is RemainingBytes ||
-                        it is FixedLength ||
-                        it is ChunkSectionCount
+                        it is FixedLength
             }
         ) {
             minecraftWriter.writeVarInt(collectionSize)

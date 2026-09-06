@@ -173,12 +173,12 @@ class FabricClientProfile(
         }
     }
 
-    override suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext {
-        val fabricRegistrySyncPacket = this.fabricRegistrySyncPacket ?: return protocolRegistryContext
+    override suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext {
+        val fabricRegistrySyncPacket = this.fabricRegistrySyncPacket ?: return packetCodecContext
         val remoteRegistrySnapshot = compatibleSnapshot(fabricRegistrySyncPacket)
-        return protocolRegistryContext.withStaticRegistryResolution(
+        return packetCodecContext.withStaticRegistryResolution(
             staticRegistrySchema.resolve(remoteRegistrySnapshot),
         )
     }
@@ -259,7 +259,7 @@ class FabricClientProfile(
 class FabricServerProfile(
     val fabricRegistrySyncPacket: FabricRegistrySyncPacket? = null,
     /** Caller-built context retained by reference across connections. */
-    val protocolRegistryContext: ProtocolRegistryContext? = null,
+    val packetCodecContext: PacketCodecContext? = null,
     supportedCommonVersions: Set<Int> =
         setOf(FabricProtocol.COMMON_PACKET_VERSION),
 ) : ServerNegotiationProfile {
@@ -298,7 +298,7 @@ class FabricServerProfile(
                 ).toList(),
             ),
         )
-        minecraftServerPacketConnection.outgoing.send(ConfigurationPingPacket(FABRIC_PROBE_ID))
+        minecraftServerPacketConnection.outgoing.send(ClientboundPingPacket(FABRIC_PROBE_ID))
         while (!receivedInitialRegistration && !receivedProbePong) {
             minecraftServerPacketConnection.requestFlush()
             val serverboundPacket = minecraftServerPacketConnection.incoming.receive()
@@ -389,7 +389,7 @@ class FabricServerProfile(
             true
         }
 
-        is ConfigurationPongPacket -> {
+        is ServerboundPongPacket -> {
             if (serverboundPacket.id != FABRIC_PROBE_ID) return false
             receivedProbePong = true
             true
@@ -425,16 +425,10 @@ class FabricServerProfile(
         else -> false
     }
 
-    override suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext {
-        val sharedProtocolRegistryContext = this.protocolRegistryContext ?: return protocolRegistryContext
-        val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
-        return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
-            sharedProtocolRegistryContext
-        } else {
-            sharedProtocolRegistryContext.withChunkSectionCount(sectionCount)
-        }
+    override suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext {
+        return this.packetCodecContext ?: packetCodecContext
     }
 
     override suspend fun preparePlay(

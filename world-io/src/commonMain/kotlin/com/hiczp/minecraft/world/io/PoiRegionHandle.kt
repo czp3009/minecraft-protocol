@@ -12,8 +12,6 @@ import okio.BufferedSource
 class PoiRegionHandle internal constructor(
     private val delegate: RegionHandle,
 ) {
-    private val poiChunkNbtCodec = PoiChunkNbtCodec(delegate.chunkNbtFormat.nbtFormat)
-
     val regionPosition: RegionPosition
         get() = delegate.regionPosition
 
@@ -134,13 +132,13 @@ class PoiRegionHandle internal constructor(
     suspend inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    suspend fun readChunk(localChunkPosition: LocalChunkPosition): PoiChunk? =
-        withChunkNbtSource(localChunkPosition) { _, source ->
-            poiChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+    suspend fun readChunk(poiChunkNbtDecoder: PoiChunkNbtDecoder): PoiChunkNbtDecodeResult? =
+        withChunkNbtSource(poiChunkNbtDecoder.poiChunkNbtDecoderContext.chunkPosition) { _, source ->
+            poiChunkNbtDecoder.decodeFromOkio(source)
         }
 
-    suspend fun readChunk(chunkPosition: ChunkPosition): PoiChunk? =
-        readChunk(regionPosition.local(chunkPosition))
+    suspend fun readChunk(poiChunkNbtDecoderContext: PoiChunkNbtDecoderContext): PoiChunkNbtDecodeResult? =
+        readChunk(PoiChunkNbtDecoder(poiChunkNbtDecoderContext))
 
     suspend fun writeChunkNbtDocument(
         localChunkPosition: LocalChunkPosition,
@@ -194,11 +192,12 @@ class PoiRegionHandle internal constructor(
     /** Writes [poiChunk] at its retained position after validating Region membership. */
     suspend fun writeChunk(
         poiChunk: PoiChunk,
+        poiChunkNbtEncoder: PoiChunkNbtEncoder,
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) {
         val localChunkPosition = regionPosition.local(poiChunk.chunkPosition)
         delegate.writePreparedChunk(localChunkPosition) {
-            poiChunkNbtCodec.encodeFromOkio(poiChunk, chunkNbtFormat, compression)
+            poiChunkNbtEncoder.encodeFromOkio(poiChunk, chunkNbtFormat.compressionRegistry, compression)
         }
     }
 
@@ -217,6 +216,13 @@ class PoiRegionHandle internal constructor(
         block(PoiRegionReadScope(this, chunkNbtFormat))
     }
 
+    suspend fun <R> withReadScope(
+        poiChunkNbtDecoder: (ChunkPosition) -> PoiChunkNbtDecoder,
+        block: DecodedPoiRegionReadScope.() -> R,
+    ): R = delegate.withReadScopeCore {
+        block(DecodedPoiRegionReadScope(this, chunkNbtFormat, poiChunkNbtDecoder))
+    }
+
     suspend fun clear() = delegate.clear()
 
     suspend fun replaceRegion(block: RegionReplacementScope.() -> Unit) = delegate.replaceRegion(block)
@@ -233,8 +239,6 @@ class PoiRegionHandle internal constructor(
 class LivePoiRegionHandle internal constructor(
     private val delegate: LiveRegionHandle,
 ) {
-    private val poiChunkNbtCodec = PoiChunkNbtCodec(delegate.chunkNbtFormat.nbtFormat)
-
     val regionPosition: RegionPosition
         get() = delegate.regionPosition
 
@@ -319,15 +323,23 @@ class LivePoiRegionHandle internal constructor(
     inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    fun readChunk(localChunkPosition: LocalChunkPosition): PoiChunk? =
-        withChunkNbtSource(localChunkPosition) { _, source ->
-            poiChunkNbtCodec.decodeFromOkio(source, regionPosition.chunk(localChunkPosition))
+    fun readChunk(poiChunkNbtDecoder: PoiChunkNbtDecoder): PoiChunkNbtDecodeResult? =
+        withChunkNbtSource(poiChunkNbtDecoder.poiChunkNbtDecoderContext.chunkPosition) { _, source ->
+            poiChunkNbtDecoder.decodeFromOkio(source)
         }
 
-    fun readChunk(chunkPosition: ChunkPosition): PoiChunk? = readChunk(regionPosition.local(chunkPosition))
+    fun readChunk(poiChunkNbtDecoderContext: PoiChunkNbtDecoderContext): PoiChunkNbtDecodeResult? =
+        readChunk(PoiChunkNbtDecoder(poiChunkNbtDecoderContext))
 
     fun <R> withReadScope(block: PoiRegionReadScope.() -> R): R = delegate.withReadScopeCore {
         block(PoiRegionReadScope(this, chunkNbtFormat))
+    }
+
+    fun <R> withReadScope(
+        poiChunkNbtDecoder: (ChunkPosition) -> PoiChunkNbtDecoder,
+        block: DecodedPoiRegionReadScope.() -> R,
+    ): R = delegate.withReadScopeCore {
+        block(DecodedPoiRegionReadScope(this, chunkNbtFormat, poiChunkNbtDecoder))
     }
 
     fun close() = delegate.close()

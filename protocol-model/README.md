@@ -2,6 +2,9 @@
 
 Format-independent Kotlin models for Minecraft Java Edition packet payloads and reusable protocol values.
 
+[Packet model boundaries](PACKET-MODELS.md) records the official counterparts, intentional shape differences and
+verification scope.
+
 The module provides:
 
 - packet marker interfaces grouped by connection state and direction;
@@ -16,20 +19,22 @@ The module provides:
   private [`protocol-symbol-processor`](../protocol-symbol-processor/README.md).
 
 Models contain values and invariants; binary byte layout is supplied by a `kotlinx.serialization` format such as
-`MinecraftProtocolFormat`. For example, a Status handshake and request are ordinary model values—this module does not
+`MinecraftPacketPayloadFormat`. For example, a Status handshake and request are ordinary model values—this module does
+not
 encode or send them:
 
 ```kotlin
-val handshakePacket: ServerboundPacket = HandshakePacket(
+val clientIntentionPacket: ServerboundPacket = ClientIntentionPacket(
     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
-    serverAddress = "localhost",
-    serverPort = 25_565,
-    nextState = HandshakeNextState.STATUS,
+    hostName = "localhost",
+    port = 25_565,
+    intention = ClientIntent.STATUS,
 )
-val statusRequestPacket: ServerboundPacket = StatusRequestPacket
+val serverboundStatusRequestPacket: ServerboundPacket = ServerboundStatusRequestPacket
 ```
 
-`StatusResponsePacket.status` is the shared `ServerStatus` value produced by a server and consumed by a client. Its
+`ClientboundStatusResponsePacket.status` is the shared `ServerStatus` value produced by a server and consumed by a
+client. Its
 description, optional player sample, version, favicon bytes, and secure-chat claim remain typed here; the JSON protocol
 string is only their physical representation in `protocol-serialization`. The nested status records avoid exposing a
 second set of server-only models:
@@ -43,7 +48,7 @@ val serverStatus = ServerStatus(
         protocol = MinecraftProtocol.PROTOCOL_VERSION,
     ),
 )
-val statusResponsePacket: ClientboundPacket = StatusResponsePacket(serverStatus)
+val clientboundStatusResponsePacket: ClientboundPacket = ClientboundStatusResponsePacket(serverStatus)
 ```
 
 `ClientboundBundlePacket` is one logical Play value rather than a registered packet with its own numeric ID. Its
@@ -55,9 +60,13 @@ and delimiter restrictions, expansion, and reconstruction at the packet-session 
 ## Structured values and sealed variants
 
 Conditional protocol shapes are ordinary Kotlin types, so application logic stays exhaustive. Item stacks and their data
-components are typical examples. Here `stoneId` is the raw item ID obtained from the active item registry:
+components are typical examples. Obtain `packetCodecContext` from
+`minecraftClientNegotiationResult.minecraftDimensionContext.packetCodecContext` after client negotiation, or
+`VanillaConfigurationData.completePacketCodecContext` from the standalone vanilla provider. The active item registry
+provides the raw ID:
 
 ```kotlin
+val stoneId = packetCodecContext.requireRegistryEntry(Identifier("minecraft:item"), Identifier("minecraft:stone")).rawId
 val itemStack: ItemStack = ItemStack.Present(
     count = 32,
     itemId = stoneId,
@@ -75,12 +84,15 @@ fun itemStackCount(itemStack: ItemStack): Int = when (itemStack) {
 Registry data classes retain caller-supplied read-only collections by reference; callers must keep them stable because
 lookup indexes are derived during construction. `RemoteRegistrySnapshot` is the explicit exception: it detaches the
 loader mappings, entries, and aliases supplied to it. In the example, `staticRegistrySchema` is constructed from the
-client's local vanilla/mod catalogue and `remoteRegistrySnapshot` is received from its loader negotiation:
+client's local vanilla/mod catalogue using `StaticRegistrySchema(registries, blocks)`, or supplied by
+`VanillaRegistryData.staticRegistrySchema`. Construct `RemoteRegistrySnapshot(...)` from the loader's decoded registry
+entries; use `RemoteRegistrySnapshot.Empty` when there are no overrides. This is an alternative to using the already
+negotiated context above:
 
 ```kotlin
-val protocolRegistryContext: ProtocolRegistryContext = staticRegistrySchema.resolve(remoteRegistrySnapshot)
+val packetCodecContext: PacketCodecContext = staticRegistrySchema.resolve(remoteRegistrySnapshot)
 
-val biomeIds = protocolRegistryContext.registry(ProtocolRegistryContext.BIOME_REGISTRY)
+val biomeIds = packetCodecContext.registry(PacketCodecContext.BIOME_REGISTRY)
     ?.entries
     ?.map { entry -> entry.id }
 ```

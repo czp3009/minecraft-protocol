@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.buildlogic
 
+import java.nio.charset.StandardCharsets
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
@@ -9,7 +10,6 @@ import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
-import java.nio.charset.StandardCharsets
 
 /** Lazy immutable inputs consumed by standard external-peer test tasks. */
 data class MinecraftTestFixtureOutputs(
@@ -26,11 +26,11 @@ data class MinecraftTestFixtureOutputs(
 fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutputs {
     pluginManager.apply(JvmToolchainsPlugin::class.java)
     val minecraftVersion = MinecraftTarget.MINECRAFT_VERSION
-    val protocolRef = layout.buildDirectory.dir("protocol-reference")
-    val versionManifestFile = protocolRef.map {
+    val minecraftArtifactsRoot = layout.buildDirectory.dir("minecraft-artifacts")
+    val versionManifestFile = minecraftArtifactsRoot.map {
         it.file("version_manifest_v2.json")
     }
-    val versionRoot = protocolRef.map { it.dir(minecraftVersion) }
+    val versionRoot = minecraftArtifactsRoot.map { it.dir(minecraftVersion) }
     val versionMetadataFile = versionRoot.map { it.file("version.json") }
 
     val downloadsRoot = versionRoot.map { it.dir("downloads") }
@@ -473,6 +473,16 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         )
         analyzeOfficialMinecraftConfigurationTask.outputFile.set(configurationFile)
     }
+    val analyzePackets = tasks.register(
+        "analyzeOfficialMinecraftPackets",
+        AnalyzeOfficialMinecraftPacketsTask::class.java,
+    ) { analyzeOfficialMinecraftPacketsTask ->
+        analyzeOfficialMinecraftPacketsTask.group = OFFICIAL_DATA_TASK_GROUP
+        analyzeOfficialMinecraftPacketsTask.description = "Analyze official PacketType registrations and class members."
+        analyzeOfficialMinecraftPacketsTask.implementationJar.set(extractRuntime.flatMap { it.outputDirectory.file("server.jar") })
+        analyzeOfficialMinecraftPacketsTask.packetsReport.set(analyzeReports.flatMap { it.outputDirectory.file("reports/packets.json") })
+        analyzeOfficialMinecraftPacketsTask.outputFile.set(analysisRoot.map { it.file("packet-classes/packets.json") })
+    }
     val extractDataPacks = tasks.register(
         "extractOfficialMinecraftDataPacks",
         ExtractOfficialMinecraftDataPacksTask::class.java,
@@ -485,7 +495,7 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     tasks.register("prepareOfficialMinecraftData") { task ->
         task.group = OFFICIAL_DATA_TASK_GROUP
         task.description = "Prepare every official analysis and extracted data artifact."
-        task.dependsOn(analyzeTarget, analyzeReports, analyzeConfiguration, extractDataPacks)
+        task.dependsOn(analyzeTarget, analyzeReports, analyzePackets, analyzeConfiguration, extractDataPacks)
     }
 
     publishOfficialMinecraftArtifact(
@@ -503,6 +513,11 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         "officialMinecraftConfiguration",
         analyzeConfiguration.flatMap { it.outputFile },
         analyzeConfiguration,
+    )
+    publishOfficialMinecraftArtifact(
+        "officialMinecraftPackets",
+        analyzePackets.flatMap { it.outputFile },
+        analyzePackets,
     )
     publishOfficialMinecraftArtifact(
         "officialMinecraftDataPacks",

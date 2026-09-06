@@ -2,7 +2,7 @@ package com.hiczp.minecraft.protocol.forge
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
 import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 import com.hiczp.minecraft.protocol.session.*
 
@@ -27,10 +27,10 @@ object ForgeHandshake {
     }
 
     fun enhance(
-        handshakePacket: HandshakePacket,
+        clientIntentionPacket: ClientIntentionPacket,
         networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
-    ): HandshakePacket = handshakePacket.copy(
-        serverAddress = enhanceHostName(handshakePacket.serverAddress, networkVersion),
+    ): ClientIntentionPacket = clientIntentionPacket.copy(
+        hostName = enhanceHostName(clientIntentionPacket.hostName, networkVersion),
     )
 
     fun inspect(hostName: String): ForgeHandshakeIntent {
@@ -76,7 +76,7 @@ data class ForgeServerProfileDefinition(
     val mods: Map<String, ForgeModInfo> = emptyMap(),
     val forgeRegistrySync: ForgeRegistrySync? = null,
     /** Caller-built context retained by reference across connections. */
-    val protocolRegistryContext: ProtocolRegistryContext? = null,
+    val packetCodecContext: PacketCodecContext? = null,
     val configFiles: List<ForgeConfigDataMessage> = emptyList(),
     val networkVersion: Int = ForgeProtocol.NETWORK_VERSION,
 ) {
@@ -129,8 +129,8 @@ class ForgeClientProfile(
         )
     }
 
-    override fun prepareHandshake(handshakePacket: HandshakePacket): HandshakePacket =
-        ForgeHandshake.enhance(handshakePacket, forgeClientProfileDefinition.networkVersion)
+    override fun prepareHandshake(clientIntentionPacket: ClientIntentionPacket): ClientIntentionPacket =
+        ForgeHandshake.enhance(clientIntentionPacket, forgeClientProfileDefinition.networkVersion)
 
     override suspend fun handleConfigurationPacket(
         minecraftClientPacketConnection: MinecraftClientPacketConnection,
@@ -170,7 +170,7 @@ class ForgeClientProfile(
             true
         }
 
-        is ForgeClientboundHandshakePacket -> {
+        is ForgeClientboundClientIntentionPacket -> {
             handleHandshakeMessage(minecraftClientPacketConnection, clientboundPacket.forgeClientboundHandshakeMessage)
             true
         }
@@ -178,9 +178,9 @@ class ForgeClientProfile(
         else -> false
     }
 
-    override suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext {
+    override suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext {
         ensureCompatiblePeer()
         val expected = expectedRegistryIds
         if (expected != null && expected.isNotEmpty()) {
@@ -188,13 +188,13 @@ class ForgeClientProfile(
                 "Configuration finished before Forge registries $expected arrived",
             )
         }
-        if (!receivedRegistryList) return protocolRegistryContext
+        if (!receivedRegistryList) return packetCodecContext
         val remoteRegistrySnapshot = forgeRemoteRegistrySnapshot(forgeRegistrySnapshots)
         requireForgeCompatible(forgeClientProfileDefinition.staticRegistrySchema, remoteRegistrySnapshot)
-        val resolvedProtocolRegistryContext =
+        val resolvedPacketCodecContext =
             forgeClientProfileDefinition.staticRegistrySchema.resolve(remoteRegistrySnapshot)
                 .withForgeRegistrySizes(forgeRegistrySnapshots)
-        return protocolRegistryContext.withStaticRegistryResolution(resolvedProtocolRegistryContext)
+        return packetCodecContext.withStaticRegistryResolution(resolvedPacketCodecContext)
     }
 
     override suspend fun preparePlay(
@@ -238,7 +238,7 @@ class ForgeClientProfile(
                 forgePeer = true
                 remoteMods.putAll(forgeClientboundHandshakeMessage.mods)
                 minecraftClientPacketConnection.outgoing.send(
-                    ForgeServerboundHandshakePacket(
+                    ForgeServerboundClientIntentionPacket(
                         ForgeModVersionsMessage(forgeClientProfileDefinition.mods),
                     ),
                 )
@@ -262,7 +262,7 @@ class ForgeClientProfile(
                 receivedChannelVersions = true
                 remoteChannelVersions.putAll(forgeClientboundHandshakeMessage.channels)
                 minecraftClientPacketConnection.outgoing.send(
-                    ForgeServerboundHandshakePacket(
+                    ForgeServerboundClientIntentionPacket(
                         forgeClientProfileDefinition.forgeNetworkConfiguration.versionsPacket,
                     ),
                 )
@@ -323,7 +323,7 @@ class ForgeClientProfile(
         token: Int,
     ) {
         minecraftClientPacketConnection.outgoing.send(
-            ForgeServerboundHandshakePacket(
+            ForgeServerboundClientIntentionPacket(
                 ForgeAcknowledgeMessage(token),
             ),
         )
@@ -367,11 +367,11 @@ class ForgeServerProfile(
         )
     }
 
-    override fun acceptHandshake(handshakePacket: HandshakePacket) {
+    override fun acceptHandshake(clientIntentionPacket: ClientIntentionPacket) {
         check(forgeHandshakeIntent == null) {
             "A Forge server profile received more than one Handshake"
         }
-        val inspectedForgeHandshakeIntent = ForgeHandshake.inspect(handshakePacket.serverAddress)
+        val inspectedForgeHandshakeIntent = ForgeHandshake.inspect(clientIntentionPacket.hostName)
         if (
             inspectedForgeHandshakeIntent.forgePeer &&
             inspectedForgeHandshakeIntent.networkVersion != forgeServerProfileDefinition.networkVersion
@@ -410,7 +410,7 @@ class ForgeServerProfile(
 
         expectedResponse = ForgeExpectedResponse.MOD_VERSIONS
         minecraftServerPacketConnection.outgoing.send(
-            ForgeClientboundHandshakePacket(
+            ForgeClientboundClientIntentionPacket(
                 ForgeModVersionsMessage(forgeServerProfileDefinition.mods),
             ),
         )
@@ -418,7 +418,7 @@ class ForgeServerProfile(
 
         expectedResponse = ForgeExpectedResponse.CHANNEL_VERSIONS
         minecraftServerPacketConnection.outgoing.send(
-            ForgeClientboundHandshakePacket(
+            ForgeClientboundClientIntentionPacket(
                 forgeServerProfileDefinition.forgeNetworkConfiguration.versionsPacket,
             ),
         )
@@ -427,7 +427,7 @@ class ForgeServerProfile(
         synchronizeRegistries(minecraftServerPacketConnection)
         forgeServerProfileDefinition.configFiles.forEach { forgeConfigDataMessage ->
             minecraftServerPacketConnection.outgoing.send(
-                ForgeClientboundHandshakePacket(forgeConfigDataMessage),
+                ForgeClientboundClientIntentionPacket(forgeConfigDataMessage),
             )
         }
         forgeServerStage = ForgeServerStage.COMPLETE
@@ -463,7 +463,7 @@ class ForgeServerProfile(
             true
         }
 
-        is ForgeServerboundHandshakePacket -> {
+        is ForgeServerboundClientIntentionPacket -> {
             handleHandshakeMessage(serverboundPacket.forgeServerboundHandshakeMessage)
             true
         }
@@ -471,17 +471,10 @@ class ForgeServerProfile(
         else -> false
     }
 
-    override suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext {
-        val sharedProtocolRegistryContext =
-            forgeServerProfileDefinition.protocolRegistryContext ?: return protocolRegistryContext
-        val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
-        return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
-            sharedProtocolRegistryContext
-        } else {
-            sharedProtocolRegistryContext.withChunkSectionCount(sectionCount)
-        }
+    override suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext {
+        return forgeServerProfileDefinition.packetCodecContext ?: packetCodecContext
     }
 
     override suspend fun preparePlay(
@@ -560,7 +553,7 @@ class ForgeServerProfile(
         var token = 0
         expectedAck = token
         minecraftServerPacketConnection.outgoing.send(
-            ForgeClientboundHandshakePacket(
+            ForgeClientboundClientIntentionPacket(
                 ForgeRegistryListMessage(
                     token,
                     forgeRegistrySync?.registryIds.orEmpty(),
@@ -573,7 +566,7 @@ class ForgeServerProfile(
             token++
             expectedAck = token
             minecraftServerPacketConnection.outgoing.send(
-                ForgeClientboundHandshakePacket(
+                ForgeClientboundClientIntentionPacket(
                     ForgeRegistryDataMessage(token, registryId, forgeRegistrySnapshot),
                 ),
             )

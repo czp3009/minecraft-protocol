@@ -175,18 +175,18 @@ class RegionFileStore internal constructor(
         chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
-    fun <B : Any, M : Any> readChunk(
+    fun readChunk(
         chunkPosition: ChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = withChunkNbtSource(chunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromOkio(source)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? = withChunkNbtSource(chunkPosition) { _, source ->
+        chunkNbtDecoder.decodeFromOkio(source)
     }
 
-    fun <B : Any, M : Any> readChunk(
+    fun readChunk(
         regionPosition: RegionPosition,
         localChunkPosition: LocalChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(regionPosition.chunk(localChunkPosition), chunkNbtCodec)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? = readChunk(regionPosition.chunk(localChunkPosition), chunkNbtDecoder)
 
     fun readAnvilRegion(regionPosition: RegionPosition): AnvilRegion? =
         withReadFile(regionPosition) { readOnlyRegionFile ->
@@ -211,13 +211,13 @@ class RegionFileStore internal constructor(
             readOnlyRegionFile.withReadScope { block(RegionReadScope(this, chunkNbtFormat)) }
         }
 
-    fun <B : Any, M : Any, R> withReadScope(
+    fun <R> withReadScope(
         regionPosition: RegionPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-        block: DecodedChunkRegionReadScope<B, M>.() -> R,
+        chunkNbtDecoder: ChunkNbtDecoder,
+        block: DecodedChunkRegionReadScope.() -> R,
     ): R = withReadFile(regionPosition) { readOnlyRegionFile ->
         readOnlyRegionFile.withReadScope {
-            block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtCodec))
+            block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtDecoder))
         }
     }
 
@@ -226,13 +226,13 @@ class RegionFileStore internal constructor(
             readOnlyRegionFile.withReadScope { block(EntityRegionReadScope(this, chunkNbtFormat)) }
         }
 
-    fun <E : Any, R> withEntityReadScope(
+    fun <R> withEntityReadScope(
         regionPosition: RegionPosition,
-        entityChunkNbtCodec: EntityChunkNbtCodec<E>,
-        block: DecodedEntityRegionReadScope<E>.() -> R,
+        entityChunkNbtDecoder: EntityChunkNbtDecoder,
+        block: DecodedEntityRegionReadScope.() -> R,
     ): R = withReadFile(regionPosition) { readOnlyRegionFile ->
         readOnlyRegionFile.withReadScope {
-            block(DecodedEntityRegionReadScope(this, chunkNbtFormat, entityChunkNbtCodec))
+            block(DecodedEntityRegionReadScope(this, chunkNbtFormat, entityChunkNbtDecoder))
         }
     }
 
@@ -313,7 +313,7 @@ class RegionFileStore internal constructor(
     ) = writeCompressedChunk(
         regionPosition,
         localChunkPosition,
-        encodeCompressedChunkFromOkio(chunkNbtFormat, compression, block),
+        encodeCompressedChunkFromOkio(chunkNbtFormat.compressionRegistry, compression, block),
     )
 
     fun writeChunkNbt(
@@ -376,13 +376,13 @@ class RegionFileStore internal constructor(
         chunkNbtFormat.nbtFormat.serializersModule.serializer(),
     )
 
-    fun <B : Any, M : Any> writeChunk(
-        chunk: Chunk<B, M>,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
+    fun writeChunk(
+        chunk: Chunk,
+        chunkNbtEncoder: ChunkNbtEncoder,
         compression: Compression = regionStorageConfiguration.writeCompression,
     ) = writeCompressedChunk(
         chunk.chunkPosition,
-        chunkNbtCodec.encodeFromOkio(chunk, chunkNbtFormat, compression),
+        chunkNbtEncoder.encodeFromOkio(chunk, chunkNbtFormat.compressionRegistry, compression),
     )
 
     fun replaceRegion(regionPosition: RegionPosition, anvilRegion: AnvilRegion) {

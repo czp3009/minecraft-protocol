@@ -2,8 +2,10 @@ package com.hiczp.minecraft.protocol.model
 
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
-import com.hiczp.minecraft.protocol.model.packet.BundleItemSelectedPacket
-import com.hiczp.minecraft.protocol.model.packet.PlayerChatMessagePacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundLevelChunkPacketData
+import com.hiczp.minecraft.protocol.model.packet.ClientboundPlayerChatPacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundRecipeBookAddPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundSelectBundleItemPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlin.test.*
 import kotlin.uuid.Uuid
@@ -62,7 +64,7 @@ class ProtocolModelInvariantTest {
             localZ = 15,
         )
         assertEquals(sectionBlockChange, SectionBlockChange.fromPacked(sectionBlockChange.packed()))
-        val blockEntityInfo = BlockEntityInfo.fromLocalCoordinates(15, -64, 3, 4, null)
+        val blockEntityInfo = ClientboundLevelChunkPacketData.BlockEntityInfo.fromLocalCoordinates(15, -64, 3, 4, null)
         assertEquals(15, blockEntityInfo.localX)
         assertEquals(3, blockEntityInfo.localZ)
         assertEquals((-64).toShort(), blockEntityInfo.y)
@@ -86,26 +88,26 @@ class ProtocolModelInvariantTest {
             SectionBlockChange(0, 0, 0, 16).packed()
         }
         assertFailsWith<IllegalArgumentException> {
-            BlockEntityInfo.fromLocalCoordinates(16, 0, 0, 0, null)
+            ClientboundLevelChunkPacketData.BlockEntityInfo.fromLocalCoordinates(16, 0, 0, 0, null)
         }
     }
 
     @Test
     fun `chunk palette values reject every impossible intrinsic state`() {
         assertFailsWith<IllegalArgumentException> {
-            BlockEntityInfo(0, 0, -1, null)
+            ClientboundLevelChunkPacketData.BlockEntityInfo(0, 0, -1, null)
         }
         assertFailsWith<IllegalArgumentException> {
             chunkSection(nonAir = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            chunkSection(nonAir = ChunkSection.BLOCK_COUNT + 1)
+            chunkSection(nonAir = LevelChunkSectionData.BLOCK_COUNT + 1)
         }
         assertFailsWith<IllegalArgumentException> {
             chunkSection(fluid = -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            chunkSection(fluid = ChunkSection.BLOCK_COUNT + 1)
+            chunkSection(fluid = LevelChunkSectionData.BLOCK_COUNT + 1)
         }
         assertFailsWith<IllegalArgumentException> {
             PalettedContainer.Single(-1)
@@ -233,7 +235,7 @@ class ProtocolModelInvariantTest {
 
         for (notification in listOf(false, true)) {
             for (highlight in listOf(false, true)) {
-                val recipeBookEntry = RecipeBookEntry.of(
+                val recipeBookEntry = ClientboundRecipeBookAddPacket.Entry.of(
                     entry(),
                     notification = notification,
                     highlight = highlight,
@@ -401,18 +403,18 @@ class ProtocolModelInvariantTest {
                     showIcon = true,
                 )
             },
-            { BundleItemSelectedPacket(slotId = 0, selectedItemIndex = -2) },
+            { ServerboundSelectBundleItemPacket(slotId = 0, selectedItemIndex = -2) },
         ).forEach { invalid ->
             assertFailsWith<IllegalArgumentException> { invalid() }
         }
 
         assertEquals(
             -1,
-            BundleItemSelectedPacket(0, -1).selectedItemIndex,
+            ServerboundSelectBundleItemPacket(0, -1).selectedItemIndex,
         )
         assertEquals(
             255,
-            PlayerChatMessagePacket(
+            ClientboundPlayerChatPacket(
                 globalIndex = 0,
                 sender = Uuid.fromLongs(0, 0),
                 index = 0,
@@ -451,10 +453,10 @@ class ProtocolModelInvariantTest {
     private fun chunkSection(
         nonAir: Int = 0,
         fluid: Int = 0,
-    ): ChunkSection = ChunkSection(
-        nonAirBlockCount = nonAir,
+    ): LevelChunkSectionData = LevelChunkSectionData(
+        nonEmptyBlockCount = nonAir,
         fluidCount = fluid,
-        blockStates = PalettedContainer.Single(0),
+        states = PalettedContainer.Single(0),
         biomes = PalettedContainer.Single(0),
     )
 }

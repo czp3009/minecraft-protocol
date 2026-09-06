@@ -1,6 +1,9 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.packet.ClientboundKeepAlivePacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundKeepAlivePacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
@@ -15,16 +18,16 @@ internal data class RecordingKeepAlive(
 internal fun MinecraftServerPacketConnection.enableRecordingConfigurationKeepAlive(
     interval: Duration,
 ): RecordingKeepAlive = enableRecordingKeepAlive(
-    extractChallenge = { packet -> (packet as? ConfigurationServerboundKeepAlivePacket)?.id },
-    createRequest = ::ConfigurationClientboundKeepAlivePacket,
+    extractChallenge = { packet -> (packet as? ServerboundKeepAlivePacket)?.id },
+    createRequest = ::ClientboundKeepAlivePacket,
     interval = interval,
 )
 
 internal fun MinecraftServerPacketConnection.enableRecordingPlayKeepAlive(
     interval: Duration,
 ): RecordingKeepAlive = enableRecordingKeepAlive(
-    extractChallenge = { packet -> (packet as? PlayServerboundKeepAlivePacket)?.id },
-    createRequest = ::PlayClientboundKeepAlivePacket,
+    extractChallenge = { packet -> (packet as? ServerboundKeepAlivePacket)?.id },
+    createRequest = ::ClientboundKeepAlivePacket,
     interval = interval,
 )
 

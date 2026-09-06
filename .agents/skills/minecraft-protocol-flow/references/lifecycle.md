@@ -19,33 +19,15 @@ Trace:
 For every optional branch, identify who initiates it, which replies are required, whether unrelated packets may be
 handled while waiting, and the exact event that changes protocol state.
 
-## Preserve layer ownership
+## Trace wire effects
 
-- `protocol-session` validates direction/state, reads and writes packet IDs around payload serialization, and applies
-  packet-driven state effects.
-- `protocol-client` orchestrates the official server-facing Status/Login/Configuration path and builds runtime
-  serialization context from synchronized data.
-- `protocol-server` orchestrates the official client-facing path and may emit only the documented finite initial
-  chunk/entity projection.
-- `protocol-auth` owns identities, Login key exchange, server hash, Session Server and profile-key calls, profile-key
-  credential verification, and signed-chat primitives. It directly uses `protocol-model` packet and shared wire types
-  where they form the natural contract, while reconstructed signing-only values remain module-owned.
-- `protocol-transport` owns frames, compression envelope, stream encryption, and sockets.
+For each triggering packet, verify the route, pre-operation state, completed read/write and resulting state. Compression
+starts after Set Compression crosses the wire; encryption starts at the challenge-response boundary with continuous
+cipher state. Failed operations must not commit state or Login-query correlation.
 
-The high-level vanilla path defaults the connection definition, transport configuration, vanilla profile, and
-release-matched protocol data. Do not require callers to construct those values merely to connect or accept an ordinary
-official peer; loader profiles and custom protocol data are explicit opt-ins.
-
-Keep the shared connection pump free of endpoint packet behavior. Bundle assembly/expansion belongs at the
-packet-session boundary; client replies and server timers belong to their direction-specific endpoints. High-level
-server flows choose the Configuration or Play KeepAlive mapping explicitly when listener-equivalent lifecycles change.
-
-`account-auth` ends at caller-managed Minecraft account data and access tokens. It does not participate in this
-connection state machine and has no dependency relationship with `protocol-auth`.
-
-The Login Set Compression packet changes subsequent framing only after that packet crosses the wire. Stream encryption
-starts at the official challenge-response boundary and must preserve continuous cipher state. A failed send or
-incomplete receive must not advance session state.
+Inspect endpoint-generated KeepAlive traffic through the shared writer and state-specific server run replacement.
+Bundle expansion/reconstruction belongs to the session boundary. Refer to the owning AGENTS for the complete layer
+rules rather than repeating endpoint policy in this workflow.
 
 ## Audit dynamic context
 
@@ -71,32 +53,15 @@ in-memory tests.
 
 ## Route fixture failures
 
-Standard client/server test tasks obtain official fixtures through the existing Gradle Build Service and
-`minecraft-test-support`; do not add a launcher, helper CLI, explicit fixture task dependency, workspace-policy switch,
-or path property. A failure before packet behavior is exercised may belong to artifact preparation, the Fixture Host, or
-the HeadlessMC integration rather than production protocol code. When those modules change, run
-`./gradlew :minecraft-test-support:jvmTest` or `./gradlew :minecraft-test-fixture-host:test` as applicable before
-rerunning the consuming client/server suite.
+First establish whether a failure reached packet behavior. Inspect artifact preparation, Host diagnostics and command
+snapshots before changing production negotiation. The applicable buildSrc, fixture-host and test-support guides own
+readiness and cleanup invariants.
 
-Keep Minecraft, HeadlessMC, Fabric Loader, and HMC-Specifics versions independent and require exact compatibility
-evidence before changing a non-Minecraft selector.
+Use protocol evidence appropriate to the phase: server-ready plus Status/Pong establishes server readiness; a correlated
+client GUI observation establishes command/liveness only. TCP acceptance and observed packets establish connection and
+Play progress. Test channel backpressure with an active consumer and explicit signals.
 
-Treat fixture readiness as staged evidence rather than a successful process start or raw TCP connection:
-
-- For an official server, first observe its selected-release `Done` marker, then complete a bounded Status request and
-  Ping/Pong exchange against its advertised endpoint. Publish the fixture only after both stages succeed.
-- For a HeadlessMC client, first observe the HMC-Specifics command-ready marker, then use its `gui` command to confirm
-  the title-screen state. Command acceptance is not connection success; after `connect`, inspect the returned GUI state
-  and require the consuming test server to observe the inbound protocol connection.
-
-Keep retries at the expensive official-client connection boundary. Use a finite attempt count, bind a fresh loopback
-server endpoint for each attempt, reuse the same title-ready client, and disconnect it before another attempt. Aggregate
-the command state, final GUI state, and connection deadline from every failed attempt. Do not retry localhost kRPC calls
-or deterministic protocol assertions merely to mask a fixture failure.
-
-Every acquired remote fixture still closes explicitly after its final phase. Task-owner cleanup must also cover a
-creation that has started but is not registered yet: owner closure cancels its creation job and prevents late
-registration. Cleanup attempts process termination and work-directory deletion independently, completes required
-rollback under `NonCancellable`, and then rethrows cancellation. When changing this ownership machinery, test both the
-owner-close race and cleanup failure path, and verify that an interrupted consuming run leaves no fixture process or
-Host work directory.
+The existing official-client runner retries connection acquisition with fresh listeners. Do not broaden this into
+retries around deterministic assertions. On timeout, distinguish deadlock/order bugs from host CPU pressure before
+changing budgets or synchronization. Run focused fixture tests if preparation, RPC or lifecycle code changes, then
+rerun the consuming endpoint scenario.

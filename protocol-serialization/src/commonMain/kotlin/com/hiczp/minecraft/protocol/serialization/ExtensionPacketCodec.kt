@@ -10,13 +10,13 @@ import kotlin.reflect.KClass
 /** Bounded physical codec for the body beneath an extension route header. */
 interface PacketBodyCodec<T : Packet> {
     fun encode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: T,
         sink: Sink,
     )
 
     fun decode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
@@ -35,19 +35,19 @@ class KotlinxPacketBodyCodec<T : Packet>(
     private val kSerializer: KSerializer<T>,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: T,
         sink: Sink,
     ) {
-        minecraftProtocolFormat.encodeToSink(kSerializer, packet, sink)
+        minecraftPacketPayloadFormat.encodeToSink(kSerializer, packet, sink)
     }
 
     override fun decode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): T = minecraftProtocolFormat.decodeFromSource(kSerializer, source, byteCount)
+    ): T = minecraftPacketPayloadFormat.decodeFromSource(kSerializer, source, byteCount)
 }
 
 /**
@@ -60,21 +60,21 @@ class MappedKotlinxPacketBodyCodec<T : Packet, Body>(
     private val decodePacket: (PacketRoute, Body) -> T,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: T,
         sink: Sink,
     ) {
-        minecraftProtocolFormat.encodeToSink(kSerializer, encodeBody(packet), sink)
+        minecraftPacketPayloadFormat.encodeToSink(kSerializer, encodeBody(packet), sink)
     }
 
     override fun decode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T = decodePacket(
         packetRoute,
-        minecraftProtocolFormat.decodeFromSource(kSerializer, source, byteCount),
+        minecraftPacketPayloadFormat.decodeFromSource(kSerializer, source, byteCount),
     )
 }
 
@@ -133,20 +133,20 @@ class PacketCodecRegistration<T : Packet> private constructor(
     }
 
     internal fun encodeBody(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: Packet,
         sink: Sink,
     ) {
         @Suppress("UNCHECKED_CAST")
-        packetBodyCodec.encode(minecraftProtocolFormat, packet as T, sink)
+        packetBodyCodec.encode(minecraftPacketPayloadFormat, packet as T, sink)
     }
 
     internal fun decodeBody(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         actualRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): Packet = packetBodyCodec.decode(minecraftProtocolFormat, actualRoute, source, byteCount)
+    ): Packet = packetBodyCodec.decode(minecraftPacketPayloadFormat, actualRoute, source, byteCount)
 
     companion object {
         fun <T : ClientboundPacket.Extension> clientboundTopLevel(

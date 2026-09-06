@@ -3,26 +3,11 @@
 Use this inventory to turn an official release change into a dependency-ordered handwritten work queue. It is not a
 requirement to edit every listed module.
 
-## Gradle-owned inputs and outputs
+## Locate generated evidence
 
-The root task `prepareOfficialMinecraftData` produces target, packet/registry/block report, Configuration analysis, and
-extracted data-pack artifacts from the official server for the selected release. These are evidence and generator
-inputs, not source files. It does not prepare the official client JAR; `downloadMinecraftClientJar` is the declared
-producer for client-bytecode inspection when a routed change requires it.
-
-Current production source producers are:
-
-| Producer                                                                     | Output responsibility                                                          |
-|------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
-| `:protocol-model:generateMinecraftProtocolSource`                            | `MinecraftProtocol` release and protocol constants                             |
-| `:world-format:generateMinecraftWorldFormatSource`                           | `MinecraftWorldFormat` world-format constant                                   |
-| `:protocol-model:kspCommonMainKotlinMetadata`                                | Packet definitions and data-component dispatch derived from source annotations |
-| `:protocol-datapack-vanilla:generateVanillaRegistryDataSource`               | Registry and block-state payload source                                        |
-| `:protocol-datapack-vanilla:generateVanillaConfigurationPacketPayloadSource` | Captured Configuration packet payload source                                   |
-| `:protocol-datapack-vanilla:generateVanillaDataPackSources`                  | Official datapack manifest and independently loaded batch source               |
-
-Treat every output of these producers as read-only. Task implementations in `buildSrc`, source annotations consumed by
-KSP, model declarations, loaders, codecs, and tests remain handwritten.
+Use [the vanilla pipeline inventory](../../minecraft-vanilla-data/references/pipeline.md) for current producer tasks and
+artifacts. Models, annotations, loaders, analyzers and generator implementations remain handwritten; their build outputs
+do not. Read the owning buildSrc or KSP guide when a producer contract changes.
 
 ## Route observable deltas
 
@@ -30,18 +15,20 @@ KSP, model declarations, loaders, codecs, and tests remain handwritten.
 |----------------------------------------------------------------------------------------------------------------|------------------------------------|---------------------------------------------------------------------------------------------|
 | packet added, removed, renamed, renumbered, or reshaped                                                        | `minecraft-protocol-model`         | `minecraft-protocol-serialization` when bytes cannot be expressed by existing wire metadata |
 | primitive, discriminator, conditional field, registry-aware codec, limit, or NBT wire form changed             | `minecraft-protocol-serialization` | `minecraft-protocol-model` for logical declarations                                         |
-| registry, block-state, Known Packs, feature-flag, tag, or Configuration capture changed                        | `minecraft-protocol-vanilla-data`  | model and serialization if captured packet schemas changed                                  |
+| registry, block-state, Known Packs, feature-flag, tag, or Configuration capture changed                        | `minecraft-vanilla-data`           | model and serialization if captured packet schemas changed                                  |
 | Login, Configuration, Play, transfer, or reconfiguration ordering changed                                      | `minecraft-protocol-flow`          | model and serialization for affected packets                                                |
 | tag algebra, list rules, root forms, modified UTF, or binary NBT changed                                       | `minecraft-nbt`                    | protocol serialization and/or world format consumers                                        |
 | region header, sector, compression identifier, external-chunk marker, or region-record NBT composition changed | `minecraft-world-format`           | `minecraft-world-io` for disk interoperability                                              |
-| standalone-file schema/model/serializer, dimension path, backup, lock, sidecar, or region lifecycle changed    | `minecraft-world-io`               | NBT and world format as required                                                            |
+| standalone-file schema or semantic Chunk/property representation changed                                       | `minecraft-world-format`           | NBT, world projection and filesystem consumers                                              |
+| dimension path, backup, lock, sidecar or region lifecycle changed                                              | `minecraft-world-io`               | world format for changed bytes                                                              |
+| world/packet projection, missing fields or pairing changed                                                     | `minecraft-world-projection`       | endpoint adapters and physical serialization                                                |
 | KSP packet-report validation or source-derived dispatch generation changed                                     | `minecraft-protocol-model`         | `protocol-symbol-processor`                                                                 |
 | official packet or NBT oracle bridge no longer compiles or loads                                               | packet serialization or NBT skill  | `minecraft-test-fixture-host`                                                               |
 | official server/client preparation fails before a protocol or world assertion                                  | affected flow or world-I/O skill   | `buildSrc` and fixture modules                                                              |
 
-KSP packet diagnostics establish only state/direction/ID/name inventory. They do not establish packet fields,
-nullability, logical variants, or physical encoding. Likewise, successful source generation establishes data provenance,
-not the correctness of handwritten loaders and consumers.
+KSP packet diagnostics establish state/direction/ID coverage and official class/ordered field names, with explicit
+exceptions. They do not prove nested types, nullability, logical variants or physical encoding. Successful source
+generation establishes provenance, not correctness of handwritten loaders and consumers.
 
 ## Route cross-cutting handwritten infrastructure
 
@@ -86,15 +73,7 @@ Gradle task that exists only to drive the skill.
 
 ## Dependency order
 
-Use the smallest applicable prefix:
-
-1. official download and analysis task compatibility;
-2. NBT logical and binary behavior shared by protocol or storage;
-3. packet/shared models and physical serialization;
-4. vanilla data capture, generation, and loading;
-5. session/client/server lifecycle;
-6. Anvil format and world filesystem behavior;
-7. focused JVM, official-peer, and applicable platform tests.
-
-Do not treat a passing end-to-end test as a substitute for focused lower-layer coverage. Repeat the inventory after each
-coherent batch because one corrected schema may expose another release delta.
+Order the affected tasks by their actual dependencies: official evidence and producer compatibility first, then logical
+NBT/world/packet models, physical formats, registry data and world projection, and finally endpoint/filesystem
+consumers.
+Run focused tests before their integration scenarios. Revisit the queue when a corrected schema exposes another delta.

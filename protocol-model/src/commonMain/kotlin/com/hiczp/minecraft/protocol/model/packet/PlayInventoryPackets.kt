@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
     PacketDirection.CLIENTBOUND,
     officialName = "container_set_content",
 )
-data class SetContainerContentPacket(
+data class ClientboundContainerSetContentPacket(
     @VarInt
     val containerId: Int,
     @VarInt
@@ -29,13 +29,13 @@ data class SetContainerContentPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "container_set_slot",
 )
-data class SetContainerSlotPacket(
+data class ClientboundContainerSetSlotPacket(
     @VarInt
     val containerId: Int,
     @VarInt
     val stateId: Int,
     val slot: Short,
-    val item: ItemStack,
+    val itemStack: ItemStack,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -45,14 +45,14 @@ data class SetContainerSlotPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "merchant_offers",
 )
-data class MerchantOffersPacket(
+data class ClientboundMerchantOffersPacket(
     @VarInt
     val containerId: Int,
     val offers: List<MerchantOffer>,
     @VarInt
     val villagerLevel: Int,
     @VarInt
-    val villagerExperience: Int,
+    val villagerXp: Int,
     val showProgress: Boolean,
     val canRestock: Boolean,
 ) : PlayStatePacket, ClientboundPacket
@@ -64,7 +64,7 @@ data class MerchantOffersPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_cursor_item",
 )
-data class SetCursorItemPacket(
+data class ClientboundSetCursorItemPacket(
     val contents: ItemStack,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -75,10 +75,10 @@ data class SetCursorItemPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_equipment",
 )
-data class SetEquipmentPacket(
+data class ClientboundSetEquipmentPacket(
     @VarInt
-    val entityId: Int,
-    val updates: EquipmentUpdates,
+    val entity: Int,
+    val slots: EquipmentUpdates,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -88,7 +88,7 @@ data class SetEquipmentPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_player_inventory",
 )
-data class SetPlayerInventorySlotPacket(
+data class ClientboundSetPlayerInventoryPacket(
     @VarInt
     val slot: Int,
     val contents: ItemStack,
@@ -101,15 +101,15 @@ data class SetPlayerInventorySlotPacket(
     PacketDirection.SERVERBOUND,
     officialName = "container_click",
 )
-data class ClickContainerPacket(
+data class ServerboundContainerClickPacket(
     @VarInt
     val containerId: Int,
     @VarInt
     val stateId: Int,
-    val slot: Short,
-    val button: Byte,
+    val slotNum: Short,
+    val buttonNum: Byte,
     @ZeroFallbackEnum
-    val input: ContainerInput,
+    val containerInput: ContainerInput,
     @MaxCollectionSize(128)
     val changedSlots: List<ChangedHashedSlot>,
     val carriedItem: HashedStack,
@@ -122,8 +122,8 @@ data class ClickContainerPacket(
     PacketDirection.SERVERBOUND,
     officialName = "set_creative_mode_slot",
 )
-data class SetCreativeModeSlotPacket(
-    val slot: Short,
+data class ServerboundSetCreativeModeSlotPacket(
+    val slotNum: Short,
     @Serializable(with = UntrustedItemStackSerializer::class)
-    val item: ItemStack,
+    val itemStack: ItemStack,
 ) : PlayStatePacket, ServerboundPacket

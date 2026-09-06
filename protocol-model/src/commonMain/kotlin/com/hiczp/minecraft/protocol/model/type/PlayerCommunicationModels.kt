@@ -2,6 +2,7 @@
 
 package com.hiczp.minecraft.protocol.model.type
 
+import com.hiczp.minecraft.protocol.model.packet.ClientboundPlayerInfoUpdatePacket
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
@@ -37,16 +38,6 @@ sealed interface FilterMask {
     data class PartiallyFiltered(val mask: BitSet) : FilterMask
 }
 
-enum class PlayerInfoAction {
-    ADD_PLAYER,
-    INITIALIZE_CHAT,
-    UPDATE_GAME_MODE,
-    UPDATE_LISTED,
-    UPDATE_LATENCY,
-    UPDATE_DISPLAY_NAME,
-    UPDATE_LIST_ORDER,
-    UPDATE_HAT,
-}
 
 @Serializable
 data class PlayerListProfile(
@@ -56,22 +47,12 @@ data class PlayerListProfile(
     val properties: List<ProfileProperty>,
 )
 
-data class PlayerInfoEntry(
-    val profileId: Uuid,
-    val profile: PlayerListProfile? = null,
-    val chatSession: ChatSessionData? = null,
-    val gameMode: GameMode = GameMode.SURVIVAL,
-    val listed: Boolean = false,
-    val latency: Int = 0,
-    val displayName: TextComponent? = null,
-    val listOrder: Int = 0,
-    val showHat: Boolean = false,
-)
+
 
 @Serializable(with = PlayerInfoUpdatePayloadSerializer::class)
 data class PlayerInfoUpdatePayload(
-    val actions: Set<PlayerInfoAction>,
-    val entries: List<PlayerInfoEntry>,
+    val actions: Set<ClientboundPlayerInfoUpdatePacket.Action>,
+    val entries: List<ClientboundPlayerInfoUpdatePacket.Entry>,
 )
 
 @Serializable
@@ -120,12 +101,6 @@ sealed interface TrackedWaypoint {
     ) : TrackedWaypoint
 }
 
-@Serializable
-enum class WaypointOperation {
-    TRACK,
-    UNTRACK,
-    UPDATE,
-}
 
 internal object FilterMaskSerializer : KSerializer<FilterMask> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor(
@@ -211,7 +186,7 @@ internal object PlayerInfoUpdatePayloadSerializer :
     override fun deserialize(decoder: Decoder): PlayerInfoUpdatePayload {
         val input = decoder.beginStructure(descriptor)
         val mask = input.decodeByteElement(descriptor, ACTIONS).toInt() and 0xFF
-        val actions = PlayerInfoAction.entries.filterTo(linkedSetOf()) {
+        val actions = ClientboundPlayerInfoUpdatePacket.Action.entries.filterTo(linkedSetOf()) {
             mask and (1 shl it.ordinal) != 0
         }
         val entries = input.decodeSerializableElement(
@@ -228,10 +203,10 @@ internal object PlayerInfoUpdatePayloadSerializer :
 }
 
 private class PlayerInfoEntrySerializer(
-    private val actions: Set<PlayerInfoAction>,
-) : KSerializer<PlayerInfoEntry> {
+    private val actions: Set<ClientboundPlayerInfoUpdatePacket.Action>,
+) : KSerializer<ClientboundPlayerInfoUpdatePacket.Entry> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor(
-        "minecraft.PlayerInfoEntry",
+        "minecraft.ClientboundPlayerInfoUpdatePacket.Entry",
     ) {
         element<Uuid>("profileId")
         element<PlayerListProfile>("profile", isOptional = true)
@@ -256,7 +231,7 @@ private class PlayerInfoEntrySerializer(
         element<Boolean>("showHat", isOptional = true)
     }
 
-    override fun serialize(encoder: Encoder, value: PlayerInfoEntry) {
+    override fun serialize(encoder: Encoder, value: ClientboundPlayerInfoUpdatePacket.Entry) {
         val output = encoder.beginStructure(descriptor)
         output.encodeSerializableElement(
             descriptor,
@@ -266,7 +241,7 @@ private class PlayerInfoEntrySerializer(
         )
         for (playerInfoAction in actions.sortedBy { it.ordinal }) {
             when (playerInfoAction) {
-                PlayerInfoAction.ADD_PLAYER -> output.encodeSerializableElement(
+                ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER -> output.encodeSerializableElement(
                     descriptor,
                     PROFILE,
                     PlayerListProfile.serializer(),
@@ -275,7 +250,7 @@ private class PlayerInfoEntrySerializer(
                     ),
                 )
 
-                PlayerInfoAction.INITIALIZE_CHAT ->
+                ClientboundPlayerInfoUpdatePacket.Action.INITIALIZE_CHAT ->
                     output.encodeNullableSerializableElement(
                         descriptor,
                         CHAT_SESSION,
@@ -283,7 +258,7 @@ private class PlayerInfoEntrySerializer(
                         value.chatSession,
                     )
 
-                PlayerInfoAction.UPDATE_GAME_MODE ->
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_GAME_MODE ->
                     output.encodeSerializableElement(
                         descriptor,
                         GAME_MODE,
@@ -291,13 +266,13 @@ private class PlayerInfoEntrySerializer(
                         value.gameMode,
                     )
 
-                PlayerInfoAction.UPDATE_LISTED ->
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LISTED ->
                     output.encodeBooleanElement(descriptor, LISTED, value.listed)
 
-                PlayerInfoAction.UPDATE_LATENCY ->
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LATENCY ->
                     output.encodeIntElement(descriptor, LATENCY, value.latency)
 
-                PlayerInfoAction.UPDATE_DISPLAY_NAME ->
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_DISPLAY_NAME ->
                     output.encodeNullableSerializableElement(
                         descriptor,
                         DISPLAY_NAME,
@@ -305,17 +280,17 @@ private class PlayerInfoEntrySerializer(
                         value.displayName,
                     )
 
-                PlayerInfoAction.UPDATE_LIST_ORDER ->
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LIST_ORDER ->
                     output.encodeIntElement(descriptor, LIST_ORDER, value.listOrder)
 
-                PlayerInfoAction.UPDATE_HAT ->
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_HAT ->
                     output.encodeBooleanElement(descriptor, SHOW_HAT, value.showHat)
             }
         }
         output.endStructure(descriptor)
     }
 
-    override fun deserialize(decoder: Decoder): PlayerInfoEntry {
+    override fun deserialize(decoder: Decoder): ClientboundPlayerInfoUpdatePacket.Entry {
         val input = decoder.beginStructure(descriptor)
         val profileId = input.decodeSerializableElement(
             descriptor,
@@ -332,58 +307,58 @@ private class PlayerInfoEntrySerializer(
         var showHat = false
         for (playerInfoAction in actions.sortedBy { it.ordinal }) {
             when (playerInfoAction) {
-                PlayerInfoAction.ADD_PLAYER -> playerListProfile =
+                ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER -> playerListProfile =
                     input.decodeSerializableElement(
                         descriptor,
                         PROFILE,
                         PlayerListProfile.serializer(),
                     )
 
-                PlayerInfoAction.INITIALIZE_CHAT -> chatSessionData =
+                ClientboundPlayerInfoUpdatePacket.Action.INITIALIZE_CHAT -> chatSessionData =
                     input.decodeNullableSerializableElement(
                         descriptor,
                         CHAT_SESSION,
                         ChatSessionData.serializer().nullable,
                     )
 
-                PlayerInfoAction.UPDATE_GAME_MODE -> gameMode =
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_GAME_MODE -> gameMode =
                     input.decodeSerializableElement(
                         descriptor,
                         GAME_MODE,
                         GameMode.serializer(),
                     )
 
-                PlayerInfoAction.UPDATE_LISTED -> listed =
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LISTED -> listed =
                     input.decodeBooleanElement(descriptor, LISTED)
 
-                PlayerInfoAction.UPDATE_LATENCY -> latency =
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LATENCY -> latency =
                     input.decodeIntElement(descriptor, LATENCY)
 
-                PlayerInfoAction.UPDATE_DISPLAY_NAME -> displayName =
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_DISPLAY_NAME -> displayName =
                     input.decodeNullableSerializableElement(
                         descriptor,
                         DISPLAY_NAME,
                         TextComponent.serializer().nullable,
                     )
 
-                PlayerInfoAction.UPDATE_LIST_ORDER -> listOrder =
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LIST_ORDER -> listOrder =
                     input.decodeIntElement(descriptor, LIST_ORDER)
 
-                PlayerInfoAction.UPDATE_HAT -> showHat =
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_HAT -> showHat =
                     input.decodeBooleanElement(descriptor, SHOW_HAT)
             }
         }
         input.endStructure(descriptor)
-        return PlayerInfoEntry(
-            profileId,
-            playerListProfile,
-            chatSessionData,
-            gameMode,
-            listed,
-            latency,
-            displayName,
-            listOrder,
-            showHat,
+        return ClientboundPlayerInfoUpdatePacket.Entry(
+            profileId = profileId,
+            profile = playerListProfile,
+            listed = listed,
+            latency = latency,
+            gameMode = gameMode,
+            displayName = displayName,
+            showHat = showHat,
+            listOrder = listOrder,
+            chatSession = chatSessionData,
         )
     }
 

@@ -2,6 +2,7 @@ package com.hiczp.minecraft.protocol.forge
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
+import com.hiczp.minecraft.protocol.model.type.ClientIntent
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
@@ -19,18 +20,18 @@ class ForgeProtocolCodecTest {
 
     @Test
     fun hostnameMarkerMatchesSelectedForgeRevision() {
-        val handshakePacket = HandshakePacket(
+        val clientIntentionPacket = ClientIntentionPacket(
             1,
             "example.test",
             25_565,
-            HandshakeNextState.LOGIN,
+            ClientIntent.LOGIN,
         )
-        val enhanced = ForgeHandshake.enhance(handshakePacket)
+        val enhanced = ForgeHandshake.enhance(clientIntentionPacket)
 
-        assertEquals("example.test\u0000FORGE", enhanced.serverAddress)
+        assertEquals("example.test\u0000FORGE", enhanced.hostName)
         assertEquals(
             ForgeHandshakeIntent(true, 0, "example.test"),
-            ForgeHandshake.inspect(enhanced.serverAddress),
+            ForgeHandshake.inspect(enhanced.hostName),
         )
         assertEquals(
             ForgeHandshakeIntent(true, 3, "example.test"),
@@ -69,7 +70,7 @@ class ForgeProtocolCodecTest {
 
     @Test
     fun handshakeDiscriminatorsAndBodiesMatchForgeSource() {
-        val mods = ForgeClientboundHandshakePacket(
+        val mods = ForgeClientboundClientIntentionPacket(
             ForgeModVersionsMessage(
                 mapOf("example" to ForgeModInfo("Example", "1.0")),
             ),
@@ -99,7 +100,7 @@ class ForgeProtocolCodecTest {
             ),
         )
 
-        val channels = ForgeServerboundHandshakePacket(
+        val channels = ForgeServerboundClientIntentionPacket(
             ForgeChannelVersionsMessage(
                 mapOf(Identifier("mod:main") to 300),
             ),
@@ -117,7 +118,7 @@ class ForgeProtocolCodecTest {
 
     @Test
     fun registrySnapshotPreservesAliasesOverridesBlockedAndVarInts() {
-        val forgeClientboundHandshakePacket = ForgeClientboundHandshakePacket(
+        val forgeClientboundClientIntentionPacket = ForgeClientboundClientIntentionPacket(
             ForgeRegistryDataMessage(
                 2,
                 Identifier("block"),
@@ -134,14 +135,14 @@ class ForgeProtocolCodecTest {
                 ),
             ),
         )
-        val byteArray = encode(forgeClientboundHandshakePacket, PacketDirection.CLIENTBOUND)
+        val byteArray = encode(forgeClientboundClientIntentionPacket, PacketDirection.CLIENTBOUND)
         val decoded = decode(
             ForgeChannels.Handshake,
             byteArray,
             PacketDirection.CLIENTBOUND,
         )
 
-        assertEquals(forgeClientboundHandshakePacket, decoded)
+        assertEquals(forgeClientboundClientIntentionPacket, decoded)
         assertTrue(
             byteArray.asList().windowed(2).any { pair ->
                 pair == listOf(0xAC.toByte(), 0x02.toByte())

@@ -3,7 +3,6 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RecipeBookCategory
-import com.hiczp.minecraft.protocol.model.type.ResourcePackResult
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
@@ -16,17 +15,17 @@ class PlayServerboundSettingsPacketTest {
     @Test
     fun `recipe book settings and seen recipe use VarInt enum and display id`() {
         assertPacketBytes(
-            ChangeRecipeBookSettingsPacket(
-                book = RecipeBookCategory.SMOKER,
-                open = true,
-                filtering = false,
+            ServerboundRecipeBookChangeSettingsPacket(
+                bookType = RecipeBookCategory.SMOKER,
+                isOpen = true,
+                isFiltering = false,
             ),
-            ChangeRecipeBookSettingsPacket.serializer(),
+            ServerboundRecipeBookChangeSettingsPacket.serializer(),
             "030100",
         )
         assertPacketBytes(
-            SetSeenRecipePacket(300),
-            SetSeenRecipePacket.serializer(),
+            ServerboundRecipeBookSeenRecipePacket(300),
+            ServerboundRecipeBookSeenRecipePacket.serializer(),
             "ac02",
         )
     }
@@ -34,13 +33,13 @@ class PlayServerboundSettingsPacketTest {
     @Test
     fun `rename item enforces the codec string bound rather than server gameplay policy`() {
         assertPacketBytes(
-            RenameItemPacket("x"),
-            RenameItemPacket.serializer(),
+            ServerboundRenameItemPacket("x"),
+            ServerboundRenameItemPacket.serializer(),
             "0178",
         )
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                RenameItemPacket("x".repeat(32_768)),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundRenameItemPacket("x".repeat(32_768)),
             )
         }
     }
@@ -48,28 +47,28 @@ class PlayServerboundSettingsPacketTest {
     @Test
     fun `resource pack response is uuid followed by strict VarInt result`() {
         assertPacketBytes(
-            PlayResourcePackResponsePacket(
+            ServerboundResourcePackPacket(
                 id = Uuid.fromLongs(0, 0),
-                result = ResourcePackResult.DISCARDED,
+                action = ServerboundResourcePackPacket.Action.DISCARDED,
             ),
-            PlayResourcePackResponsePacket.serializer(),
+            ServerboundResourcePackPacket.serializer(),
             "0000000000000000000000000000000007",
         )
     }
 
     @Test
     fun `advancement tab identifier is conditional without an optional boolean`() {
-        val opened = SeenAdvancementsPacket(
+        val opened = ServerboundSeenAdvancementsPacket(
             SeenAdvancementsAction.OpenedTab(Identifier("minecraft:test")),
         )
         assertPacketBytes(
             opened,
-            SeenAdvancementsPacket.serializer(),
+            ServerboundSeenAdvancementsPacket.serializer(),
             "000e6d696e6563726166743a74657374",
         )
         assertPacketBytes(
-            SeenAdvancementsPacket(SeenAdvancementsAction.ClosedScreen),
-            SeenAdvancementsPacket.serializer(),
+            ServerboundSeenAdvancementsPacket(SeenAdvancementsAction.ClosedScreen),
+            ServerboundSeenAdvancementsPacket.serializer(),
             "01",
         )
 
@@ -78,23 +77,23 @@ class PlayServerboundSettingsPacketTest {
     @Test
     fun `trade beacon and held-item packets retain distinct integer encodings`() {
         assertPacketBytes(
-            SelectTradePacket(300),
-            SelectTradePacket.serializer(),
+            ServerboundSelectTradePacket(300),
+            ServerboundSelectTradePacket.serializer(),
             "ac02",
         )
         assertPacketBytes(
-            SetBeaconEffectPacket(primaryEffectId = 300, secondaryEffectId = null),
-            SetBeaconEffectPacket.serializer(),
+            ServerboundSetBeaconPacket(primary = 300, secondary = null),
+            ServerboundSetBeaconPacket.serializer(),
             "01ac0200",
         )
         assertPacketBytes(
-            SetBeaconEffectPacket(primaryEffectId = null, secondaryEffectId = 1),
-            SetBeaconEffectPacket.serializer(),
+            ServerboundSetBeaconPacket(primary = null, secondary = 1),
+            ServerboundSetBeaconPacket.serializer(),
             "000101",
         )
         assertPacketBytes(
-            ServerboundSetHeldItemPacket((-1).toShort()),
-            ServerboundSetHeldItemPacket.serializer(),
+            ServerboundSetCarriedItemPacket((-1).toShort()),
+            ServerboundSetCarriedItemPacket.serializer(),
             "ffff",
         )
     }
@@ -107,11 +106,11 @@ class PlayServerboundSettingsPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

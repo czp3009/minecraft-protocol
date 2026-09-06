@@ -12,7 +12,7 @@ import kotlinx.serialization.Serializable
     PacketDirection.CLIENTBOUND,
     officialName = "set_display_objective",
 )
-data class DisplayObjectivePacket(
+data class ClientboundSetDisplayObjectivePacket(
     @ZeroFallbackEnum
     val slot: DisplaySlot,
     @MaxLength(32_767)
@@ -26,9 +26,9 @@ data class DisplayObjectivePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_entity_link",
 )
-data class LinkEntitiesPacket(
-    val attachedEntityId: Int,
-    val holdingEntityId: Int,
+data class ClientboundSetEntityLinkPacket(
+    val sourceId: Int,
+    val destId: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -38,26 +38,26 @@ data class LinkEntitiesPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_entity_motion",
 )
-data class SetEntityVelocityPacket(
+data class ClientboundSetEntityMotionPacket(
     @VarInt
-    val entityId: Int,
+    val id: Int,
     @LowPrecisionVector
-    val velocity: Vector3d,
+    val movement: Vector3d,
 ) : PlayStatePacket, ClientboundPacket
 
-@Serializable
+@Serializable(with = ClientboundSetExperiencePacketSerializer::class)
 @PacketInfo(
     0x67,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_experience",
 )
-data class SetExperiencePacket(
-    val experienceBar: Float,
-    @VarInt
-    val level: Int,
+data class ClientboundSetExperiencePacket(
+    val experienceProgress: Float,
     @VarInt
     val totalExperience: Int,
+    @VarInt
+    val experienceLevel: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -67,7 +67,7 @@ data class SetExperiencePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_health",
 )
-data class SetHealthPacket(
+data class ClientboundSetHealthPacket(
     val health: Float,
     @VarInt
     val food: Int,
@@ -81,7 +81,7 @@ data class SetHealthPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_held_slot",
 )
-data class ClientboundSetHeldItemPacket(
+data class ClientboundSetHeldSlotPacket(
     @VarInt
     val slot: Int,
 ) : PlayStatePacket, ClientboundPacket
@@ -93,11 +93,11 @@ data class ClientboundSetHeldItemPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_passengers",
 )
-data class SetPassengersPacket(
+data class ClientboundSetPassengersPacket(
     @VarInt
-    val vehicleEntityId: Int,
+    val vehicle: Int,
     @VarIntElements
-    val passengerEntityIds: List<Int>,
+    val passengers: List<Int>,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -107,7 +107,7 @@ data class SetPassengersPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_simulation_distance",
 )
-data class SetSimulationDistancePacket(
+data class ClientboundSetSimulationDistancePacket(
     @VarInt
     val simulationDistance: Int,
 ) : PlayStatePacket, ClientboundPacket
@@ -119,7 +119,7 @@ data class SetSimulationDistancePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_subtitle_text",
 )
-data class SetSubtitleTextPacket(
+data class ClientboundSetSubtitleTextPacket(
     val text: TextComponent,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -130,10 +130,10 @@ data class SetSubtitleTextPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_time",
 )
-data class UpdateTimePacket(
+data class ClientboundSetTimePacket(
     val gameTime: Long,
     @VarIntElements
-    val clocks: Map<Int, ClockNetworkState>,
+    val clockUpdates: Map<Int, ClockNetworkState>,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -143,7 +143,7 @@ data class UpdateTimePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_title_text",
 )
-data class SetTitleTextPacket(
+data class ClientboundSetTitleTextPacket(
     val text: TextComponent,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -154,10 +154,10 @@ data class SetTitleTextPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_titles_animation",
 )
-data class SetTitleAnimationTimesPacket(
-    val fadeInTicks: Int,
-    val stayTicks: Int,
-    val fadeOutTicks: Int,
+data class ClientboundSetTitlesAnimationPacket(
+    val fadeIn: Int,
+    val stay: Int,
+    val fadeOut: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -167,7 +167,7 @@ data class SetTitleAnimationTimesPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "start_configuration",
 )
-data object StartConfigurationPacket :
+data object ClientboundStartConfigurationPacket :
     PlayStatePacket,
     ClientboundPacket
 
@@ -177,22 +177,10 @@ data object StartConfigurationPacket :
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "stop_sound",
+    shapeException = "StopSound is the logical sum of all, source, sound, and source-with-sound requests, with one serializer for their presence flags.",
 )
-data class StopSoundPacket(
+data class ClientboundStopSoundPacket(
     val value: StopSound,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
-@PacketInfo(
-    0x78,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "store_cookie",
-)
-data class PlayStoreCookiePacket(
-    val key: Identifier,
-    @MaxByteLength(5_120)
-    val payload: ByteString,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -202,7 +190,7 @@ data class PlayStoreCookiePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "system_chat",
 )
-data class SystemChatMessagePacket(
+data class ClientboundSystemChatPacket(
     val content: TextComponent,
     val overlay: Boolean,
 ) : PlayStatePacket, SkippableClientboundPacket
@@ -214,7 +202,7 @@ data class SystemChatMessagePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "tab_list",
 )
-data class SetTabListHeaderAndFooterPacket(
+data class ClientboundTabListPacket(
     val header: TextComponent,
     val footer: TextComponent,
 ) : PlayStatePacket, ClientboundPacket
@@ -226,12 +214,12 @@ data class SetTabListHeaderAndFooterPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "tag_query",
 )
-data class TagQueryResponsePacket(
+data class ClientboundTagQueryPacket(
     @VarInt
     val transactionId: Int,
     @NbtEndOptional
     @NetworkNbt
-    val data: NbtCompound?,
+    val tag: NbtCompound?,
 ) : PlayStatePacket, SkippableClientboundPacket
 
 @Serializable
@@ -241,13 +229,13 @@ data class TagQueryResponsePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "take_item_entity",
 )
-data class PickupItemPacket(
+data class ClientboundTakeItemEntityPacket(
     @VarInt
-    val collectedEntityId: Int,
+    val itemId: Int,
     @VarInt
-    val collectorEntityId: Int,
+    val playerId: Int,
     @VarInt
-    val itemCount: Int,
+    val amount: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -257,9 +245,9 @@ data class PickupItemPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "teleport_entity",
 )
-data class SynchronizeVehiclePositionPacket(
+data class ClientboundTeleportEntityPacket(
     @VarInt
-    val entityId: Int,
+    val id: Int,
     val change: PositionMoveRotation,
     val relatives: RelativeMovements,
     val onGround: Boolean,
@@ -272,7 +260,7 @@ data class SynchronizeVehiclePositionPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "test_instance_block_status",
 )
-data class TestInstanceBlockStatusPacket(
+data class ClientboundTestInstanceBlockStatus(
     val status: TextComponent,
     val size: Vector3i?,
 ) : PlayStatePacket, ClientboundPacket
@@ -284,9 +272,9 @@ data class TestInstanceBlockStatusPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "ticking_state",
 )
-data class SetTickingStatePacket(
+data class ClientboundTickingStatePacket(
     val tickRate: Float,
-    val frozen: Boolean,
+    val isFrozen: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -296,7 +284,7 @@ data class SetTickingStatePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "ticking_step",
 )
-data class StepTickPacket(
+data class ClientboundTickingStepPacket(
     @VarInt
     val tickSteps: Int,
 ) : PlayStatePacket, ClientboundPacket

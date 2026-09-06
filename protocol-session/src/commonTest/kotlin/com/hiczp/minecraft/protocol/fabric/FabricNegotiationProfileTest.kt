@@ -56,12 +56,12 @@ class FabricNegotiationProfileTest {
                 ),
             ),
         )
-        val sharedProtocolRegistryContext =
+        val sharedPacketCodecContext =
             staticRegistrySchema.resolve(fabricRegistrySyncPacket.remoteRegistrySnapshot)
         val fabricClientProfile = FabricClientProfile(staticRegistrySchema)
         val fabricServerProfile = FabricServerProfile(
             fabricRegistrySyncPacket = fabricRegistrySyncPacket,
-            protocolRegistryContext = sharedProtocolRegistryContext,
+            packetCodecContext = sharedPacketCodecContext,
         )
         fabricClientProfile.begin(testClientConnection)
         fabricServerProfile.begin(testServerConnection)
@@ -69,9 +69,9 @@ class FabricNegotiationProfileTest {
         val client = async {
             while (true) {
                 when (val clientboundPacket = testClientConnection.incoming.receive()) {
-                    is ConfigurationPingPacket ->
+                    is ClientboundPingPacket ->
                         testClientConnection.outgoing.send(
-                            ConfigurationPongPacket(clientboundPacket.id),
+                            ServerboundPongPacket(clientboundPacket.id),
                         )
 
                     else -> {
@@ -89,19 +89,19 @@ class FabricNegotiationProfileTest {
         fabricServerProfile.negotiateConfiguration(testServerConnection)
         client.await()
 
-        val clientProtocolRegistryContext = fabricClientProfile.resolveProtocolRegistryContext(
+        val clientPacketCodecContext = fabricClientProfile.resolvePacketCodecContext(
             staticRegistrySchema.resolve().withRegistrySize(
-                ProtocolRegistryContext.BIOME_REGISTRY,
+                PacketCodecContext.BIOME_REGISTRY,
                 4,
             ),
         )
-        assertEquals(Identifier("mod:block"), clientProtocolRegistryContext.blockStates.first().block)
-        assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
-        val serverProtocolRegistryContext = fabricServerProfile.resolveProtocolRegistryContext(
-            sharedProtocolRegistryContext.withChunkSectionCount(24),
+        assertEquals(Identifier("mod:block"), clientPacketCodecContext.blockStates.first().block)
+        assertEquals(4, clientPacketCodecContext.biomeRegistrySize)
+        val serverPacketCodecContext = fabricServerProfile.resolvePacketCodecContext(
+            sharedPacketCodecContext,
         )
-        assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
-        assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
+        assertSame(sharedPacketCodecContext.registries, serverPacketCodecContext.registries)
+        assertSame(sharedPacketCodecContext.blockStates, serverPacketCodecContext.blockStates)
 
         testClientConnection.currentState = ConnectionState.PLAY
         testServerConnection.currentState = ConnectionState.PLAY
@@ -157,14 +157,14 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
     override val declaredExtensionRoutes: Set<PacketRouteKey>,
 ) : MinecraftPacketConnection<Incoming, Outgoing> {
     var currentState: ConnectionState = ConnectionState.CONFIGURATION
-    private var mutableProtocolRegistryContext = ProtocolRegistryContext.Empty
+    private var mutablePacketCodecContext = PacketCodecContext.Empty
     private var activeRoutes = emptySet<PacketRouteKey>()
 
     override val connectionState: ConnectionState
         get() = currentState
 
-    override val protocolRegistryContext: ProtocolRegistryContext
-        get() = mutableProtocolRegistryContext
+    override val packetCodecContext: PacketCodecContext
+        get() = mutablePacketCodecContext
 
     override val activeExtensionRoutes: Set<PacketRouteKey>
         get() = activeRoutes
@@ -173,8 +173,8 @@ private abstract class TestConnection<Incoming : Packet, Outgoing : Packet>(
 
     override suspend fun awaitClosed() = Unit
 
-    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
-        mutableProtocolRegistryContext = protocolRegistryContext
+    override fun installPacketCodecContext(packetCodecContext: PacketCodecContext) {
+        mutablePacketCodecContext = packetCodecContext
     }
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {
@@ -248,7 +248,7 @@ private fun testStaticSchema(): StaticRegistrySchema = StaticRegistrySchema(
             Identifier("stone"),
             Identifier("mod:block"),
         ),
-        ProtocolRegistryContext.BIOME_REGISTRY to listOf(
+        PacketCodecContext.BIOME_REGISTRY to listOf(
             MinecraftBiomeIds.PLAINS,
         ),
     ),

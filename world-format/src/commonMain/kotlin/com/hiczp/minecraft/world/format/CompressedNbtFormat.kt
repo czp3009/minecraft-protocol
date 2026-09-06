@@ -115,15 +115,7 @@ class CompressedNbtFormat(
         source: Source,
         compression: Compression,
         block: (Source) -> T,
-    ): T = compressionRegistry.decompressingSource(compression, source).buffered().use { decompressed ->
-        val value = block(decompressed)
-        if (!decompressed.exhausted()) {
-            throw NbtDecodingException(
-                "Decompressed chunk has trailing NBT bytes",
-            )
-        }
-        value
-    }
+    ): T = compressionRegistry.decodeCompressedNbt(source, compression, block)
 
     private fun encodeCompressed(
         compression: Compression,
@@ -132,6 +124,16 @@ class CompressedNbtFormat(
     ) {
         compressionRegistry.compressingSink(compression, sink).buffered().use(block)
     }
+}
+
+internal fun <T> CompressionRegistry.decodeCompressedNbt(
+    source: Source,
+    compression: Compression,
+    decode: (Source) -> T,
+): T = decompressingSource(compression, source).buffered().use { decompressed ->
+    val value = decode(decompressed)
+    if (!decompressed.exhausted()) throw NbtDecodingException("Decompressed chunk has trailing NBT bytes")
+    value
 }
 
 inline fun <reified T> CompressedNbtFormat.decodeFromSource(

@@ -1,4 +1,4 @@
 interface:
   display_name: "Minecraft World Format"
-  short_description: "Implement and verify filesystem-independent Anvil formats"
-  default_prompt: "Use $minecraft-world-format to implement or audit Anvil region and chunk formats."
+  short_description: "Audit mutable world models, NBT schemas and Anvil formats"
+  default_prompt: "Use $minecraft-world-format to implement or audit world data models, NBT schemas and portable formats."

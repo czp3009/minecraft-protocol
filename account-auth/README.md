@@ -38,17 +38,11 @@ val authorizationUrl = MicrosoftOAuthTools.authorizationUrl(
 )
 ```
 
-The caller opens the URL, receives the callback, verifies `state`, handles callback errors, and extracts `code`. The
-library only performs the subsequent token request. In the example, `applicationBrowser` is the caller's URL-opening
-adapter and `applicationCallbackHandler` is its listener/validation component:
+The application opens `authorizationUrl`, receives the callback, verifies `state`, handles callback errors, and
+extracts its `authorizationCode: String`. Browser and callback-listener implementations belong to the application.
+Pass that validated code to the API created above:
 
 ```kotlin
-applicationBrowser.open(authorizationUrl)
-
-val authorizationCode = applicationCallbackHandler.receiveAndValidate(
-    expectedState = state,
-)
-
 val microsoftToken = microsoftOAuthApi.tokenWithAuthorizationCode(
     MicrosoftOAuthTools.authorizationCodeTokenRequest(
         clientId = microsoftClientId,
@@ -62,43 +56,32 @@ val microsoftToken = microsoftOAuthApi.tokenWithAuthorizationCode(
 #### Device Code
 
 Request a device code and present Microsoft's response to the user. `microsoftClientId` was described in the
-Authorization Code branch; `applicationUi` is the caller's UI adapter for displaying the returned instructions:
+Authorization Code branch:
 
 ```kotlin
 val deviceAuthorization = microsoftOAuthApi.deviceCode(
     MicrosoftOAuthTools.deviceAuthorizationRequest(microsoftClientId),
 )
-
-applicationUi.showDeviceAuthorization(
-    userCode = deviceAuthorization.userCode,
-    verificationUri = deviceAuthorization.verificationUri,
-    message = deviceAuthorization.message,
-)
 ```
+
+Display `deviceAuthorization.userCode`, `verificationUri` and `message` in the application's UI before polling.
 
 Each token poll is an explicit call. Microsoft reports states such as `authorization_pending` and `slow_down` as
 non-success responses, so the caller interprets the exception and decides whether and when to poll again.
-`scheduleNextPoll` and `increasePollingInterval` below are application scheduling hooks, not library functions:
+The `deviceAuthorization` response above supplies both the device code and the initial polling interval:
 
 ```kotlin
-val microsoftToken = try {
-    microsoftOAuthApi.tokenWithDeviceCode(
-        MicrosoftOAuthTools.deviceCodeTokenRequest(
-            clientId = microsoftClientId,
-            deviceCode = deviceAuthorization.deviceCode,
-        ),
-    )
-} catch (failure: MicrosoftOAuthResponseException) {
-    when (failure.parsedErrorBody.error) {
-        "authorization_pending" -> return scheduleNextPoll(deviceAuthorization.interval)
-        "slow_down" -> return increasePollingInterval()
-        else -> throw failure
-    }
-}
+val microsoftToken = microsoftOAuthApi.tokenWithDeviceCode(
+    MicrosoftOAuthTools.deviceCodeTokenRequest(
+        clientId = microsoftClientId,
+        deviceCode = deviceAuthorization.deviceCode,
+    ),
+)
 ```
 
-The `error` values handled above are not exhaustive. Preserve and handle any other value through the decoded
-`MicrosoftOAuthErrorResponse` instead of assuming that the polling states are the complete service error set.
+On `MicrosoftOAuthResponseException`, inspect `parsedErrorBody.error`: `authorization_pending` means the application
+may schedule another attempt, while `slow_down` requires changing its polling interval. Other errors must also be
+handled; these two values are not exhaustive. Continue to Xbox authentication only after a call returns a token.
 
 Refreshing a Microsoft token is also caller-triggered. `savedRefreshToken` is the refresh token previously persisted by
 the caller, and `microsoftClientId` is the same registered client ID used above:
@@ -112,7 +95,8 @@ val refreshedMicrosoftToken = microsoftOAuthApi.tokenWithRefreshToken(
 )
 ```
 
-The caller decides when a refresh is needed and whether to replace a stored refresh token with the returned value.
+The caller decides when to refresh, whether to persist the returned refresh token, and when to use
+`refreshedMicrosoftToken` as the `microsoftToken` input to the remaining steps.
 
 ### 2. Obtain an Xbox User Token
 
@@ -146,10 +130,15 @@ Passing this token to a game process is outside the module.
 
 ```kotlin
 val storeEntitlements = minecraftServicesApi.getStoreEntitlements(minecraftAccessToken)
-if (MinecraftServicesTools.hasJavaEditionEntitlement(storeEntitlements)) {
-    val minecraftProfileResponse = minecraftServicesApi.getMinecraftProfile(minecraftAccessToken)
+val minecraftProfileResponse = if (MinecraftServicesTools.hasJavaEditionEntitlement(storeEntitlements)) {
+    minecraftServicesApi.getMinecraftProfile(minecraftAccessToken)
+} else {
+    null
 }
 ```
+
+The returned profile's `id` and `name`, together with `minecraftAccessToken`, supply the online identity in
+[protocol-auth](../protocol-auth/README.md#identities). A null result leaves the entitlement decision with the caller.
 
 `getLicenseEntitlements(...)` is available as an optional diagnostic. The caller decides whether to issue it and how to
 handle a missing entitlement or profile.

@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.protocol.serialization
 
-import com.hiczp.minecraft.protocol.model.packet.CommandsPacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundCommandsPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -14,8 +14,8 @@ import kotlin.test.assertFailsWith
 class CommandPacketTest {
     @Test
     fun `command graph flags and parser properties match Wiki and vanilla`() {
-        val commandsPacket = CommandsPacket(
-            nodes = listOf(
+        val clientboundCommandsPacket = ClientboundCommandsPacket(
+            entries = listOf(
                 CommandNode.Root(children = listOf(1)),
                 CommandNode.Argument(
                     name = "target",
@@ -35,11 +35,11 @@ class CommandPacketTest {
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(commandsPacket),
+            MinecraftPacketPayloadFormat.encodeToByteArray(clientboundCommandsPacket),
         )
         assertEquals(
-            expected = commandsPacket,
-            actual = MinecraftProtocolFormat.decodeFromByteArray<CommandsPacket>(expected),
+            expected = clientboundCommandsPacket,
+            actual = MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundCommandsPacket>(expected),
         )
 
     }
@@ -74,12 +74,12 @@ class CommandPacketTest {
             val byteArray = hex.hexToByteArray()
             assertContentEquals(
                 byteArray,
-                MinecraftProtocolFormat.encodeToByteArray(parserValue),
+                MinecraftPacketPayloadFormat.encodeToByteArray(parserValue),
                 commandParser.toString(),
             )
             assertEquals(
                 parserValue,
-                MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(byteArray),
+                MinecraftPacketPayloadFormat.decodeFromByteArray<ParserValue>(byteArray),
                 commandParser.toString(),
             )
         }
@@ -89,11 +89,11 @@ class CommandPacketTest {
     fun `all no-property parser IDs round trip without assuming enum ordinals`() {
         for (simpleCommandParser in SimpleCommandParser.entries) {
             val parserValue = ParserValue(CommandParser.Simple(simpleCommandParser))
-            val encoded = MinecraftProtocolFormat.encodeToByteArray(parserValue)
+            val encoded = MinecraftPacketPayloadFormat.encodeToByteArray(parserValue)
             assertContentEquals(byteArrayOf(simpleCommandParser.protocolId.toByte()), encoded, simpleCommandParser.name)
             assertEquals(
                 parserValue,
-                MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(encoded),
+                MinecraftPacketPayloadFormat.decodeFromByteArray<ParserValue>(encoded),
                 simpleCommandParser.name,
             )
         }
@@ -109,10 +109,10 @@ class CommandPacketTest {
         )
         assertContentEquals(
             "0300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(parserValue),
+            MinecraftPacketPayloadFormat.encodeToByteArray(parserValue),
         )
 
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(
+        val decoded = MinecraftPacketPayloadFormat.decodeFromByteArray<ParserValue>(
             "0303800000007fffffff".hexToByteArray(),
         )
         assertEquals(
@@ -121,32 +121,32 @@ class CommandPacketTest {
         )
         assertContentEquals(
             "0300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(decoded),
+            MinecraftPacketPayloadFormat.encodeToByteArray(decoded),
         )
     }
 
     @Test
     fun `unknown parser and impossible graph cycles are rejected`() {
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<ParserValue>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ParserValue>(
                 "39".hexToByteArray(),
             )
         }
 
-        val childCycle = CommandsPacket(
-            nodes = listOf(CommandNode.Root(children = listOf(0))),
+        val childCycle = ClientboundCommandsPacket(
+            entries = listOf(CommandNode.Root(children = listOf(0))),
             rootIndex = 0,
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(childCycle)
+            MinecraftPacketPayloadFormat.encodeToByteArray(childCycle)
         }
 
-        val redirectCycle = CommandsPacket(
-            nodes = listOf(CommandNode.Root(emptyList(), redirect = 0)),
+        val redirectCycle = ClientboundCommandsPacket(
+            entries = listOf(CommandNode.Root(emptyList(), redirect = 0)),
             rootIndex = 0,
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(redirectCycle)
+            MinecraftPacketPayloadFormat.encodeToByteArray(redirectCycle)
         }
     }
 }

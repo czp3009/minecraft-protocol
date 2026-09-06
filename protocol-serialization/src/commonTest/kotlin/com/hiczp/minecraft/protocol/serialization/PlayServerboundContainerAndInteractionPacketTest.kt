@@ -14,22 +14,22 @@ class PlayServerboundContainerAndInteractionPacketTest {
     @Test
     fun `container packets use VarInt identifiers in official field order`() {
         assertPacketBytes(
-            ClickContainerButtonPacket(containerId = 300, buttonId = 1),
-            ClickContainerButtonPacket.serializer(),
+            ServerboundContainerButtonClickPacket(containerId = 300, buttonId = 1),
+            ServerboundContainerButtonClickPacket.serializer(),
             "ac0201",
         )
         assertPacketBytes(
-            ServerboundCloseContainerPacket(containerId = 300),
-            ServerboundCloseContainerPacket.serializer(),
+            ServerboundContainerClosePacket(containerId = 300),
+            ServerboundContainerClosePacket.serializer(),
             "ac02",
         )
         assertPacketBytes(
-            ChangeContainerSlotStatePacket(
+            ServerboundContainerSlotStateChangedPacket(
                 slotId = 1,
                 containerId = 300,
-                enabled = true,
+                newState = true,
             ),
-            ChangeContainerSlotStatePacket.serializer(),
+            ServerboundContainerSlotStateChangedPacket.serializer(),
             "01ac0201",
         )
     }
@@ -38,18 +38,18 @@ class PlayServerboundContainerAndInteractionPacketTest {
     fun `cookie response uses boolean optional then bounded byte array`() {
         val key = Identifier("minecraft:x")
         assertPacketBytes(
-            PlayCookieResponsePacket(key, null),
-            PlayCookieResponsePacket.serializer(),
+            ServerboundCookieResponsePacket(key, null),
+            ServerboundCookieResponsePacket.serializer(),
             "0b6d696e6563726166743a7800",
         )
         assertPacketBytes(
-            PlayCookieResponsePacket(key, ByteString(byteArrayOf(0xAA.toByte(), 0xBB.toByte()))),
-            PlayCookieResponsePacket.serializer(),
+            ServerboundCookieResponsePacket(key, ByteString(byteArrayOf(0xAA.toByte(), 0xBB.toByte()))),
+            ServerboundCookieResponsePacket.serializer(),
             "0b6d696e6563726166743a780102aabb",
         )
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                PlayCookieResponsePacket(key, ByteString(ByteArray(5_121))),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundCookieResponsePacket(key, ByteString(ByteArray(5_121))),
             )
         }
     }
@@ -57,8 +57,8 @@ class PlayServerboundContainerAndInteractionPacketTest {
     @Test
     fun `play plugin message preserves the channel-specific payload shape`() {
         assertPacketBytes(
-            PlayServerboundPluginMessagePacket(CustomPayload.Brand("test")),
-            PlayServerboundPluginMessagePacket.serializer(),
+            ServerboundCustomPayloadPacket(CustomPayload.Brand("test")),
+            ServerboundCustomPayloadPacket.serializer(),
             "0f6d696e6563726166743a6272616e640474657374",
         )
     }
@@ -66,17 +66,17 @@ class PlayServerboundContainerAndInteractionPacketTest {
     @Test
     fun `debug subscription request is a bounded registry-id set`() {
         assertPacketBytes(
-            DebugSubscriptionRequestPacket(
+            ServerboundDebugSubscriptionRequestPacket(
                 linkedSetOf(
                     DebugSubscriptionType.DEDICATED_SERVER_TICK_TIME,
                     DebugSubscriptionType.GAME_EVENT,
                 ),
             ),
-            DebugSubscriptionRequestPacket.serializer(),
+            ServerboundDebugSubscriptionRequestPacket.serializer(),
             "02000f",
         )
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionRequestPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundDebugSubscriptionRequestPacket>(
                 "21000000000000000000000000000000000000000000000000000000000000000000"
                     .hexToByteArray(),
             )
@@ -86,23 +86,23 @@ class PlayServerboundContainerAndInteractionPacketTest {
     @Test
     fun `edit book applies independent page-count page-length and title limits`() {
         assertPacketBytes(
-            EditBookPacket(slot = 1, pages = listOf("a", "bc"), title = "x"),
-            EditBookPacket.serializer(),
+            ServerboundEditBookPacket(slot = 1, pages = listOf("a", "bc"), title = "x"),
+            ServerboundEditBookPacket.serializer(),
             "01020161026263010178",
         )
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                EditBookPacket(0, List(101) { "" }, null),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundEditBookPacket(0, List(101) { "" }, null),
             )
         }
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                EditBookPacket(0, listOf("x".repeat(1_025)), null),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundEditBookPacket(0, listOf("x".repeat(1_025)), null),
             )
         }
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                EditBookPacket(0, emptyList(), "x".repeat(33)),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundEditBookPacket(0, emptyList(), "x".repeat(33)),
             )
         }
     }
@@ -110,18 +110,18 @@ class PlayServerboundContainerAndInteractionPacketTest {
     @Test
     fun `entity query and interact follow the 26_2 official codecs`() {
         assertPacketBytes(
-            QueryEntityTagPacket(transactionId = 1, entityId = 300),
-            QueryEntityTagPacket.serializer(),
+            ServerboundEntityTagQueryPacket(transactionId = 1, entityId = 300),
+            ServerboundEntityTagQueryPacket.serializer(),
             "01ac02",
         )
         assertPacketBytes(
-            InteractPacket(
+            ServerboundInteractPacket(
                 entityId = 1,
                 hand = InteractionHand.OFF_HAND,
-                targetOffset = Vector3d(0.0, 0.0, 0.0),
+                location = Vector3d(0.0, 0.0, 0.0),
                 usingSecondaryAction = true,
             ),
-            InteractPacket.serializer(),
+            ServerboundInteractPacket.serializer(),
             "01010001",
         )
     }
@@ -129,22 +129,22 @@ class PlayServerboundContainerAndInteractionPacketTest {
     @Test
     fun `jigsaw keepalive and difficulty lock retain fixed primitive shapes`() {
         assertPacketBytes(
-            JigsawGeneratePacket(
-                location = BlockPosition(0, 0, 0),
+            ServerboundJigsawGeneratePacket(
+                pos = BlockPosition(0, 0, 0),
                 levels = 300,
                 keepJigsaws = true,
             ),
-            JigsawGeneratePacket.serializer(),
+            ServerboundJigsawGeneratePacket.serializer(),
             "0000000000000000ac0201",
         )
         assertPacketBytes(
-            PlayServerboundKeepAlivePacket(0x0102_0304_0506_0708L),
-            PlayServerboundKeepAlivePacket.serializer(),
+            ServerboundKeepAlivePacket(0x0102_0304_0506_0708L),
+            ServerboundKeepAlivePacket.serializer(),
             "0102030405060708",
         )
         assertPacketBytes(
-            LockDifficultyPacket(true),
-            LockDifficultyPacket.serializer(),
+            ServerboundLockDifficultyPacket(true),
+            ServerboundLockDifficultyPacket.serializer(),
             "01",
         )
     }
@@ -157,11 +157,11 @@ class PlayServerboundContainerAndInteractionPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

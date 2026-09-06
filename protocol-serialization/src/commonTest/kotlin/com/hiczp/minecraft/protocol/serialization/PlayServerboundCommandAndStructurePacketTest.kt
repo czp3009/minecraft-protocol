@@ -14,45 +14,43 @@ class PlayServerboundCommandAndStructurePacketTest {
     @Test
     fun `command block flags are one byte while minecart uses a boolean`() {
         assertPacketBytes(
-            ProgramCommandBlockPacket(
-                location = BlockPosition(0, 0, 0),
+            ServerboundSetCommandBlockPacket(
+                pos = BlockPosition(0, 0, 0),
                 command = "x",
                 mode = CommandBlockMode.REDSTONE,
-                flags = CommandBlockFlags(
-                    trackOutput = true,
-                    conditional = true,
-                    automatic = true,
-                ),
+                trackOutput = true,
+                conditional = true,
+                automatic = true,
             ),
-            ProgramCommandBlockPacket.serializer(),
+            ServerboundSetCommandBlockPacket.serializer(),
             "000000000000000001780207",
         )
         assertPacketBytes(
-            ProgramCommandBlockMinecartPacket(
-                entityId = 300,
+            ServerboundSetCommandMinecartPacket(
+                entity = 300,
                 command = "x",
                 trackOutput = true,
             ),
-            ProgramCommandBlockMinecartPacket.serializer(),
+            ServerboundSetCommandMinecartPacket.serializer(),
             "ac02017801",
         )
 
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray<ProgramCommandBlockPacket>(
+        val decoded = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundSetCommandBlockPacket>(
             "00000000000000000000ff".hexToByteArray(),
         )
         assertContentEquals(
             "0000000000000000000007".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(decoded),
+            MinecraftPacketPayloadFormat.encodeToByteArray(decoded),
         )
     }
 
     @Test
     fun `game-rule changes are a prefixed list of identifier and string pairs`() {
         assertPacketBytes(
-            SetGameRulesPacket(
-                listOf(GameRuleChange(Identifier("minecraft:x"), "1")),
+            ServerboundSetGameRulePacket(
+                listOf(ServerboundSetGameRulePacket.Entry(Identifier("minecraft:x"), "1")),
             ),
-            SetGameRulesPacket.serializer(),
+            ServerboundSetGameRulePacket.serializer(),
             "010b6d696e6563726166743a780131",
         )
     }
@@ -60,8 +58,8 @@ class PlayServerboundCommandAndStructurePacketTest {
     @Test
     fun `jigsaw joint is a string enum with aligned fallback`() {
         assertPacketBytes(
-            ProgramJigsawBlockPacket(
-                location = BlockPosition(0, 0, 0),
+            ServerboundSetJigsawBlockPacket(
+                pos = BlockPosition(0, 0, 0),
                 name = Identifier("minecraft:a"),
                 target = Identifier("minecraft:b"),
                 pool = Identifier("minecraft:c"),
@@ -70,12 +68,12 @@ class PlayServerboundCommandAndStructurePacketTest {
                 selectionPriority = 1,
                 placementPriority = 300,
             ),
-            ProgramJigsawBlockPacket.serializer(),
+            ServerboundSetJigsawBlockPacket.serializer(),
             "00000000000000000b6d696e6563726166743a610b6d696e6563726166743a620b6d696e6563726166743a63017808726f6c6c61626c6501ac02",
         )
         assertEquals(
             JigsawJoint.ALIGNED,
-            MinecraftProtocolFormat.decodeFromByteArray<JigsawJoint>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<JigsawJoint>(
                 "07756e6b6e6f776e".hexToByteArray(),
             ),
         )
@@ -83,35 +81,33 @@ class PlayServerboundCommandAndStructurePacketTest {
 
     @Test
     fun `structure block preserves field order and packs four flags`() {
-        val programStructureBlockPacket = ProgramStructureBlockPacket(
-            location = BlockPosition(0, 0, 0),
-            action = StructureUpdateAction.SCAN_AREA,
+        val serverboundSetStructureBlockPacket = ServerboundSetStructureBlockPacket(
+            pos = BlockPosition(0, 0, 0),
+            updateType = StructureUpdateAction.SCAN_AREA,
             mode = StructureMode.DATA,
             name = "",
             offset = StructureOffset(-48, 0, 48),
             size = StructureSize(0, 1, 48),
             mirror = StructureMirror.FRONT_BACK,
             rotation = StructureRotation.COUNTERCLOCKWISE_90,
-            metadata = "x",
+            data = "x",
             integrity = StructureIntegrity(0.5f),
             seed = 300,
-            flags = StructureBlockFlags(
-                ignoreEntities = true,
-                showAir = true,
-                showBoundingBox = true,
-                strictPlacement = true,
-            ),
+            ignoreEntities = true,
+            showAir = true,
+            showBoundingBox = true,
+            strict = true,
         )
         assertPacketBytes(
-            programStructureBlockPacket,
-            ProgramStructureBlockPacket.serializer(),
+            serverboundSetStructureBlockPacket,
+            ServerboundSetStructureBlockPacket.serializer(),
             "0000000000000000030300d00030000130020301783f000000ac020f",
         )
     }
 
     @Test
     fun `structure decode clamps byte vectors integrity and unknown flag bits`() {
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray<ProgramStructureBlockPacket>(
+        val decoded = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundSetStructureBlockPacket>(
             "0000000000000000000000807f31ff317f0000004000000000ff".hexToByteArray(),
         )
         assertEquals(StructureOffset(-48, 48, 48), decoded.offset)
@@ -119,46 +115,50 @@ class PlayServerboundCommandAndStructurePacketTest {
         assertEquals(StructureIntegrity(1.0f), decoded.integrity)
         assertContentEquals(
             "0000000000000000000000d030300030300000003f800000000f".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(decoded),
+            MinecraftPacketPayloadFormat.encodeToByteArray(decoded),
         )
     }
 
     @Test
     fun `test block uses zero fallback and sign lines have no count prefix`() {
         assertPacketBytes(
-            SetTestBlockPacket(
+            ServerboundSetTestBlockPacket(
                 BlockPosition(0, 0, 0),
                 TestBlockMode.ACCEPT,
                 "x",
             ),
-            SetTestBlockPacket.serializer(),
+            ServerboundSetTestBlockPacket.serializer(),
             "0000000000000000030178",
         )
-        val fallback = MinecraftProtocolFormat.decodeFromByteArray<SetTestBlockPacket>(
+        val fallback = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundSetTestBlockPacket>(
             "00000000000000007f00".hexToByteArray(),
         )
         assertEquals(TestBlockMode.START, fallback.mode)
 
         assertPacketBytes(
-            UpdateSignPacket(
-                location = BlockPosition(0, 0, 0),
-                frontText = true,
+            ServerboundSignUpdatePacket(
+                pos = BlockPosition(0, 0, 0),
+                isFrontText = true,
                 lines = listOf("a", "", "bc", "d"),
             ),
-            UpdateSignPacket.serializer(),
+            ServerboundSignUpdatePacket.serializer(),
             "0000000000000000010161000262630164",
         )
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                UpdateSignPacket(BlockPosition(0, 0, 0), true, listOf("only one")),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundSignUpdatePacket(
+                    pos = BlockPosition(0, 0, 0),
+                    isFrontText = true,
+                    lines = listOf("only one")
+                ),
             )
         }
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                UpdateSignPacket(
-                    BlockPosition(0, 0, 0),
-                    true,
-                    listOf("x".repeat(385), "", "", ""),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundSignUpdatePacket(
+                    pos = BlockPosition(0, 0, 0),
+                    isFrontText = true,
+                    lines = listOf("x".repeat(385), "", "", ""),
                 ),
             )
         }
@@ -172,11 +172,11 @@ class PlayServerboundCommandAndStructurePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

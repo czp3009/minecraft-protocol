@@ -2,7 +2,7 @@
 
 This private application demonstrates library composition. Prefer existing repository values and conversions such as
 `Identifier`, `MinecraftBlockIds`, `DimensionId`, `MinecraftCoordinates`, `ChunkRange`, `RegionPosition`,
-`MinecraftChunkContext`, and live world APIs over parallel demo-specific Minecraft models or constants.
+`ChunkContext`, `ChunkNbtDecoder`, and live world APIs over parallel demo-specific Minecraft models or constants.
 
 ## Local design
 
@@ -58,4 +58,4 @@ Run `:demo:web-map:jvmTest` for contracts, projection, cache concurrency, transp
 failure isolation, and HTTP serving. Run `:demo:web-map:jsNodeTest` for portable controller, Canvas-transform, and
 asset-model logic. Browser packaging changes also require `:demo:web-map:jsBrowserDistribution` and the affected
 JVM/native compile or run task. Do not add custom executable install tasks; this non-interactive server runs directly
-through Gradle. Verify configuration-cache store and reuse after changing task inputs, outputs, or distribution wiring.
+through Gradle.

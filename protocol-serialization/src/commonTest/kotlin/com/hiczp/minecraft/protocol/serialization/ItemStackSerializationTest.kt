@@ -69,7 +69,7 @@ class ItemStackSerializationTest {
         )
         assertContentEquals(
             "0101010002ac02".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(itemStack),
+            MinecraftPacketPayloadFormat.encodeToByteArray(itemStack),
         )
 
         val removalWins = ItemStack.of(
@@ -81,7 +81,7 @@ class ItemStackSerializationTest {
         )
         assertContentEquals(
             "0101000102".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 removalWins,
             ),
         )
@@ -266,7 +266,7 @@ class ItemStackSerializationTest {
 
     @Test
     fun `animal variant codecs retain vanilla fallback policies`() {
-        val salmonMalformed = MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
+        val salmonMalformed = MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
             "01010100577f".hexToByteArray(),
         )
         assertEquals(
@@ -282,12 +282,12 @@ class ItemStackSerializationTest {
         )
         assertContentEquals(
             "010101005702".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 salmonMalformed,
             ),
         )
 
-        val horseMalformed = MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
+        val horseMalformed = MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
             "0101010066ffffffff0f".hexToByteArray(),
         )
         assertEquals(
@@ -322,7 +322,7 @@ class ItemStackSerializationTest {
     @Test
     fun `zero-fallback enums canonicalize malformed ids`() {
         val malformed = "010101000c7f".hexToByteArray()
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
+        val decoded = MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
             malformed,
         )
         assertEquals(
@@ -340,19 +340,19 @@ class ItemStackSerializationTest {
         )
         assertContentEquals(
             "010101000c00".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(decoded),
+            MinecraftPacketPayloadFormat.encodeToByteArray(decoded),
         )
     }
 
     @Test
     fun `non-network and unknown component ids are rejected`() {
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
                 "0101010016".hexToByteArray(),
             )
         }
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
                 "010101006f".hexToByteArray(),
             )
         }
@@ -371,7 +371,7 @@ class ItemStackSerializationTest {
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(itemStack)
+            MinecraftPacketPayloadFormat.encodeToByteArray(itemStack)
         }
     }
 
@@ -379,11 +379,11 @@ class ItemStackSerializationTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(itemStack),
+            MinecraftPacketPayloadFormat.encodeToByteArray(itemStack),
         )
         assertEquals(
             expected = itemStack,
-            actual = MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(expected),
+            actual = MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(expected),
         )
     }
 }

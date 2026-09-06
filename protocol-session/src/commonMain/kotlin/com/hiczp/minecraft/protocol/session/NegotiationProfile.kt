@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.session
 
+import com.hiczp.minecraft.protocol.model.packet.ClientIntentionPacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.HandshakePacket
 import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
 
 /** Marker returned by optional negotiation algorithms. */
 interface NegotiationProfileResult
@@ -20,7 +20,7 @@ interface ClientNegotiationProfile {
     ) = Unit
 
     /** Returns the Handshake packet to put on the ordinary outgoing channel. */
-    fun prepareHandshake(handshakePacket: HandshakePacket): HandshakePacket = handshakePacket
+    fun prepareHandshake(clientIntentionPacket: ClientIntentionPacket): ClientIntentionPacket = clientIntentionPacket
 
     suspend fun handleLoginPacket(
         minecraftClientPacketConnection: MinecraftClientPacketConnection,
@@ -32,9 +32,9 @@ interface ClientNegotiationProfile {
         clientboundPacket: ClientboundPacket,
     ): Boolean = false
 
-    suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext = protocolRegistryContext
+    suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext = packetCodecContext
 
     /** Runs immediately before the client acknowledges Finish Configuration. */
     suspend fun preparePlay(
@@ -56,7 +56,7 @@ interface ServerNegotiationProfile {
     ) = Unit
 
     /** Observes the already-decoded Handshake packet before Login orchestration. */
-    fun acceptHandshake(handshakePacket: HandshakePacket) = Unit
+    fun acceptHandshake(clientIntentionPacket: ClientIntentionPacket) = Unit
 
     suspend fun negotiateLogin(
         minecraftServerPacketConnection: MinecraftServerPacketConnection,
@@ -87,9 +87,9 @@ interface ServerNegotiationProfile {
         serverboundPacket: ServerboundPacket,
     ): Boolean = false
 
-    suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext = protocolRegistryContext
+    suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext = packetCodecContext
 
     /** Runs after the server observes Play state and before it sends Play Login. */
     suspend fun preparePlay(

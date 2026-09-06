@@ -127,13 +127,13 @@ class ProtocolModelContractTest {
     @Test
     fun `packet models preserve wire values while item counts retain their representation invariant`() {
         assertEquals(
-            HandshakeNextState.UNUSED,
-            HandshakePacket(
+            ClientIntent.STATUS,
+            ClientIntentionPacket(
                 protocolVersion = 0,
-                serverAddress = "localhost",
-                serverPort = 25_565,
-                nextState = HandshakeNextState.UNUSED,
-            ).nextState,
+                hostName = "localhost",
+                port = 25_565,
+                intention = ClientIntent.STATUS,
+            ).intention,
         )
         assertEquals(0, LegacyServerListPingPacket(payload = 0).payload)
         assertFailsWith<IllegalArgumentException> {

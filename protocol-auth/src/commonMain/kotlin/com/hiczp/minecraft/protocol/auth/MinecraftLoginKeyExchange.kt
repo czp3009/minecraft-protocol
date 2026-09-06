@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.auth
 
-import com.hiczp.minecraft.protocol.model.packet.EncryptionRequestPacket
-import com.hiczp.minecraft.protocol.model.packet.EncryptionResponsePacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundHelloPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundKeyPacket
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import dev.whyoleg.cryptography.bigint.decodeToBigInt
 import dev.whyoleg.cryptography.random.CryptographyRandom
@@ -236,32 +236,32 @@ object MinecraftClientKeyExchange {
 }
 
 fun MinecraftClientKeyExchange.respond(
-    encryptionRequestPacket: EncryptionRequestPacket,
+    clientboundHelloPacket: ClientboundHelloPacket,
 ): MinecraftClientKeyExchangeResult = respond(
-    serverId = encryptionRequestPacket.serverId,
-    encodedPublicKey = encryptionRequestPacket.publicKey.toByteArray(),
-    verifyToken = encryptionRequestPacket.verifyToken.toByteArray(),
+    serverId = clientboundHelloPacket.serverId,
+    encodedPublicKey = clientboundHelloPacket.publicKey.toByteArray(),
+    verifyToken = clientboundHelloPacket.challenge.toByteArray(),
 )
 
-fun MinecraftClientKeyExchangeResult.toEncryptionResponsePacket(): EncryptionResponsePacket =
-    EncryptionResponsePacket(
-        sharedSecret = ByteString(encryptedSharedSecret),
-        verifyToken = ByteString(encryptedVerifyToken),
+fun MinecraftClientKeyExchangeResult.toServerboundKeyPacket(): ServerboundKeyPacket =
+    ServerboundKeyPacket(
+        keybytes = ByteString(encryptedSharedSecret),
+        encryptedChallenge = ByteString(encryptedVerifyToken),
     )
 
-fun MinecraftServerChallenge.toEncryptionRequestPacket(): EncryptionRequestPacket =
-    EncryptionRequestPacket(
+fun MinecraftServerChallenge.toClientboundHelloPacket(): ClientboundHelloPacket =
+    ClientboundHelloPacket(
         serverId = serverId,
         publicKey = ByteString(encodedPublicKey),
-        verifyToken = ByteString(verifyToken),
+        challenge = ByteString(verifyToken),
         shouldAuthenticate = shouldAuthenticate,
     )
 
 fun MinecraftServerChallenge.accept(
-    encryptionResponsePacket: EncryptionResponsePacket,
+    serverboundKeyPacket: ServerboundKeyPacket,
 ): MinecraftServerKeyExchangeResult = accept(
-    encryptedSharedSecret = encryptionResponsePacket.sharedSecret.toByteArray(),
-    encryptedVerifyToken = encryptionResponsePacket.verifyToken.toByteArray(),
+    encryptedSharedSecret = serverboundKeyPacket.keybytes.toByteArray(),
+    encryptedVerifyToken = serverboundKeyPacket.encryptedChallenge.toByteArray(),
 )
 
 class MinecraftCryptographyException(

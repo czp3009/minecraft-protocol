@@ -3,9 +3,11 @@
 package com.hiczp.minecraft.protocol.model.packet
 
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.protocol.model.wire.FixedLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
 import com.hiczp.minecraft.protocol.model.wire.WrappedEnum
+import com.hiczp.minecraft.protocol.model.wire.ZeroFallbackEnum
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -27,7 +29,7 @@ import kotlin.uuid.Uuid
     PacketDirection.CLIENTBOUND,
     officialName = "disguised_chat",
 )
-data class DisguisedChatPacket(
+data class ClientboundDisguisedChatPacket(
     val message: TextComponent,
     val chatType: BoundChatType,
 ) : PlayStatePacket, SkippableClientboundPacket
@@ -39,7 +41,7 @@ data class DisguisedChatPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "explode",
 )
-data class ExplosionPacket(
+data class ClientboundExplodePacket(
     val center: Vector3d,
     val radius: Float,
     val blockCount: Int,
@@ -56,31 +58,31 @@ data class ExplosionPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "level_chunk_with_light",
 )
-data class ChunkDataAndUpdateLightPacket(
-    val chunkX: Int,
-    val chunkZ: Int,
-    val chunkData: ChunkData,
-    val lightData: LightUpdateData,
+data class ClientboundLevelChunkWithLightPacket(
+    val x: Int,
+    val z: Int,
+    val chunkData: ClientboundLevelChunkPacketData,
+    val lightData: ClientboundLightUpdatePacketData,
 ) : PlayStatePacket, ClientboundPacket
 
-@Serializable
+@Serializable(with = ClientboundLevelParticlesPacketSerializer::class)
 @PacketInfo(
     0x2F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "level_particles",
 )
-data class ParticlePacket(
-    val overrideLimiter: Boolean,
-    val alwaysShow: Boolean,
+data class ClientboundLevelParticlesPacket(
     val x: Double,
     val y: Double,
     val z: Double,
-    val offsetX: Float,
-    val offsetY: Float,
-    val offsetZ: Float,
+    val xDist: Float,
+    val yDist: Float,
+    val zDist: Float,
     val maxSpeed: Float,
     val count: Int,
+    val overrideLimiter: Boolean,
+    val alwaysShow: Boolean,
     val particle: ParticleOptions,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -91,12 +93,12 @@ data class ParticlePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "light_update",
 )
-data class LightUpdatePacket(
+data class ClientboundLightUpdatePacket(
     @VarInt
-    val chunkX: Int,
+    val x: Int,
     @VarInt
-    val chunkZ: Int,
-    val data: LightUpdateData,
+    val z: Int,
+    val lightData: ClientboundLightUpdatePacketData,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -106,7 +108,7 @@ data class LightUpdatePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "login",
 )
-data class PlayLoginPacket(
+data class ClientboundLoginPacket(
     val playerId: Int,
     val hardcore: Boolean,
     val levels: Set<Identifier>,
@@ -118,20 +120,20 @@ data class PlayLoginPacket(
     val simulationDistance: Int,
     val reducedDebugInfo: Boolean,
     val showDeathScreen: Boolean,
-    val limitedCrafting: Boolean,
-    val spawnInfo: CommonPlayerSpawnInfo,
+    val doLimitedCrafting: Boolean,
+    val commonPlayerSpawnInfo: CommonPlayerSpawnInfo,
     val onlineMode: Boolean,
     val enforcesSecureChat: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
-@Serializable(with = MapDataPacketSerializer::class)
+@Serializable(with = ClientboundMapItemDataPacketSerializer::class)
 @PacketInfo(
     0x33,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "map_item_data",
 )
-data class MapDataPacket(
+data class ClientboundMapItemDataPacket(
     @VarInt
     val mapId: Int,
     val scale: Byte,
@@ -140,11 +142,13 @@ data class MapDataPacket(
     val colorPatch: MapColorPatch?,
 ) : PlayStatePacket, ClientboundPacket
 
-internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
+internal object ClientboundMapItemDataPacketSerializer
+
+    : KSerializer<ClientboundMapItemDataPacket> {
     private val decorationsSerializer = ListSerializer(MapDecoration.serializer())
 
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor(
-        "minecraft.MapDataPacket",
+        "minecraft.ClientboundMapItemDataPacket",
     ) {
         element<Int>("mapId", annotations = listOf(VarInt()))
         element<Byte>("scale")
@@ -153,7 +157,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
         element("colorPatch", NullableMapColorPatchSerializer.descriptor)
     }
 
-    override fun serialize(encoder: Encoder, value: MapDataPacket) {
+    override fun serialize(encoder: Encoder, value: ClientboundMapItemDataPacket) {
         val output = encoder.beginStructure(descriptor)
         output.encodeIntElement(descriptor, MAP_ID, value.mapId)
         output.encodeByteElement(descriptor, SCALE, value.scale)
@@ -173,10 +177,10 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
         output.endStructure(descriptor)
     }
 
-    override fun deserialize(decoder: Decoder): MapDataPacket {
+    override fun deserialize(decoder: Decoder): ClientboundMapItemDataPacket {
         val input = decoder.beginStructure(descriptor)
         if (input.decodeSequentially()) {
-            val mapDataPacket = MapDataPacket(
+            val clientboundMapItemDataPacket = ClientboundMapItemDataPacket(
                 mapId = input.decodeIntElement(descriptor, MAP_ID),
                 scale = input.decodeByteElement(descriptor, SCALE),
                 locked = input.decodeBooleanElement(descriptor, LOCKED),
@@ -192,7 +196,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
                 ),
             )
             input.endStructure(descriptor)
-            return mapDataPacket
+            return clientboundMapItemDataPacket
         }
 
         var mapId: Int? = null
@@ -227,7 +231,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
 
                 CompositeDecoder.DECODE_DONE -> break
                 else -> throw SerializationException(
-                    "Unexpected MapDataPacket field $index",
+                    "Unexpected ClientboundMapItemDataPacket field $index",
                 )
             }
         }
@@ -238,7 +242,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
         if (!sawColorPatch) {
             throw SerializationException("Missing map color-patch field")
         }
-        return MapDataPacket(
+        return ClientboundMapItemDataPacket(
             mapId = mapId ?: throw SerializationException("Missing map ID"),
             scale = scale ?: throw SerializationException("Missing map scale"),
             locked = locked ?: throw SerializationException("Missing map lock state"),
@@ -261,7 +265,7 @@ internal object MapDataPacketSerializer : KSerializer<MapDataPacket> {
     PacketDirection.CLIENTBOUND,
     officialName = "player_chat",
 )
-data class PlayerChatMessagePacket(
+data class ClientboundPlayerChatPacket(
     @VarInt
     val globalIndex: Int,
     val sender: Uuid,
@@ -281,10 +285,34 @@ data class PlayerChatMessagePacket(
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_info_update",
+    shapeException = "PlayerInfoUpdate couples the action set with entries and validates that every selected action has data in each entry.",
 )
-data class PlayerInfoUpdatePacket(
+data class ClientboundPlayerInfoUpdatePacket(
     val update: PlayerInfoUpdatePayload,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, ClientboundPacket {
+    data class Entry(
+        val profileId: Uuid,
+        val profile: PlayerListProfile? = null,
+        val listed: Boolean = false,
+        val latency: Int = 0,
+        val gameMode: GameMode = GameMode.SURVIVAL,
+        val displayName: TextComponent? = null,
+        val showHat: Boolean = false,
+        val listOrder: Int = 0,
+        val chatSession: ChatSessionData? = null,
+    )
+
+    enum class Action {
+        ADD_PLAYER,
+        INITIALIZE_CHAT,
+        UPDATE_GAME_MODE,
+        UPDATE_LISTED,
+        UPDATE_LATENCY,
+        UPDATE_DISPLAY_NAME,
+        UPDATE_LIST_ORDER,
+        UPDATE_HAT,
+    }
+}
 
 @Serializable
 @PacketInfo(
@@ -293,8 +321,8 @@ data class PlayerInfoUpdatePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "respawn",
 )
-data class RespawnPacket(
-    val spawnInfo: CommonPlayerSpawnInfo,
+data class ClientboundRespawnPacket(
+    val commonPlayerSpawnInfo: CommonPlayerSpawnInfo,
     val dataToKeep: Byte,
 ) : PlayStatePacket, ClientboundPacket {
     companion object {
@@ -311,10 +339,10 @@ data class RespawnPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_entity_data",
 )
-data class SetEntityMetadataPacket(
+data class ClientboundSetEntityDataPacket(
     @VarInt
-    val entityId: Int,
-    val metadata: EntityMetadata,
+    val id: Int,
+    val packedItems: EntityMetadata,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -323,8 +351,9 @@ data class SetEntityMetadataPacket(
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_objective",
+    shapeException = "ObjectiveUpdate is a sealed create-update-remove value that excludes payload fields on removal.",
 )
-data class SetObjectivePacket(
+data class ClientboundSetObjectivePacket(
     val objectiveName: String,
     val update: ObjectiveUpdate,
 ) : PlayStatePacket, ClientboundPacket
@@ -335,11 +364,26 @@ data class SetObjectivePacket(
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_player_team",
+    shapeException = "TeamUpdate is a sealed operation with its required parameters and player list; impossible method-payload combinations cannot be constructed.",
 )
-data class SetPlayerTeamPacket(
-    val teamName: String,
+data class ClientboundSetPlayerTeamPacket(
+    val name: String,
     val update: TeamUpdate,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, ClientboundPacket {
+    @Serializable
+    data class Parameters(
+        val displayName: TextComponent,
+        val playerPrefix: TextComponent,
+        val playerSuffix: TextComponent,
+        @ZeroFallbackEnum
+        val nameTagVisibility: TeamVisibility,
+        @ZeroFallbackEnum
+        val collisionRule: TeamCollisionRule,
+        @ZeroFallbackEnum
+        val color: TeamColor?,
+        val options: Byte,
+    )
+}
 
 @Serializable
 @PacketInfo(
@@ -348,7 +392,7 @@ data class SetPlayerTeamPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "set_score",
 )
-data class SetScorePacket(
+data class ClientboundSetScorePacket(
     val owner: String,
     val objectiveName: String,
     @VarInt
@@ -364,11 +408,11 @@ data class SetScorePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "sound_entity",
 )
-data class EntitySoundEffectPacket(
+data class ClientboundSoundEntityPacket(
     val sound: SoundEventHolder,
     val source: SoundSource,
     @VarInt
-    val entityId: Int,
+    val id: Int,
     val volume: Float,
     val pitch: Float,
     val seed: Long,
@@ -381,24 +425,18 @@ data class EntitySoundEffectPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "sound",
 )
-data class SoundEffectPacket(
+data class ClientboundSoundPacket(
     val sound: SoundEventHolder,
     val source: SoundSource,
-    val encodedX: Int,
-    val encodedY: Int,
-    val encodedZ: Int,
+    val x: Int,
+    val y: Int,
+    val z: Int,
     val volume: Float,
     val pitch: Float,
     val seed: Long,
 ) : PlayStatePacket, ClientboundPacket {
-    val x: Double
-        get() = encodedX / POSITION_SCALE
-
-    val y: Double
-        get() = encodedY / POSITION_SCALE
-
-    val z: Double
-        get() = encodedZ / POSITION_SCALE
+    val position: Vector3d
+        get() = Vector3d(x / POSITION_SCALE, y / POSITION_SCALE, z / POSITION_SCALE)
 
     companion object {
         private const val POSITION_SCALE: Double = 8.0
@@ -412,7 +450,7 @@ data class SoundEffectPacket(
             volume: Float,
             pitch: Float,
             seed: Long,
-        ): SoundEffectPacket = SoundEffectPacket(
+        ): ClientboundSoundPacket = ClientboundSoundPacket(
             soundEventHolder,
             soundSource,
             (x * POSITION_SCALE).toInt(),
@@ -427,27 +465,23 @@ data class SoundEffectPacket(
 
 @Serializable
 @PacketInfo(
-    0x8C,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "show_dialog",
-)
-data class PlayShowDialogPacket(
-    val dialog: DialogHolder,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
-@PacketInfo(
     0x8A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "waypoint",
 )
-data class WaypointPacket(
+data class ClientboundTrackedWaypointPacket(
     @WrappedEnum
-    val operation: WaypointOperation,
+    val operation: Operation,
     val waypoint: TrackedWaypoint,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, ClientboundPacket {
+    @Serializable
+    enum class Operation {
+        TRACK,
+        UNTRACK,
+        UPDATE,
+    }
+}
 
 @Serializable
 @PacketInfo(
@@ -456,7 +490,7 @@ data class WaypointPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "place_ghost_recipe",
 )
-data class PlaceGhostRecipePacket(
+data class ClientboundPlaceGhostRecipePacket(
     @VarInt
     val containerId: Int,
     val recipeDisplay: RecipeDisplay,
@@ -469,10 +503,37 @@ data class PlaceGhostRecipePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "recipe_book_add",
 )
-data class RecipeBookAddPacket(
-    val entries: List<RecipeBookEntry>,
+data class ClientboundRecipeBookAddPacket(
+    val entries: List<ClientboundRecipeBookAddPacket.Entry>,
     val replace: Boolean,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, ClientboundPacket {
+    @Serializable
+    data class Entry(
+        val contents: RecipeDisplayEntry,
+        val flags: Byte,
+    ) {
+        val notification: Boolean
+            get() = flags.toInt() and NOTIFICATION != 0
+
+        val highlight: Boolean
+            get() = flags.toInt() and HIGHLIGHT != 0
+
+        companion object {
+            const val NOTIFICATION: Int = 0x01
+            const val HIGHLIGHT: Int = 0x02
+
+            fun of(
+                contents: RecipeDisplayEntry,
+                notification: Boolean,
+                highlight: Boolean,
+            ): Entry = Entry(
+                contents,
+                ((if (notification) NOTIFICATION else 0) or
+                        (if (highlight) HIGHLIGHT else 0)).toByte(),
+            )
+        }
+    }
+}
 
 @Serializable
 @PacketInfo(
@@ -481,7 +542,7 @@ data class RecipeBookAddPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "update_advancements",
 )
-data class UpdateAdvancementsPacket(
+data class ClientboundUpdateAdvancementsPacket(
     val reset: Boolean,
     val added: List<AdvancementHolder>,
     val removed: Set<Identifier>,
@@ -496,7 +557,7 @@ data class UpdateAdvancementsPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "update_recipes",
 )
-data class UpdateRecipesPacket(
+data class ClientboundUpdateRecipesPacket(
     val itemSets: Map<Identifier, RecipePropertySet>,
     val stonecutterRecipes: List<StonecutterRecipeOption>,
 ) : PlayStatePacket, ClientboundPacket

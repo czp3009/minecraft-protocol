@@ -67,7 +67,7 @@ class ForgeNegotiationProfileTest {
             ),
             setOf(dataPackRegistry),
         )
-        val sharedProtocolRegistryContext = forgeRegistrySync.resolve(staticRegistrySchema)
+        val sharedPacketCodecContext = forgeRegistrySync.resolve(staticRegistrySchema)
         val mods = mapOf(
             "example" to ForgeModInfo("Example", "1.0"),
         )
@@ -84,7 +84,7 @@ class ForgeNegotiationProfileTest {
                 forgeNetworkConfiguration,
                 mods,
                 forgeRegistrySync,
-                sharedProtocolRegistryContext,
+                sharedPacketCodecContext,
                 listOf(
                     ForgeConfigDataMessage(
                         "server.toml",
@@ -95,15 +95,15 @@ class ForgeNegotiationProfileTest {
         )
         forgeClientProfile.begin(forgeTestClientConnection)
         forgeServerProfile.begin(forgeTestServerConnection)
-        val handshakePacket = forgeClientProfile.prepareHandshake(
-            HandshakePacket(
+        val clientIntentionPacket = forgeClientProfile.prepareHandshake(
+            ClientIntentionPacket(
                 1,
                 "localhost",
                 25_565,
-                HandshakeNextState.LOGIN,
+                ClientIntent.LOGIN,
             ),
         )
-        forgeServerProfile.acceptHandshake(handshakePacket)
+        forgeServerProfile.acceptHandshake(clientIntentionPacket)
 
         val negotiation = async {
             forgeServerProfile.negotiateConfigurationStart(forgeTestServerConnection)
@@ -118,24 +118,22 @@ class ForgeNegotiationProfileTest {
         }
         negotiation.await()
 
-        val clientProtocolRegistryContext = forgeClientProfile.resolveProtocolRegistryContext(
+        val clientPacketCodecContext = forgeClientProfile.resolvePacketCodecContext(
             staticRegistrySchema.resolve()
-                .withRegistrySize(ProtocolRegistryContext.BIOME_REGISTRY, 4)
-                .withChunkSectionCount(24),
+                .withRegistrySize(PacketCodecContext.BIOME_REGISTRY, 4),
         )
         assertEquals(
             Identifier("mod:new_block"),
-            clientProtocolRegistryContext.blockStates.first().block,
+            clientPacketCodecContext.blockStates.first().block,
         )
-        assertEquals(5, clientProtocolRegistryContext.registrySize(Identifier("block")))
-        assertEquals(4, clientProtocolRegistryContext.biomeRegistrySize)
-        assertEquals(24, clientProtocolRegistryContext.chunkSectionCount)
+        assertEquals(5, clientPacketCodecContext.registrySize(Identifier("block")))
+        assertEquals(4, clientPacketCodecContext.biomeRegistrySize)
 
-        val serverProtocolRegistryContext = forgeServerProfile.resolveProtocolRegistryContext(
-            ProtocolRegistryContext.Empty.withChunkSectionCount(24),
+        val serverPacketCodecContext = forgeServerProfile.resolvePacketCodecContext(
+            PacketCodecContext.Empty,
         )
-        assertSame(sharedProtocolRegistryContext.registries, serverProtocolRegistryContext.registries)
-        assertSame(sharedProtocolRegistryContext.blockStates, serverProtocolRegistryContext.blockStates)
+        assertSame(sharedPacketCodecContext.registries, serverPacketCodecContext.registries)
+        assertSame(sharedPacketCodecContext.blockStates, serverPacketCodecContext.blockStates)
 
         forgeClientProfile.preparePlay(forgeTestClientConnection)
         forgeTestClientConnection.currentState = ConnectionState.PLAY
@@ -183,11 +181,11 @@ class ForgeNegotiationProfileTest {
         )
         forgeServerProfile.begin(forgeTestServerConnection)
         forgeServerProfile.acceptHandshake(
-            HandshakePacket(
+            ClientIntentionPacket(
                 1,
                 "localhost\u0000FORGE",
                 25_565,
-                HandshakeNextState.LOGIN,
+                ClientIntent.LOGIN,
             ),
         )
 
@@ -196,15 +194,15 @@ class ForgeNegotiationProfileTest {
                 forgeServerProfile.negotiateConfigurationStart(forgeTestServerConnection)
             }
             assertIs<ForgeRegisterChannelsPacket>(outgoing.receive())
-            assertIs<ForgeClientboundHandshakePacket>(outgoing.receive())
+            assertIs<ForgeClientboundClientIntentionPacket>(outgoing.receive())
             incoming.send(
-                ForgeServerboundHandshakePacket(
+                ForgeServerboundClientIntentionPacket(
                     ForgeModVersionsMessage(emptyMap()),
                 ),
             )
-            assertIs<ForgeClientboundHandshakePacket>(outgoing.receive())
+            assertIs<ForgeClientboundClientIntentionPacket>(outgoing.receive())
             incoming.send(
-                ForgeServerboundHandshakePacket(
+                ForgeServerboundClientIntentionPacket(
                     ForgeChannelVersionsMessage(mapOf(required to 2)),
                 ),
             )
@@ -216,7 +214,7 @@ class ForgeNegotiationProfileTest {
         assertFalse(
             outgoing.tryReceive().getOrNull()
                 ?.let { clientboundPacket ->
-                    clientboundPacket is ForgeClientboundHandshakePacket &&
+                    clientboundPacket is ForgeClientboundClientIntentionPacket &&
                             clientboundPacket.forgeClientboundHandshakeMessage is ForgeMismatchDataMessage
                 } == true,
         )
@@ -243,7 +241,7 @@ class ForgeNegotiationProfileTest {
         assertFailsWith<ForgeNegotiationException> {
             forgeClientProfile.handleConfigurationPacket(
                 forgeTestClientConnection,
-                ForgeClientboundHandshakePacket(
+                ForgeClientboundClientIntentionPacket(
                     ForgeRegistryDataMessage(
                         1,
                         Identifier("block"),
@@ -297,7 +295,7 @@ private fun forgeTestStaticSchema(): StaticRegistrySchema = StaticRegistrySchema
             Identifier("stone"),
             Identifier("mod:block"),
         ),
-        ProtocolRegistryContext.BIOME_REGISTRY to listOf(
+        PacketCodecContext.BIOME_REGISTRY to listOf(
             MinecraftBiomeIds.PLAINS,
         ),
     ),
@@ -330,15 +328,15 @@ private abstract class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>
     private val outgoingDirection: PacketDirection,
 ) : MinecraftPacketConnection<Incoming, Outgoing> {
     var currentState: ConnectionState = ConnectionState.CONFIGURATION
-    private var mutableProtocolRegistryContext = ProtocolRegistryContext.Empty
+    private var mutablePacketCodecContext = PacketCodecContext.Empty
     private var activeRoutes = emptySet<PacketRouteKey>()
-    private val format = MinecraftProtocolFormat.Default
+    private val format = MinecraftPacketPayloadFormat.Default
 
     override val connectionState: ConnectionState
         get() = currentState
 
-    override val protocolRegistryContext: ProtocolRegistryContext
-        get() = mutableProtocolRegistryContext
+    override val packetCodecContext: PacketCodecContext
+        get() = mutablePacketCodecContext
 
     override val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = packetRegistry.declaredExtensionRoutes
@@ -350,8 +348,8 @@ private abstract class ForgeTestConnection<Incoming : Packet, Outgoing : Packet>
 
     override suspend fun awaitClosed() = Unit
 
-    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
-        mutableProtocolRegistryContext = protocolRegistryContext
+    override fun installPacketCodecContext(packetCodecContext: PacketCodecContext) {
+        mutablePacketCodecContext = packetCodecContext
     }
 
     override fun activateExtensionRoutes(routes: Set<PacketRouteKey>) {

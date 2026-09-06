@@ -3,31 +3,31 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.uuid.Uuid
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.encodeToByteArray
 
 class ConnectionStatePacketTest {
     @Test
     fun `status packet payloads have their exact empty string and long shapes`() {
-        assertPacketBytes(StatusRequestPacket, StatusRequestPacket.serializer(), "")
+        assertPacketBytes(ServerboundStatusRequestPacket, ServerboundStatusRequestPacket.serializer(), "")
         assertPacketBytes(
-            StatusResponsePacket(ServerStatus()),
-            StatusResponsePacket.serializer(),
+            ClientboundStatusResponsePacket(ServerStatus()),
+            ClientboundStatusResponsePacket.serializer(),
             "027b7d",
         )
         assertPacketBytes(
-            StatusPingRequestPacket(0x0102030405060708),
-            StatusPingRequestPacket.serializer(),
+            ServerboundPingRequestPacket(0x0102030405060708),
+            ServerboundPingRequestPacket.serializer(),
             "0102030405060708",
         )
         assertPacketBytes(
-            StatusPongResponsePacket(0x0102030405060708),
-            StatusPongResponsePacket.serializer(),
+            ClientboundPongResponsePacket(0x0102030405060708),
+            ClientboundPongResponsePacket.serializer(),
             "0102030405060708",
         )
     }
@@ -56,32 +56,32 @@ class ConnectionStatePacketTest {
 
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(StatusResponsePacket(serverStatus)),
+            MinecraftPacketPayloadFormat.encodeToByteArray(ClientboundStatusResponsePacket(serverStatus)),
         )
         assertEquals(
-            StatusResponsePacket(serverStatus),
-            MinecraftProtocolFormat.decodeFromByteArray(StatusResponsePacket.serializer(), expected),
+            ClientboundStatusResponsePacket(serverStatus),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(ClientboundStatusResponsePacket.serializer(), expected),
         )
     }
 
     @Test
     fun `status response ignores extensions and rejects malformed structured JSON`() {
         assertEquals(
-            StatusResponsePacket(ServerStatus()),
-            MinecraftProtocolFormat.decodeFromByteArray(
-                StatusResponsePacket.serializer(),
+            ClientboundStatusResponsePacket(ServerStatus()),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(
+                ClientboundStatusResponsePacket.serializer(),
                 encodeProtocolString("""{"extension":true}"""),
             ),
         )
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                StatusResponsePacket.serializer(),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(
+                ClientboundStatusResponsePacket.serializer(),
                 encodeProtocolString("""{"players":{}}"""),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray(
-                StatusResponsePacket.serializer(),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(
+                ClientboundStatusResponsePacket.serializer(),
                 encodeProtocolString("""{"favicon":"not-a-data-url"}"""),
             )
         }
@@ -90,41 +90,41 @@ class ConnectionStatePacketTest {
     @Test
     fun `login profile and transition packets follow vanilla field order`() {
         assertPacketBytes(
-            LoginDisconnectPacket(JsonTextComponent("{}")),
-            LoginDisconnectPacket.serializer(),
+            ClientboundLoginDisconnectPacket(JsonTextComponent("{}")),
+            ClientboundLoginDisconnectPacket.serializer(),
             "027b7d",
         )
         assertPacketBytes(
-            SetCompressionPacket(300),
-            SetCompressionPacket.serializer(),
+            ClientboundLoginCompressionPacket(300),
+            ClientboundLoginCompressionPacket.serializer(),
             "ac02",
         )
         assertPacketBytes(
-            LoginStartPacket("a", Uuid.fromLongs(1, 2)),
-            LoginStartPacket.serializer(),
+            ServerboundHelloPacket("a", Uuid.fromLongs(1, 2)),
+            ServerboundHelloPacket.serializer(),
             "016100000000000000010000000000000002",
         )
         assertPacketBytes(
-            LoginSuccessPacket(
+            ClientboundLoginFinishedPacket(
                 GameProfile(Uuid.fromLongs(1, 2), "a", emptyList()),
                 Uuid.fromLongs(3, 4),
             ),
-            LoginSuccessPacket.serializer(),
+            ClientboundLoginFinishedPacket.serializer(),
             "0000000000000001000000000000000201610000000000000000030000000000000004",
         )
         assertPacketBytes(
-            LoginAcknowledgedPacket,
-            LoginAcknowledgedPacket.serializer(),
+            ServerboundLoginAcknowledgedPacket,
+            ServerboundLoginAcknowledgedPacket.serializer(),
             "",
         )
         assertPacketBytes(
-            LoginCookieRequestPacket(Identifier("test")),
-            LoginCookieRequestPacket.serializer(),
+            ClientboundCookieRequestPacket(Identifier("test")),
+            ClientboundCookieRequestPacket.serializer(),
             "0e6d696e6563726166743a74657374",
         )
         assertPacketBytes(
-            LoginCookieResponsePacket(Identifier("test"), null),
-            LoginCookieResponsePacket.serializer(),
+            ServerboundCookieResponsePacket(Identifier("test"), null),
+            ServerboundCookieResponsePacket.serializer(),
             "0e6d696e6563726166743a7465737400",
         )
     }
@@ -132,40 +132,40 @@ class ConnectionStatePacketTest {
     @Test
     fun `login encryption and custom query payload boundaries match official writes`() {
         assertPacketBytes(
-            EncryptionRequestPacket(
+            ClientboundHelloPacket(
                 serverId = "",
                 publicKey = ByteString(byteArrayOf(1, 2)),
-                verifyToken = ByteString(byteArrayOf(3)),
+                challenge = ByteString(byteArrayOf(3)),
                 shouldAuthenticate = true,
             ),
-            EncryptionRequestPacket.serializer(),
+            ClientboundHelloPacket.serializer(),
             "00020102010301",
         )
         assertPacketBytes(
-            EncryptionResponsePacket(
-                sharedSecret = ByteString(byteArrayOf(1)),
-                verifyToken = ByteString(byteArrayOf(2, 3)),
+            ServerboundKeyPacket(
+                keybytes = ByteString(byteArrayOf(1)),
+                encryptedChallenge = ByteString(byteArrayOf(2, 3)),
             ),
-            EncryptionResponsePacket.serializer(),
+            ServerboundKeyPacket.serializer(),
             "0101020203",
         )
         assertPacketBytes(
-            LoginPluginRequestPacket(
-                messageId = 300,
+            ClientboundCustomQueryPacket(
+                transactionId = 300,
                 channel = Identifier("test"),
                 data = ByteString(byteArrayOf(1, 2)),
             ),
-            LoginPluginRequestPacket.serializer(),
+            ClientboundCustomQueryPacket.serializer(),
             "ac020e6d696e6563726166743a746573740102",
         )
         assertPacketBytes(
-            LoginPluginResponsePacket(1, null),
-            LoginPluginResponsePacket.serializer(),
+            ServerboundCustomQueryAnswerPacket(1, null),
+            ServerboundCustomQueryAnswerPacket.serializer(),
             "0100",
         )
         assertPacketBytes(
-            LoginPluginResponsePacket(1, ByteString(byteArrayOf(2, 3))),
-            LoginPluginResponsePacket.serializer(),
+            ServerboundCustomQueryAnswerPacket(1, ByteString(byteArrayOf(2, 3))),
+            ServerboundCustomQueryAnswerPacket.serializer(),
             "01010203",
         )
     }
@@ -173,54 +173,54 @@ class ConnectionStatePacketTest {
     @Test
     fun `configuration primitive and terminal packets retain fixed widths`() {
         assertPacketBytes(
-            ConfigurationClientboundKeepAlivePacket(1),
-            ConfigurationClientboundKeepAlivePacket.serializer(),
+            ClientboundKeepAlivePacket(1),
+            ClientboundKeepAlivePacket.serializer(),
             "0000000000000001",
         )
         assertPacketBytes(
-            ConfigurationServerboundKeepAlivePacket(2),
-            ConfigurationServerboundKeepAlivePacket.serializer(),
+            ServerboundKeepAlivePacket(2),
+            ServerboundKeepAlivePacket.serializer(),
             "0000000000000002",
         )
         assertPacketBytes(
-            ConfigurationPingPacket(3),
-            ConfigurationPingPacket.serializer(),
+            ClientboundPingPacket(3),
+            ClientboundPingPacket.serializer(),
             "00000003",
         )
         assertPacketBytes(
-            ConfigurationPongPacket(4),
-            ConfigurationPongPacket.serializer(),
+            ServerboundPongPacket(4),
+            ServerboundPongPacket.serializer(),
             "00000004",
         )
         assertPacketBytes(
-            ConfigurationTransferPacket("a", 255),
-            ConfigurationTransferPacket.serializer(),
+            ClientboundTransferPacket("a", 255),
+            ClientboundTransferPacket.serializer(),
             "0161ff01",
         )
         assertPacketBytes(
-            CodeOfConductPacket("a"),
-            CodeOfConductPacket.serializer(),
+            ClientboundCodeOfConductPacket("a"),
+            ClientboundCodeOfConductPacket.serializer(),
             "0161",
         )
         assertPacketBytes(
-            FinishConfigurationPacket,
-            FinishConfigurationPacket.serializer(),
+            ClientboundFinishConfigurationPacket,
+            ClientboundFinishConfigurationPacket.serializer(),
             "",
         )
-        assertPacketBytes(ResetChatPacket, ResetChatPacket.serializer(), "")
+        assertPacketBytes(ClientboundResetChatPacket, ClientboundResetChatPacket.serializer(), "")
         assertPacketBytes(
-            ConfigurationClearDialogPacket,
-            ConfigurationClearDialogPacket.serializer(),
-            "",
-        )
-        assertPacketBytes(
-            AcknowledgeFinishConfigurationPacket,
-            AcknowledgeFinishConfigurationPacket.serializer(),
+            ClientboundClearDialogPacket,
+            ClientboundClearDialogPacket.serializer(),
             "",
         )
         assertPacketBytes(
-            AcceptCodeOfConductPacket,
-            AcceptCodeOfConductPacket.serializer(),
+            ServerboundFinishConfigurationPacket,
+            ServerboundFinishConfigurationPacket.serializer(),
+            "",
+        )
+        assertPacketBytes(
+            ServerboundAcceptCodeOfConductPacket,
+            ServerboundAcceptCodeOfConductPacket.serializer(),
             "",
         )
     }
@@ -228,20 +228,20 @@ class ConnectionStatePacketTest {
     @Test
     fun `configuration registry pack and tag collections use nested VarInt counts`() {
         assertPacketBytes(
-            RegistryDataPacket(
+            ClientboundRegistryDataPacket(
                 Identifier("test"),
                 listOf(RegistryEntry(Identifier("entry"), null)),
             ),
-            RegistryDataPacket.serializer(),
+            ClientboundRegistryDataPacket.serializer(),
             "0e6d696e6563726166743a74657374010f6d696e6563726166743a656e74727900",
         )
         assertPacketBytes(
-            FeatureFlagsPacket(setOf(Identifier("test"))),
-            FeatureFlagsPacket.serializer(),
+            ClientboundUpdateEnabledFeaturesPacket(setOf(Identifier("test"))),
+            ClientboundUpdateEnabledFeaturesPacket.serializer(),
             "010e6d696e6563726166743a74657374",
         )
         assertPacketBytes(
-            ConfigurationUpdateTagsPacket(
+            ClientboundUpdateTagsPacket(
                 listOf(
                     RegistryTags(
                         Identifier("block"),
@@ -254,18 +254,18 @@ class ConnectionStatePacketTest {
                     ),
                 ),
             ),
-            ConfigurationUpdateTagsPacket.serializer(),
+            ClientboundUpdateTagsPacket.serializer(),
             "010f6d696e6563726166743a626c6f636b010e6d696e6563726166743a746573740201ac02",
         )
         val knownPack = KnownPack("m", "c", "1")
         assertPacketBytes(
-            ConfigurationClientboundKnownPacksPacket(listOf(knownPack)),
-            ConfigurationClientboundKnownPacksPacket.serializer(),
+            ClientboundSelectKnownPacks(listOf(knownPack)),
+            ClientboundSelectKnownPacks.serializer(),
             "01016d01630131",
         )
         assertPacketBytes(
-            ConfigurationServerboundKnownPacksPacket(listOf(knownPack)),
-            ConfigurationServerboundKnownPacksPacket.serializer(),
+            ServerboundSelectKnownPacks(listOf(knownPack)),
+            ServerboundSelectKnownPacks.serializer(),
             "01016d01630131",
         )
     }
@@ -274,53 +274,53 @@ class ConnectionStatePacketTest {
     fun `configuration cookies and resource packs preserve every optional marker`() {
         val identifierBytes = "0e6d696e6563726166743a74657374"
         assertPacketBytes(
-            ConfigurationCookieRequestPacket(Identifier("test")),
-            ConfigurationCookieRequestPacket.serializer(),
+            ClientboundCookieRequestPacket(Identifier("test")),
+            ClientboundCookieRequestPacket.serializer(),
             identifierBytes,
         )
         assertPacketBytes(
-            ConfigurationStoreCookiePacket(
+            ClientboundStoreCookiePacket(
                 Identifier("test"),
                 ByteString(byteArrayOf(1, 2)),
             ),
-            ConfigurationStoreCookiePacket.serializer(),
+            ClientboundStoreCookiePacket.serializer(),
             "${identifierBytes}020102",
         )
         assertPacketBytes(
-            ConfigurationCookieResponsePacket(Identifier("test"), null),
-            ConfigurationCookieResponsePacket.serializer(),
+            ServerboundCookieResponsePacket(Identifier("test"), null),
+            ServerboundCookieResponsePacket.serializer(),
             "${identifierBytes}00",
         )
         assertPacketBytes(
-            ConfigurationCookieResponsePacket(
+            ServerboundCookieResponsePacket(
                 Identifier("test"),
                 ByteString(byteArrayOf(1, 2)),
             ),
-            ConfigurationCookieResponsePacket.serializer(),
+            ServerboundCookieResponsePacket.serializer(),
             "${identifierBytes}01020102",
         )
         assertPacketBytes(
-            ConfigurationRemoveResourcePackPacket(null),
-            ConfigurationRemoveResourcePackPacket.serializer(),
+            ClientboundResourcePackPopPacket(null),
+            ClientboundResourcePackPopPacket.serializer(),
             "00",
         )
         assertPacketBytes(
-            ConfigurationAddResourcePackPacket(
-                uuid = Uuid.fromLongs(0, 0),
+            ClientboundResourcePackPushPacket(
+                id = Uuid.fromLongs(0, 0),
                 url = "u",
                 hash = "h",
-                forced = true,
-                promptMessage = null,
+                required = true,
+                prompt = null,
             ),
-            ConfigurationAddResourcePackPacket.serializer(),
+            ClientboundResourcePackPushPacket.serializer(),
             "00000000000000000000000000000000017501680100",
         )
         assertPacketBytes(
-            ConfigurationResourcePackResponsePacket(
+            ServerboundResourcePackPacket(
                 Uuid.fromLongs(0, 0),
-                ResourcePackResult.ACCEPTED,
+                ServerboundResourcePackPacket.Action.ACCEPTED,
             ),
-            ConfigurationResourcePackResponsePacket.serializer(),
+            ServerboundResourcePackPacket.serializer(),
             "0000000000000000000000000000000003",
         )
     }
@@ -328,7 +328,7 @@ class ConnectionStatePacketTest {
     @Test
     fun `configuration shared structures cover client info reports links and NBT`() {
         assertPacketBytes(
-            ConfigurationClientInformationPacket(
+            ServerboundClientInformationPacket(
                 ClientInformation(
                     locale = "en_us",
                     viewDistance = 8,
@@ -341,18 +341,18 @@ class ConnectionStatePacketTest {
                     particleStatus = ParticleStatus.MINIMAL,
                 ),
             ),
-            ConfigurationClientInformationPacket.serializer(),
+            ServerboundClientInformationPacket.serializer(),
             "05656e5f7573080101ff01000102",
         )
         assertPacketBytes(
-            ConfigurationCustomReportDetailsPacket(
+            ClientboundCustomReportDetailsPacket(
                 listOf(ReportDetail("t", "d")),
             ),
-            ConfigurationCustomReportDetailsPacket.serializer(),
+            ClientboundCustomReportDetailsPacket.serializer(),
             "0101740164",
         )
         assertPacketBytes(
-            ConfigurationServerLinksPacket(
+            ClientboundServerLinksPacket(
                 listOf(
                     ServerLink(
                         ServerLinkLabel.BuiltIn(
@@ -362,26 +362,21 @@ class ConnectionStatePacketTest {
                     ),
                 ),
             ),
-            ConfigurationServerLinksPacket.serializer(),
+            ClientboundServerLinksPacket.serializer(),
             "0101000175",
         )
         assertPacketBytes(
-            ConfigurationShowDialogPacket(NbtString("x")),
-            ConfigurationShowDialogPacket.serializer(),
-            "08000178",
-        )
-        assertPacketBytes(
-            ConfigurationClientboundPluginMessagePacket(
+            ClientboundCustomPayloadPacket(
                 CustomPayload.Brand("x"),
             ),
-            ConfigurationClientboundPluginMessagePacket.serializer(),
+            ClientboundCustomPayloadPacket.serializer(),
             "0f6d696e6563726166743a6272616e640178",
         )
         assertPacketBytes(
-            ConfigurationServerboundPluginMessagePacket(
+            ServerboundCustomPayloadPacket(
                 CustomPayload.Brand("x"),
             ),
-            ConfigurationServerboundPluginMessagePacket.serializer(),
+            ServerboundCustomPayloadPacket.serializer(),
             "0f6d696e6563726166743a6272616e640178",
         )
     }
@@ -389,28 +384,28 @@ class ConnectionStatePacketTest {
     @Test
     fun `configuration and login packet-specific limits reject oversized values`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
-                LoginStartPacket("x".repeat(17), Uuid.fromLongs(0, 0)),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundHelloPacket("x".repeat(17), Uuid.fromLongs(0, 0)),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
-                ConfigurationStoreCookiePacket(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundStoreCookiePacket(
                     Identifier("test"),
                     ByteString(ByteArray(5_121)),
                 ),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
-                ConfigurationCustomReportDetailsPacket(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundCustomReportDetailsPacket(
                     List(33) { ReportDetail("t", "d") },
                 ),
             )
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
-                ConfigurationServerboundKnownPacksPacket(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundSelectKnownPacks(
                     List(65) { KnownPack("m", "c", "1") },
                 ),
             )
@@ -425,11 +420,11 @@ class ConnectionStatePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, value),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, value),
         )
         assertEquals(
             value,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 

@@ -1,8 +1,12 @@
 package com.hiczp.minecraft.protocol.model.packet
 
-import com.hiczp.minecraft.nbt.NbtTag
-import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.model.wire.*
+import com.hiczp.minecraft.protocol.model.type.BlockHitResult
+import com.hiczp.minecraft.protocol.model.type.BlockPosition
+import com.hiczp.minecraft.protocol.model.type.InteractionHand
+import com.hiczp.minecraft.protocol.model.type.TestInstanceData
+import com.hiczp.minecraft.protocol.model.wire.OptionalVarInt
+import com.hiczp.minecraft.protocol.model.wire.VarInt
+import com.hiczp.minecraft.protocol.model.wire.ZeroFallbackEnum
 import kotlinx.serialization.Serializable
 import kotlin.uuid.Uuid
 
@@ -13,7 +17,7 @@ import kotlin.uuid.Uuid
     PacketDirection.SERVERBOUND,
     officialName = "spectator_action",
 )
-data class SpectatorActionPacket(
+data class ServerboundSpectatorActionPacket(
     @OptionalVarInt
     val spectateEntityId: Int?,
 ) : PlayStatePacket, ServerboundPacket
@@ -25,7 +29,7 @@ data class SpectatorActionPacket(
     PacketDirection.SERVERBOUND,
     officialName = "swing",
 )
-data class SwingArmPacket(
+data class ServerboundSwingPacket(
     val hand: InteractionHand,
 ) : PlayStatePacket, ServerboundPacket
 
@@ -36,8 +40,8 @@ data class SwingArmPacket(
     PacketDirection.SERVERBOUND,
     officialName = "teleport_to_entity",
 )
-data class TeleportToEntityPacket(
-    val target: Uuid,
+data class ServerboundTeleportToEntityPacket(
+    val uuid: Uuid,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -47,23 +51,34 @@ data class TeleportToEntityPacket(
     PacketDirection.SERVERBOUND,
     officialName = "test_instance_block_action",
 )
-data class TestInstanceBlockActionPacket(
-    val position: BlockPosition,
+data class ServerboundTestInstanceBlockActionPacket(
+    val pos: BlockPosition,
     @ZeroFallbackEnum
-    val action: TestInstanceAction,
+    val action: Action,
     val data: TestInstanceData,
-) : PlayStatePacket, ServerboundPacket
+) : PlayStatePacket, ServerboundPacket {
+    @Serializable
+    enum class Action {
+        INIT,
+        QUERY,
+        SET,
+        RESET,
+        SAVE,
+        EXPORT,
+        RUN,
+    }
+}
 
-@Serializable
+@Serializable(with = ServerboundUseItemOnPacketSerializer::class)
 @PacketInfo(
     0x42,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "use_item_on",
 )
-data class UseItemOnPacket(
+data class ServerboundUseItemOnPacket(
+    val blockHit: BlockHitResult,
     val hand: InteractionHand,
-    val hit: BlockHitResult,
     @VarInt
     val sequence: Int,
 ) : PlayStatePacket, ServerboundPacket
@@ -75,24 +90,10 @@ data class UseItemOnPacket(
     PacketDirection.SERVERBOUND,
     officialName = "use_item",
 )
-data class UseItemPacket(
+data class ServerboundUseItemPacket(
     val hand: InteractionHand,
     @VarInt
     val sequence: Int,
-    val yaw: Float,
-    val pitch: Float,
-) : PlayStatePacket, ServerboundPacket
-
-@Serializable
-@PacketInfo(
-    0x44,
-    ConnectionState.PLAY,
-    PacketDirection.SERVERBOUND,
-    officialName = "custom_click_action",
-)
-data class PlayCustomClickActionPacket(
-    val id: Identifier,
-    @ByteLengthPrefixed(65_536)
-    @NbtEndOptional
-    val payload: NbtTag?,
+    val yRot: Float,
+    val xRot: Float,
 ) : PlayStatePacket, ServerboundPacket

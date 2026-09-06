@@ -138,17 +138,17 @@ class LiveRegionHandle private constructor(
     inline fun <reified T> readChunkNbt(chunkPosition: ChunkPosition): T? =
         readChunkNbt(chunkPosition, chunkNbtFormat.nbtFormat.serializersModule.serializer())
 
-    fun <B : Any, M : Any> readChunk(
+    fun readChunk(
         localChunkPosition: LocalChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = withChunkNbtSource(localChunkPosition) { _, source ->
-        chunkNbtCodec.decodeFromOkio(source)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? = withChunkNbtSource(localChunkPosition) { _, source ->
+        chunkNbtDecoder.decodeFromOkio(source)
     }
 
-    fun <B : Any, M : Any> readChunk(
+    fun readChunk(
         chunkPosition: ChunkPosition,
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-    ): Chunk<B, M>? = readChunk(local(chunkPosition), chunkNbtCodec)
+        chunkNbtDecoder: ChunkNbtDecoder,
+    ): ChunkNbtDecodeResult? = readChunk(local(chunkPosition), chunkNbtDecoder)
 
     /**
      * Runs [block] with one cached Region header and the handle's retained `.mca` resource.
@@ -161,12 +161,12 @@ class LiveRegionHandle private constructor(
         block(RegionReadScope(this, chunkNbtFormat))
     }
 
-    /** Reuses one live header while retaining [chunkNbtCodec] for every semantic read in [block]. */
-    fun <B : Any, M : Any, R> withReadScope(
-        chunkNbtCodec: ChunkNbtCodec<B, M>,
-        block: DecodedChunkRegionReadScope<B, M>.() -> R,
+    /** Reuses one live header while retaining [chunkNbtDecoder] for every semantic read in [block]. */
+    fun <R> withReadScope(
+        chunkNbtDecoder: ChunkNbtDecoder,
+        block: DecodedChunkRegionReadScope.() -> R,
     ): R = withReadScopeCore {
-        block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtCodec))
+        block(DecodedChunkRegionReadScope(this, chunkNbtFormat, chunkNbtDecoder))
     }
 
     internal fun <R> withReadScopeCore(block: RegionReadScopeCore.() -> R): R = liveRegionFile.withReadScope(block)

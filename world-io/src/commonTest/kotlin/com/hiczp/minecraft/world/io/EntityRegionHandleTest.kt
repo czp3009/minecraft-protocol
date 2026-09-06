@@ -1,15 +1,14 @@
 package com.hiczp.minecraft.world.io
 
-import com.hiczp.minecraft.nbt.NbtByte
 import com.hiczp.minecraft.nbt.NbtByteArray
-import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.*
+import kotlin.test.*
+import kotlin.uuid.Uuid
 import kotlinx.coroutines.test.runTest
 import okio.Buffer
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
-import kotlin.test.*
-import kotlin.uuid.Uuid
 
 class EntityRegionHandleTest {
     @Test
@@ -23,36 +22,55 @@ class EntityRegionHandleTest {
         val removedPosition = regionPosition.chunk(LocalChunkPosition(7, 5))
         val typedLocal = LocalChunkPosition(8, 5)
         val typedNbt = testLevelDat(levelName = "entity-region-typed-nbt")
-        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
+        val entityChunkNbtDecoder =
+            EntityChunkNbtDecoder(EntityChunkNbtDecoderContext(ENTITY_CONTEXT, NbtFormat, NbtPropertyReadMappings()))
+        val entityChunkNbtEncoder = EntityChunkNbtEncoder(
+            EntityChunkNbtEncoderContext(
+                NbtFormat,
+                NbtPropertyWriteMappings(),
+                EntityChunkNbtMetadata(EXPECTED_DATA_VERSION)
+            )
+        )
         val entity = Entity(
-            type = "minecraft:pig",
+            entityTypeId = EntityTypeId("minecraft:pig"),
             uuid = Uuid.fromLongs(1, 2),
-            data = NbtCompound(mapOf("OnGround" to NbtByte(1))),
+            deltaMovement = EntityVector3d.ZERO, entityRotation = EntityRotation.ZERO, passengers = mutableListOf(),
+            properties = DataProperties(linkedMapOf("OnGround" to PropertyValue(PropertyTypes.Byte, 1.toByte()))),
             position = EntityVector3d(
                 MinecraftCoordinates.blockCoordinate(chunkPosition.x, 1) + 0.5,
                 64.0,
                 MinecraftCoordinates.blockCoordinate(chunkPosition.z, 1) + 0.5,
             ),
         )
-        val entityChunk = EntityChunk(chunkPosition, EXPECTED_DATA_VERSION, listOf(entity))
+        val entityChunk = EntityChunk(chunkPosition, ENTITY_CONTEXT, mutableListOf(entity), DataProperties())
         val externalBytes = ByteArray(
             REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES - REGION_CHUNK_RECORD_HEADER_BYTES,
         ) { index -> (index * 31).toByte() }
         val externalEntity = Entity(
-            type = "minecraft:pig",
+            entityTypeId = EntityTypeId("minecraft:pig"),
             uuid = Uuid.fromLongs(3, 4),
-            data = NbtCompound(mapOf("test:payload" to NbtByteArray(externalBytes))),
+            deltaMovement = EntityVector3d.ZERO, entityRotation = EntityRotation.ZERO, passengers = mutableListOf(),
+            properties = DataProperties(
+                linkedMapOf(
+                    "test:payload" to PropertyValue(
+                        PropertyTypes.Nbt,
+                        NbtByteArray(externalBytes)
+                    )
+                )
+            ),
             position = EntityVector3d(
                 MinecraftCoordinates.blockCoordinate(externalPosition.x, 1) + 0.5,
                 64.0,
                 MinecraftCoordinates.blockCoordinate(externalPosition.z, 1) + 0.5,
             ),
         )
-        val externalEntityChunk = EntityChunk(externalPosition, EXPECTED_DATA_VERSION, listOf(externalEntity))
+        val externalEntityChunk =
+            EntityChunk(externalPosition, ENTITY_CONTEXT, mutableListOf(externalEntity), DataProperties())
         val removedEntity = Entity(
-            type = "minecraft:pig",
+            entityTypeId = EntityTypeId("minecraft:pig"),
             uuid = Uuid.fromLongs(5, 6),
-            data = NbtCompound(emptyMap()),
+            deltaMovement = EntityVector3d.ZERO, entityRotation = EntityRotation.ZERO, passengers = mutableListOf(),
+            properties = DataProperties(),
             position = EntityVector3d(
                 MinecraftCoordinates.blockCoordinate(removedPosition.x, 1) + 0.5,
                 64.0,
@@ -66,31 +84,41 @@ class EntityRegionHandleTest {
         )
         val entityRegionHandle = EntityRegionHandle(regionStorage.openRegion(regionPosition))
 
-        entityRegionHandle.writeChunk(entityChunk, Compression.NONE)
-        entityRegionHandle.writeChunk(externalEntityChunk, entityChunkNbtCodec, Compression.NONE)
+        entityRegionHandle.writeChunk(entityChunk, entityChunkNbtEncoder, Compression.NONE)
+        entityRegionHandle.writeChunk(externalEntityChunk, entityChunkNbtEncoder, Compression.NONE)
         entityRegionHandle.writeChunk(
-            EntityChunk(removedPosition, EXPECTED_DATA_VERSION, listOf(removedEntity)),
-            entityChunkNbtCodec,
+            EntityChunk(removedPosition, ENTITY_CONTEXT, mutableListOf(removedEntity), DataProperties()),
+            entityChunkNbtEncoder,
             Compression.NONE,
         )
         entityRegionHandle.writeChunk(
-            EntityChunk<NbtCompound>(removedPosition, EXPECTED_DATA_VERSION),
+            EntityChunk(removedPosition, ENTITY_CONTEXT),
+            entityChunkNbtEncoder,
             Compression.NONE,
         )
 
         assertEquals(2, entityRegionHandle.readChunkCount())
         assertTrue(entityRegionHandle.hasChunk(chunkPosition))
         assertFalse(entityRegionHandle.hasChunk(removedPosition))
-        val decodedChunk = assertNotNull(entityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
-        assertEquals(chunkPosition, decodedChunk.chunkPosition)
-        assertEquals(entity.uuid, decodedChunk.rootEntities.single().uuid)
-        assertEquals(entity.data, assertNotNull(entityRegionHandle.readChunk(chunkPosition)).rootEntities.single().data)
+        val decodedChunk = assertNotNull(entityRegionHandle.readChunk(chunkPosition, entityChunkNbtDecoder))
+        assertEquals(EXPECTED_DATA_VERSION, decodedChunk.entityChunkNbtMetadata.dataVersion)
+        assertEquals(chunkPosition, decodedChunk.entityChunk.chunkPosition)
+        assertEquals(entity.uuid, decodedChunk.entityChunk.rootEntities.single().uuid)
+        assertEquals(
+            entity.properties,
+            assertNotNull(
+                entityRegionHandle.readChunk(
+                    chunkPosition,
+                    entityChunkNbtDecoder
+                )
+            ).entityChunk.rootEntities.single().properties
+        )
         val compressedBuffer = Buffer()
         val streamedInfo = assertNotNull(entityRegionHandle.readCompressedChunkTo(chunkPosition, compressedBuffer))
         val streamedChunk = CompressedChunk(streamedInfo.compression, compressedBuffer.readByteArray())
-            .toEntityChunk(entityChunkNbtCodec)
-        assertEquals(chunkPosition, streamedChunk.chunkPosition)
-        assertEquals(entity.uuid, streamedChunk.rootEntities.single().uuid)
+            .toEntityChunk(entityChunkNbtDecoder)
+        assertEquals(chunkPosition, streamedChunk.entityChunk.chunkPosition)
+        assertEquals(entity.uuid, streamedChunk.entityChunk.rootEntities.single().uuid)
         assertEquals(
             setOf(chunkPosition.localChunkPosition, externalPosition.localChunkPosition),
             entityRegionHandle.readLocalChunkPositions().toSet(),
@@ -109,23 +137,28 @@ class EntityRegionHandleTest {
             escapedEntityRegionReadScope = this
             assertEquals(
                 entity.uuid,
-                assertNotNull(readChunk(chunkPosition)).rootEntities.single().uuid
+                assertNotNull(readChunk(chunkPosition, entityChunkNbtDecoder)).entityChunk.rootEntities.single().uuid
             )
             assertEquals(
                 externalPosition,
-                assertNotNull(readChunk(externalPosition.localChunkPosition, entityChunkNbtCodec)).chunkPosition,
+                assertNotNull(
+                    readChunk(
+                        externalPosition.localChunkPosition,
+                        entityChunkNbtDecoder
+                    )
+                ).entityChunk.chunkPosition,
             )
             assertEquals(typedNbt, readChunkNbt<LevelDat>(typedLocal))
         }
         assertFailsWith<IllegalStateException> {
-            checkNotNull(escapedEntityRegionReadScope).readChunk(chunkPosition, entityChunkNbtCodec)
+            checkNotNull(escapedEntityRegionReadScope).readChunk(chunkPosition, entityChunkNbtDecoder)
         }
 
-        var escapedDecodedEntityRegionReadScope: DecodedEntityRegionReadScope<NbtCompound>? = null
-        entityRegionHandle.withReadScope(entityChunkNbtCodec) {
+        var escapedDecodedEntityRegionReadScope: DecodedEntityRegionReadScope? = null
+        entityRegionHandle.withReadScope(entityChunkNbtDecoder) {
             escapedDecodedEntityRegionReadScope = this
-            assertSame(entityChunkNbtCodec, this.entityChunkNbtCodec)
-            assertEquals(entity.uuid, assertNotNull(readChunk(chunkPosition)).rootEntities.single().uuid)
+            assertSame(entityChunkNbtDecoder, this.entityChunkNbtDecoder)
+            assertEquals(entity.uuid, assertNotNull(readChunk(chunkPosition)).entityChunk.rootEntities.single().uuid)
         }
         assertFailsWith<IllegalStateException> {
             checkNotNull(escapedDecodedEntityRegionReadScope).readChunk(chunkPosition)
@@ -138,26 +171,37 @@ class EntityRegionHandleTest {
         assertEquals(listOf(regionPosition), liveMinecraftWorldAccess.dimensions.overworld.listEntityRegionPositions())
         assertTrue(liveMinecraftWorldAccess.dimensions.overworld.hasEntityRegion(regionPosition))
         liveMinecraftWorldAccess.dimensions.overworld.openEntityRegion(regionPosition).use { liveEntityRegionHandle ->
-            val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtCodec))
-            assertEquals(chunkPosition, liveChunk.chunkPosition)
-            assertEquals(entity.uuid, liveChunk.rootEntities.single().uuid)
+            val liveChunk = assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition, entityChunkNbtDecoder))
+            assertEquals(chunkPosition, liveChunk.entityChunk.chunkPosition)
+            assertEquals(entity.uuid, liveChunk.entityChunk.rootEntities.single().uuid)
             assertEquals(
-                entity.data,
-                assertNotNull(liveEntityRegionHandle.readChunk(chunkPosition)).rootEntities.single().data,
+                entity.properties,
+                assertNotNull(
+                    liveEntityRegionHandle.readChunk(
+                        chunkPosition,
+                        entityChunkNbtDecoder
+                    )
+                ).entityChunk.rootEntities.single().properties,
             )
             val decodedExternalEntity =
-                liveEntityRegionHandle.readChunk(externalPosition, entityChunkNbtCodec)?.rootEntities?.single()
+                liveEntityRegionHandle.readChunk(
+                    externalPosition,
+                    entityChunkNbtDecoder
+                )?.entityChunk?.rootEntities?.single()
             assertNotNull(decodedExternalEntity)
-            assertEquals(NbtByteArray(externalBytes), decodedExternalEntity.data["test:payload"])
+            assertEquals(
+                NbtByteArray(externalBytes),
+                decodedExternalEntity.properties["test:payload"]?.get(PropertyTypes.Nbt)
+            )
             assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
-            var escapedLiveEntityRegionReadScope: DecodedEntityRegionReadScope<NbtCompound>? = null
+            var escapedLiveEntityRegionReadScope: DecodedEntityRegionReadScope? = null
             assertEquals(
                 setOf(chunkPosition, externalPosition, regionPosition.chunk(typedLocal)),
-                liveEntityRegionHandle.withReadScope(entityChunkNbtCodec) {
+                liveEntityRegionHandle.withReadScope(entityChunkNbtDecoder) {
                     escapedLiveEntityRegionReadScope = this
                     assertEquals(
                         entity.uuid,
-                        assertNotNull(readChunk(chunkPosition)).rootEntities.single().uuid,
+                        assertNotNull(readChunk(chunkPosition)).entityChunk.rootEntities.single().uuid,
                     )
                     assertEquals(typedNbt, readChunkNbt<LevelDat>(typedLocal))
                     chunkPositions.toSet()
@@ -182,19 +226,30 @@ class EntityRegionHandleTest {
         )
         val slotPosition = ChunkPosition(1, 2)
         val storedPosition = ChunkPosition(40, -12)
-        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
+        val entityChunkNbtDecoder =
+            EntityChunkNbtDecoder(EntityChunkNbtDecoderContext(ENTITY_CONTEXT, NbtFormat, NbtPropertyReadMappings()))
+        val entityChunkNbtEncoder = EntityChunkNbtEncoder(
+            EntityChunkNbtEncoderContext(
+                NbtFormat,
+                NbtPropertyWriteMappings(),
+                EntityChunkNbtMetadata(EXPECTED_DATA_VERSION)
+            )
+        )
         val entity = Entity(
-            type = "minecraft:pig",
+            entityTypeId = EntityTypeId("minecraft:pig"),
             uuid = Uuid.fromLongs(9, 10),
-            data = NbtCompound(emptyMap()),
+            deltaMovement = EntityVector3d.ZERO,
+            entityRotation = EntityRotation.ZERO,
+            passengers = mutableListOf(),
+            properties = DataProperties(),
             position = EntityVector3d(
                 MinecraftCoordinates.blockCoordinate(storedPosition.x, 1) + 0.5,
                 64.0,
                 MinecraftCoordinates.blockCoordinate(storedPosition.z, 1) + 0.5,
             ),
         )
-        val nbtDocument = entityChunkNbtCodec.encodeDocument(
-            EntityChunk(storedPosition, EXPECTED_DATA_VERSION, listOf(entity)),
+        val nbtDocument = entityChunkNbtEncoder.encodeDocument(
+            EntityChunk(storedPosition, ENTITY_CONTEXT, mutableListOf(entity), DataProperties()),
         )
         val entityRegionHandle = EntityRegionHandle(regionStorage.openRegion(slotPosition.regionPosition))
 
@@ -202,11 +257,24 @@ class EntityRegionHandleTest {
             entityRegionHandle.writeChunkNbtDocument(slotPosition, nbtDocument, Compression.NONE)
             assertEquals(
                 storedPosition,
-                assertNotNull(entityRegionHandle.readChunk(slotPosition, entityChunkNbtCodec)).chunkPosition,
+                assertNotNull(
+                    entityRegionHandle.readChunk(
+                        slotPosition,
+                        entityChunkNbtDecoder
+                    )
+                ).entityChunk.chunkPosition,
             )
-            assertEquals(storedPosition, assertNotNull(entityRegionHandle.readChunk(slotPosition)).chunkPosition)
-            entityRegionHandle.withReadScope(entityChunkNbtCodec) {
-                assertEquals(storedPosition, assertNotNull(readChunk(slotPosition)).chunkPosition)
+            assertEquals(
+                storedPosition,
+                assertNotNull(
+                    entityRegionHandle.readChunk(
+                        slotPosition,
+                        entityChunkNbtDecoder
+                    )
+                ).entityChunk.chunkPosition
+            )
+            entityRegionHandle.withReadScope(entityChunkNbtDecoder) {
+                assertEquals(storedPosition, assertNotNull(readChunk(slotPosition)).entityChunk.chunkPosition)
             }
         } finally {
             entityRegionHandle.close()
@@ -218,7 +286,12 @@ class EntityRegionHandleTest {
             .use { liveEntityRegionHandle ->
                 assertEquals(
                     storedPosition,
-                    assertNotNull(liveEntityRegionHandle.readChunk(slotPosition, entityChunkNbtCodec)).chunkPosition,
+                    assertNotNull(
+                        liveEntityRegionHandle.readChunk(
+                            slotPosition,
+                            entityChunkNbtDecoder
+                        )
+                    ).entityChunk.chunkPosition,
                 )
             }
         fakeFileSystem.checkNoOpenFiles()
@@ -226,5 +299,6 @@ class EntityRegionHandleTest {
 
     private companion object {
         const val EXPECTED_DATA_VERSION: Int = 1
+        val ENTITY_CONTEXT = EntityChunkContext(DimensionId.Overworld)
     }
 }

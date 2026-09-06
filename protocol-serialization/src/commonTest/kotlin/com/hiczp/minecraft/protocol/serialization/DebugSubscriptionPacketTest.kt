@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.serialization
 
-import com.hiczp.minecraft.protocol.model.packet.DebugBlockValuePacket
-import com.hiczp.minecraft.protocol.model.packet.DebugChunkValuePacket
-import com.hiczp.minecraft.protocol.model.packet.DebugEntityValuePacket
-import com.hiczp.minecraft.protocol.model.packet.DebugEventPacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundDebugBlockValuePacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundDebugChunkValuePacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundDebugEntityValuePacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundDebugEventPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
@@ -106,14 +106,14 @@ class DebugSubscriptionPacketTest {
             val expected = expectedHex.hexToByteArray()
             assertContentEquals(
                 expected,
-                MinecraftProtocolFormat.encodeToByteArray(
+                MinecraftPacketPayloadFormat.encodeToByteArray(
                     debugSubscriptionEvent,
                 ),
                 debugSubscriptionData.toString(),
             )
             assertEquals(
                 expected = debugSubscriptionEvent,
-                actual = MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
+                actual = MinecraftPacketPayloadFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                     expected,
                 ),
                 message = debugSubscriptionData.toString(),
@@ -123,7 +123,7 @@ class DebugSubscriptionPacketTest {
 
     @Test
     fun `debug packet wrappers preserve vanilla field ordering`() {
-        val debugBlockValuePacket = DebugBlockValuePacket(
+        val clientboundDebugBlockValuePacket = ClientboundDebugBlockValuePacket(
             ZERO_POSITION,
             DebugSubscriptionUpdate(
                 DebugSubscriptionType.VILLAGE_SECTION,
@@ -131,26 +131,25 @@ class DebugSubscriptionPacketTest {
             ),
         )
         assertPacketBytes(
-            debugBlockValuePacket,
-            DebugBlockValuePacket.serializer(),
+            clientboundDebugBlockValuePacket,
+            ClientboundDebugBlockValuePacket.serializer(),
             "${ZERO_POSITION_HEX}0a01",
         )
 
-        val debugChunkValuePacket = DebugChunkValuePacket(
-            chunkZ = 2,
-            chunkX = 1,
+        val clientboundDebugChunkValuePacket = ClientboundDebugChunkValuePacket(
+            chunkPos = ChunkPos(1, 2),
             update = DebugSubscriptionUpdate(
                 DebugSubscriptionType.RAID,
                 null,
             ),
         )
         assertPacketBytes(
-            debugChunkValuePacket,
-            DebugChunkValuePacket.serializer(),
+            clientboundDebugChunkValuePacket,
+            ClientboundDebugChunkValuePacket.serializer(),
             "00000002000000010b00",
         )
 
-        val debugEntityValuePacket = DebugEntityValuePacket(
+        val clientboundDebugEntityValuePacket = ClientboundDebugEntityValuePacket(
             entityId = 300,
             update = DebugSubscriptionUpdate(
                 DebugSubscriptionType.NEIGHBOR_UPDATE,
@@ -158,17 +157,17 @@ class DebugSubscriptionPacketTest {
             ),
         )
         assertPacketBytes(
-            debugEntityValuePacket,
-            DebugEntityValuePacket.serializer(),
+            clientboundDebugEntityValuePacket,
+            ClientboundDebugEntityValuePacket.serializer(),
             "ac020e01$ZERO_POSITION_HEX",
         )
 
-        val debugEventPacket = DebugEventPacket(
+        val clientboundDebugEventPacket = ClientboundDebugEventPacket(
             DebugSubscriptionEvent(
                 DebugSubscriptionData.GameEventListener(2),
             ),
         )
-        assertPacketBytes(debugEventPacket, DebugEventPacket.serializer(), "0d02")
+        assertPacketBytes(clientboundDebugEventPacket, ClientboundDebugEventPacket.serializer(), "0d02")
     }
 
     @Test
@@ -182,7 +181,7 @@ class DebugSubscriptionPacketTest {
         // the current Wiki table but present in DebugGoalInfo.STREAM_CODEC.
         assertContentEquals(
             "040102010178".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 goalSelector,
             ),
         )
@@ -210,7 +209,7 @@ class DebugSubscriptionPacketTest {
                 maximumNodeDistance = 0.0f,
             ),
         )
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(
+        val encoded = MinecraftPacketPayloadFormat.encodeToByteArray(
             latestPathType,
         )
         // The official PathType has one entry beyond the pinned Wiki table.
@@ -219,7 +218,7 @@ class DebugSubscriptionPacketTest {
 
     @Test
     fun `debug enum failure policies match their official codecs`() {
-        val intersection = MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
+        val intersection = MinecraftPacketPayloadFormat.decodeFromByteArray<DebugSubscriptionEvent>(
             "067f".hexToByteArray(),
         )
         assertEquals(
@@ -232,18 +231,18 @@ class DebugSubscriptionPacketTest {
         )
         assertContentEquals(
             "0600".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 intersection,
             ),
         )
 
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                 "0930".hexToByteArray(),
             )
         }
         assertFails {
-            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                 "050100000000${ZERO_POSITION_HEX}000100000000000000000000000000000000000000001b00000000000000000000".hexToByteArray(),
             )
         }
@@ -252,7 +251,7 @@ class DebugSubscriptionPacketTest {
     @Test
     fun `debug dispatch derives a non-null update type from its data`() {
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionUpdate>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<DebugSubscriptionUpdate>(
                 // Vanilla's type 0 subscription has a null valueStreamCodec,
                 // so even an absent optional cannot be dispatched.
                 "0000".hexToByteArray(),
@@ -261,7 +260,7 @@ class DebugSubscriptionPacketTest {
 
         assertContentEquals(
             "0a01".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 DebugSubscriptionUpdate(
                     DebugSubscriptionType.BEE,
                     DebugSubscriptionData.VillageSection,
@@ -270,7 +269,7 @@ class DebugSubscriptionPacketTest {
         )
 
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<DebugSubscriptionEvent>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<DebugSubscriptionEvent>(
                 "10".hexToByteArray(),
             )
         }
@@ -285,11 +284,11 @@ class DebugSubscriptionPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 

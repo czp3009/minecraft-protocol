@@ -14,40 +14,40 @@ class PlayServerboundMovementAndActionPacketTest {
     fun `all four player movement variants pack status into one byte`() {
         val playerMovementFlags = PlayerMovementFlags(onGround = true, horizontalCollision = true)
         assertPacketBytes(
-            SetPlayerPositionPacket(1.0, 2.0, -1.0, playerMovementFlags),
-            SetPlayerPositionPacket.serializer(),
+            ServerboundMovePlayerPacket.Pos(1.0, 2.0, -1.0, playerMovementFlags),
+            ServerboundMovePlayerPacket.Pos.serializer(),
             "3ff00000000000004000000000000000bff000000000000003",
         )
         assertPacketBytes(
-            SetPlayerPositionAndRotationPacket(
+            ServerboundMovePlayerPacket.PosRot(
                 x = 0.0,
-                feetY = 0.0,
+                y = 0.0,
                 z = 0.0,
-                yaw = 1.0f,
-                pitch = -2.0f,
+                yRot = 1.0f,
+                xRot = -2.0f,
                 flags = playerMovementFlags,
             ),
-            SetPlayerPositionAndRotationPacket.serializer(),
+            ServerboundMovePlayerPacket.PosRot.serializer(),
             "0000000000000000000000000000000000000000000000003f800000c000000003",
         )
         assertPacketBytes(
-            SetPlayerRotationPacket(1.0f, -2.0f, playerMovementFlags),
-            SetPlayerRotationPacket.serializer(),
+            ServerboundMovePlayerPacket.Rot(1.0f, -2.0f, playerMovementFlags),
+            ServerboundMovePlayerPacket.Rot.serializer(),
             "3f800000c000000003",
         )
         assertPacketBytes(
-            SetPlayerMovementFlagsPacket(playerMovementFlags),
-            SetPlayerMovementFlagsPacket.serializer(),
+            ServerboundMovePlayerPacket.StatusOnly(playerMovementFlags),
+            ServerboundMovePlayerPacket.StatusOnly.serializer(),
             "03",
         )
 
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray<SetPlayerMovementFlagsPacket>(
+        val decoded = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundMovePlayerPacket.StatusOnly>(
             "ff".hexToByteArray(),
         )
         assertEquals(playerMovementFlags, decoded.flags)
         assertContentEquals(
             "03".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(decoded),
+            MinecraftPacketPayloadFormat.encodeToByteArray(decoded),
         )
     }
 
@@ -56,26 +56,26 @@ class PlayServerboundMovementAndActionPacketTest {
         assertPacketBytes(
             ServerboundMoveVehiclePacket(
                 position = Vector3d(0.0, 0.0, 0.0),
-                yaw = 0.0f,
-                pitch = 0.0f,
+                yRot = 0.0f,
+                xRot = 0.0f,
                 onGround = true,
             ),
             ServerboundMoveVehiclePacket.serializer(),
             "000000000000000000000000000000000000000000000000000000000000000001",
         )
         assertPacketBytes(
-            PaddleBoatPacket(leftPaddleTurning = true, rightPaddleTurning = false),
-            PaddleBoatPacket.serializer(),
+            ServerboundPaddleBoatPacket(left = true, right = false),
+            ServerboundPaddleBoatPacket.serializer(),
             "0100",
         )
         assertPacketBytes(
-            PickItemFromBlockPacket(BlockPosition(0, 0, 0), includeData = true),
-            PickItemFromBlockPacket.serializer(),
+            ServerboundPickItemFromBlockPacket(BlockPosition(0, 0, 0), includeData = true),
+            ServerboundPickItemFromBlockPacket.serializer(),
             "000000000000000001",
         )
         assertPacketBytes(
-            PickItemFromEntityPacket(entityId = 300, includeData = true),
-            PickItemFromEntityPacket.serializer(),
+            ServerboundPickItemFromEntityPacket(id = 300, includeData = true),
+            ServerboundPickItemFromEntityPacket.serializer(),
             "ac0201",
         )
     }
@@ -83,31 +83,31 @@ class PlayServerboundMovementAndActionPacketTest {
     @Test
     fun `ping recipe ability and pong distinguish fixed integers from VarInts`() {
         assertPacketBytes(
-            PlayPingRequestPacket(0x0102_0304_0506_0708L),
-            PlayPingRequestPacket.serializer(),
+            ServerboundPingRequestPacket(0x0102_0304_0506_0708L),
+            ServerboundPingRequestPacket.serializer(),
             "0102030405060708",
         )
         assertPacketBytes(
-            PlaceRecipePacket(containerId = 300, recipeId = 1, makeAll = true),
-            PlaceRecipePacket.serializer(),
+            ServerboundPlaceRecipePacket(containerId = 300, recipe = 1, useMaxItems = true),
+            ServerboundPlaceRecipePacket.serializer(),
             "ac020101",
         )
         assertPacketBytes(
-            ServerboundPlayerAbilitiesPacket(ServerboundAbilities(flying = true)),
+            ServerboundPlayerAbilitiesPacket(isFlying = true),
             ServerboundPlayerAbilitiesPacket.serializer(),
             "02",
         )
         val serverboundPlayerAbilitiesPacket =
-            MinecraftProtocolFormat.decodeFromByteArray<ServerboundPlayerAbilitiesPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundPlayerAbilitiesPacket>(
                 "ff".hexToByteArray(),
             )
         assertContentEquals(
             "02".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(serverboundPlayerAbilitiesPacket),
+            MinecraftPacketPayloadFormat.encodeToByteArray(serverboundPlayerAbilitiesPacket),
         )
         assertPacketBytes(
-            PlayPongPacket(0x0102_0304),
-            PlayPongPacket.serializer(),
+            ServerboundPongPacket(0x0102_0304),
+            ServerboundPongPacket.serializer(),
             "01020304",
         )
     }
@@ -115,31 +115,31 @@ class PlayServerboundMovementAndActionPacketTest {
     @Test
     fun `action direction and sequence match official enum codecs`() {
         assertPacketBytes(
-            PlayerActionPacket(
-                action = PlayerAction.STAB,
-                location = BlockPosition(0, 0, 0),
-                face = BlockFace.EAST,
+            ServerboundPlayerActionPacket(
+                action = ServerboundPlayerActionPacket.Action.STAB,
+                pos = BlockPosition(0, 0, 0),
+                direction = BlockFace.EAST,
                 sequence = 300,
             ),
-            PlayerActionPacket.serializer(),
+            ServerboundPlayerActionPacket.serializer(),
             "07000000000000000005ac02",
         )
 
-        val wrappedFace = MinecraftProtocolFormat.decodeFromByteArray<PlayerActionPacket>(
+        val wrappedFace = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundPlayerActionPacket>(
             "000000000000000000ff00".hexToByteArray(),
         )
-        assertEquals(BlockFace.SOUTH, wrappedFace.face)
+        assertEquals(BlockFace.SOUTH, wrappedFace.direction)
         assertContentEquals(
             "0000000000000000000300".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(wrappedFace),
+            MinecraftPacketPayloadFormat.encodeToByteArray(wrappedFace),
         )
         assertPacketBytes(
-            PlayerCommandPacket(
-                entityId = 1,
-                action = PlayerCommandAction.START_FALL_FLYING,
-                jumpBoost = 300,
+            ServerboundPlayerCommandPacket(
+                id = 1,
+                action = ServerboundPlayerCommandPacket.Action.START_FALL_FLYING,
+                data = 300,
             ),
-            PlayerCommandPacket.serializer(),
+            ServerboundPlayerCommandPacket.serializer(),
             "0106ac02",
         )
     }
@@ -156,19 +156,19 @@ class PlayServerboundMovementAndActionPacketTest {
             sprint = true,
         )
         assertPacketBytes(
-            PlayerInputPacket(all),
-            PlayerInputPacket.serializer(),
+            ServerboundPlayerInputPacket(all),
+            ServerboundPlayerInputPacket.serializer(),
             "7f",
         )
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray<PlayerInputPacket>(
+        val decoded = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundPlayerInputPacket>(
             "ff".hexToByteArray(),
         )
         assertEquals(all, decoded.input)
         assertContentEquals(
             "7f".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(decoded),
+            MinecraftPacketPayloadFormat.encodeToByteArray(decoded),
         )
-        assertPacketBytes(PlayerLoadedPacket, PlayerLoadedPacket.serializer(), "")
+        assertPacketBytes(ServerboundPlayerLoadedPacket, ServerboundPlayerLoadedPacket.serializer(), "")
     }
 
     private fun <T> assertPacketBytes(
@@ -179,11 +179,11 @@ class PlayServerboundMovementAndActionPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

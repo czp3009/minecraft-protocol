@@ -1,12 +1,12 @@
 package com.hiczp.minecraft.buildlogic
 
+import java.util.zip.ZipFile
+import kotlin.io.path.isRegularFile
 import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.*
-import java.util.zip.ZipFile
-import kotlin.io.path.isRegularFile
 
 /** Extracts the selected release's core and built-in data packs from the official implementation JAR. */
 @CacheableTask
@@ -31,7 +31,7 @@ abstract class ExtractOfficialMinecraftDataPacksTask : DefaultTask() {
         ZipFile(implementationJarPath.toFile()).use { implementationArchive ->
             val versionArchiveEntry = implementationArchive.getEntry(VERSION_FILE)
                 ?: error("Official server implementation has no $VERSION_FILE")
-            val versionJson = protocolJson.decodeFromString<JsonObject>(
+            val versionJson = buildLogicJson.decodeFromString<JsonObject>(
                 implementationArchive.getInputStream(versionArchiveEntry).use { it.readBytes() }.decodeToString(),
             )
             val dataPackFormatJson = versionJson.getValue("pack_version").jsonObject

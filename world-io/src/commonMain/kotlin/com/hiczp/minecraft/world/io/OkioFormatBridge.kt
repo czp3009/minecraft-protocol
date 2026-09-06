@@ -19,6 +19,7 @@ import okio.BufferedSource
 import okio.buffer
 import kotlinx.io.Buffer as KotlinxBuffer
 import kotlinx.io.IOException as KotlinxIOException
+import kotlinx.io.Sink as KotlinxSink
 import kotlinx.io.Source as KotlinxSource
 
 /** Narrow adapters at calls into the filesystem-independent kotlinx-io format modules. */
@@ -58,23 +59,22 @@ internal fun <T> NbtFormat.encodeToOkio(
 internal inline fun <reified T> NbtFormat.encodeToOkio(value: T, sink: BufferedSink) =
     encodeToOkio(value, sink, serializersModule.serializer())
 
-internal fun <B : Any, M : Any> ChunkNbtCodec<B, M>.decodeFromOkio(
+internal fun ChunkNbtDecoder.decodeFromOkio(
     source: BufferedSource,
-): Chunk<B, M> = decodeFromOkio(source) { kotlinxSource ->
-    decodeFromSource(kotlinxSource)
+): ChunkNbtDecodeResult = decodeFromOkio(source) { kotlinxSource ->
+    decode(kotlinxSource)
 }
 
-internal fun <E : Any> EntityChunkNbtCodec<E>.decodeFromOkio(
+internal fun EntityChunkNbtDecoder.decodeFromOkio(
     source: BufferedSource,
-): EntityChunk<E> = decodeFromOkio(source) { kotlinxSource ->
-    decodeFromSource(kotlinxSource)
+): EntityChunkNbtDecodeResult = decodeFromOkio(source) { kotlinxSource ->
+    decode(kotlinxSource)
 }
 
-internal fun PoiChunkNbtCodec.decodeFromOkio(
+internal fun PoiChunkNbtDecoder.decodeFromOkio(
     source: BufferedSource,
-    chunkPosition: ChunkPosition,
-): PoiChunk = decodeFromOkio(source) { kotlinxSource ->
-    decodeFromSource(kotlinxSource, chunkPosition)
+): PoiChunkNbtDecodeResult = decodeFromOkio(source) { kotlinxSource ->
+    decode(kotlinxSource)
 }
 
 internal fun BufferedSource.readCompressedChunkFromOkio(compression: Compression): CompressedChunk =
@@ -91,33 +91,26 @@ internal fun CompressedChunkInput.writeToOkio(sink: BufferedSink) {
 }
 
 internal fun encodeCompressedChunkFromOkio(
-    compressedNbtFormat: CompressedNbtFormat,
+    compressionRegistry: CompressionRegistry,
     compression: Compression,
     encode: (BufferedSink) -> Unit,
-): CompressedChunk {
-    val compressed = KotlinxBuffer()
-    val compressedSink = withOkioIoFailures {
-        compressedNbtFormat.compressionRegistry.compressingSink(compression, compressed)
-    }.asOkioSink().buffer()
-    useResource(compressedSink, { it.close() }) { sink ->
-        encode(sink)
-    }
-    return withOkioIoFailures { CompressedChunk.readFromSource(compressed, compression) }
+): CompressedChunk = encodeCompressedChunk(compressionRegistry, compression) { sink ->
+    useResource(sink.asOkioSink().buffer(), { it.close() }, encode)
 }
 
 internal fun CompressedNbtFormat.encodeDocumentFromOkio(
     nbtDocument: NbtDocument,
     compression: Compression,
-): CompressedChunk = encodeCompressedChunkFromOkio(this, compression) { sink ->
-    nbtFormat.encodeDocumentToOkio(nbtDocument, sink)
+): CompressedChunk = encodeCompressedChunk(compressionRegistry, compression) { sink ->
+    nbtFormat.encodeDocumentToSink(nbtDocument, sink)
 }
 
 internal fun <T> CompressedNbtFormat.encodeFromOkio(
     value: T,
     compression: Compression,
     serializationStrategy: SerializationStrategy<T>,
-): CompressedChunk = encodeCompressedChunkFromOkio(this, compression) { sink ->
-    nbtFormat.encodeToOkio(value, sink, serializationStrategy)
+): CompressedChunk = encodeCompressedChunk(compressionRegistry, compression) { sink ->
+    nbtFormat.encodeToSink(serializationStrategy, value, sink)
 }
 
 internal inline fun <reified T> CompressedNbtFormat.encodeFromOkio(
@@ -125,40 +118,40 @@ internal inline fun <reified T> CompressedNbtFormat.encodeFromOkio(
     compression: Compression,
 ): CompressedChunk = encodeFromOkio(value, compression, nbtFormat.serializersModule.serializer())
 
-internal fun <B : Any, M : Any> ChunkNbtCodec<B, M>.encodeFromOkio(
-    chunk: Chunk<B, M>,
-    compressedNbtFormat: CompressedNbtFormat,
+internal fun ChunkNbtEncoder.encodeFromOkio(
+    chunk: Chunk,
+    compressionRegistry: CompressionRegistry,
     compression: Compression,
-): CompressedChunk = encodeCompressedChunkFromOkio(compressedNbtFormat, compression) { sink ->
-    val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
-    withOkioIoFailures {
-        encodeToSink(chunk, kotlinxSink)
-        kotlinxSink.emit()
-    }
+): CompressedChunk = encodeCompressedChunk(compressionRegistry, compression) { sink ->
+    encode(chunk, sink)
 }
 
-internal fun <E : Any> EntityChunkNbtCodec<E>.encodeFromOkio(
-    entityChunk: EntityChunk<E>,
-    compressedNbtFormat: CompressedNbtFormat,
+internal fun EntityChunkNbtEncoder.encodeFromOkio(
+    entityChunk: EntityChunk,
+    compressionRegistry: CompressionRegistry,
     compression: Compression,
-): CompressedChunk = encodeCompressedChunkFromOkio(compressedNbtFormat, compression) { sink ->
-    val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
-    withOkioIoFailures {
-        encodeToSink(entityChunk, kotlinxSink)
-        kotlinxSink.emit()
-    }
+): CompressedChunk = encodeCompressedChunk(compressionRegistry, compression) { sink ->
+    encode(entityChunk, sink)
 }
 
-internal fun PoiChunkNbtCodec.encodeFromOkio(
+internal fun PoiChunkNbtEncoder.encodeFromOkio(
     poiChunk: PoiChunk,
-    compressedNbtFormat: CompressedNbtFormat,
+    compressionRegistry: CompressionRegistry,
     compression: Compression,
-): CompressedChunk = encodeCompressedChunkFromOkio(compressedNbtFormat, compression) { sink ->
-    val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
-    withOkioIoFailures {
-        encodeToSink(poiChunk, kotlinxSink)
-        kotlinxSink.emit()
+): CompressedChunk = encodeCompressedChunk(compressionRegistry, compression) { sink ->
+    encode(poiChunk, sink)
+}
+
+private fun encodeCompressedChunk(
+    compressionRegistry: CompressionRegistry,
+    compression: Compression,
+    encode: (KotlinxSink) -> Unit,
+): CompressedChunk = withOkioIoFailures {
+    val compressed = KotlinxBuffer()
+    useResource(compressionRegistry.compressingSink(compression, compressed).buffered(), { it.close() }) { sink ->
+        encode(sink)
     }
+    CompressedChunk.readFromSource(compressed, compression)
 }
 
 private fun <T> decodeFromOkio(

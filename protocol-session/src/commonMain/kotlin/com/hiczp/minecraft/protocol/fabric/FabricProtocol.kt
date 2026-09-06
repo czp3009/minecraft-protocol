@@ -77,12 +77,12 @@ object FabricProtocol {
     /** Pure factory; callers may retain and share its result across connections. */
     fun connectionDefinition(
         extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
         incomingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
         outgoingCapacity: Int = MinecraftConnectionDefinition.DEFAULT_CHANNEL_CAPACITY,
     ): MinecraftConnectionDefinition = MinecraftConnectionDefinition.compose(
         extensionCodecs = packetCodecs + extensionCodecs,
-        minecraftProtocolFormat = minecraftProtocolFormat,
+        minecraftPacketPayloadFormat = minecraftPacketPayloadFormat,
         incomingCapacity = incomingCapacity,
         outgoingCapacity = outgoingCapacity,
     )
@@ -124,7 +124,7 @@ private class FabricRegistrationCodec<T : FabricChannelRegistrationPacket>(
     private val factory: (List<Identifier>) -> T,
 ) : PacketBodyCodec<T> {
     override fun encode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: T,
         sink: Sink,
     ) {
@@ -135,19 +135,19 @@ private class FabricRegistrationCodec<T : FabricChannelRegistrationPacket>(
         val byteArray = packet.channels
             .joinToString("\u0000", transform = Identifier::value)
             .encodeToByteArray()
-        minecraftProtocolFormat.encodeToSink(
+        minecraftPacketPayloadFormat.encodeToSink(
             RemainingBody(ByteString(byteArray)),
             sink,
         )
     }
 
     override fun decode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
     ): T {
-        val byteArray = minecraftProtocolFormat.decodeFromSource<RemainingBody>(
+        val byteArray = minecraftPacketPayloadFormat.decodeFromSource<RemainingBody>(
             source,
             byteCount,
         ).data.toByteArray()
@@ -191,21 +191,21 @@ private fun validateChannelName(channel: Identifier) {
 
 private object FabricRegistrySyncBodyCodec : PacketBodyCodec<FabricRegistrySyncPacket> {
     override fun encode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: FabricRegistrySyncPacket,
         sink: Sink,
-    ) = minecraftProtocolFormat.encodeToSink(
+    ) = minecraftPacketPayloadFormat.encodeToSink(
         FabricRegistrySyncSerializer,
         packet,
         sink,
     )
 
     override fun decode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): FabricRegistrySyncPacket = minecraftProtocolFormat.decodeFromSource(
+    ): FabricRegistrySyncPacket = minecraftPacketPayloadFormat.decodeFromSource(
         FabricRegistrySyncSerializer,
         source,
         byteCount,

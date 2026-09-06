@@ -1,7 +1,7 @@
 package com.hiczp.minecraft.protocol.serialization.internal
 
 import com.hiczp.minecraft.protocol.model.type.Vector3d
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormatConfiguration
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -54,7 +54,7 @@ internal object LowPrecisionVectorCodec {
 
     fun read(
         minecraftReader: MinecraftReader,
-        minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
+        minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,
     ): Vector3d {
         val lowest = minecraftReader.readUnsignedByte()
         if (lowest == 0) {
@@ -67,7 +67,7 @@ internal object LowPrecisionVectorCodec {
         var scale = lowest.toLong() and SCALE_MASK
         if (lowest and CONTINUATION_FLAG.toInt() != 0) {
             scale = scale or (
-                    (minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+                    (minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
                         .toLong() and 0xFFFF_FFFFL) shl 2
                     )
         }

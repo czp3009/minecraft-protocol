@@ -94,6 +94,8 @@ kotlin {
 
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(project(":protocol-world"))
+            implementation(project(":protocol-serialization"))
             implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.okio.fakefilesystem)

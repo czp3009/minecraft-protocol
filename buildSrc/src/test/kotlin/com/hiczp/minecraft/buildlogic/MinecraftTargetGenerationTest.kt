@@ -24,16 +24,16 @@ class MinecraftTargetGenerationTest {
                 javaMajorVersion = 25,
             )
 
-            val minecraftProtocolTarget = serverJar.readMinecraftProtocolTarget()
-            assertEquals(456, minecraftProtocolTarget.worldVersion)
+            val officialMinecraftTarget = serverJar.readOfficialMinecraftTarget()
+            assertEquals(456, officialMinecraftTarget.worldVersion)
 
             val targetFile = root.resolve("target.json")
-            val officialMinecraftTargetReportJson = minecraftProtocolTarget.toOfficialMinecraftTargetReportJson()
+            val officialMinecraftTargetReportJson = officialMinecraftTarget.toOfficialMinecraftTargetReportJson()
             assertEquals(1, officialMinecraftTargetReportJson.getValue("schema_version").jsonPrimitive.int)
             targetFile.writeJson(officialMinecraftTargetReportJson, sortKeys = true)
 
             val officialMinecraftTargetReport = targetFile.readOfficialMinecraftTargetReport()
-            assertEquals(456, officialMinecraftTargetReport.minecraftProtocolTarget.worldVersion)
+            assertEquals(456, officialMinecraftTargetReport.officialMinecraftTarget.worldVersion)
         } finally {
             root.deleteTree()
         }

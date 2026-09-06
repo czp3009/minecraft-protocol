@@ -3,6 +3,7 @@
 package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.nbt.NbtTag
+import com.hiczp.minecraft.protocol.model.packet.ClientboundSetPlayerTeamPacket
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
@@ -94,7 +95,7 @@ data class CommonPlayerSpawnInfo(
 }
 
 @Serializable
-data class LightUpdateData(
+data class ClientboundLightUpdatePacketData(
     val skyYMask: BitSet,
     val blockYMask: BitSet,
     val emptySkyYMask: BitSet,
@@ -191,19 +192,7 @@ enum class TeamColor {
     WHITE,
 }
 
-@Serializable
-data class TeamParameters(
-    val displayName: TextComponent,
-    val playerPrefix: TextComponent,
-    val playerSuffix: TextComponent,
-    @ZeroFallbackEnum
-    val nameTagVisibility: TeamVisibility,
-    @ZeroFallbackEnum
-    val collisionRule: TeamCollisionRule,
-    @ZeroFallbackEnum
-    val color: TeamColor?,
-    val options: Byte,
-)
+
 
 @Serializable(with = ObjectiveUpdateSerializer::class)
 sealed interface ObjectiveUpdate {
@@ -225,13 +214,13 @@ sealed interface ObjectiveUpdate {
 @Serializable(with = TeamUpdateSerializer::class)
 sealed interface TeamUpdate {
     data class Add(
-        val parameters: TeamParameters,
+        val parameters: ClientboundSetPlayerTeamPacket.Parameters,
         val players: List<String>,
     ) : TeamUpdate
 
     data object Remove : TeamUpdate
 
-    data class Change(val parameters: TeamParameters) : TeamUpdate
+    data class Change(val parameters: ClientboundSetPlayerTeamPacket.Parameters) : TeamUpdate
 
     data class Join(val players: List<String>) : TeamUpdate
 
@@ -529,7 +518,7 @@ internal object TeamUpdateSerializer : KSerializer<TeamUpdate> {
         "minecraft.TeamUpdate",
     ) {
         element<Byte>("method")
-        element<TeamParameters>("parameters", isOptional = true)
+        element<ClientboundSetPlayerTeamPacket.Parameters>("parameters", isOptional = true)
         element<List<String>>("players", isOptional = true)
     }
 
@@ -577,12 +566,12 @@ internal object TeamUpdateSerializer : KSerializer<TeamUpdate> {
 
     private fun encodeParameters(
         output: CompositeEncoder,
-        value: TeamParameters,
+        value: ClientboundSetPlayerTeamPacket.Parameters,
     ) {
         output.encodeSerializableElement(
             descriptor,
             PARAMETERS,
-            TeamParameters.serializer(),
+            ClientboundSetPlayerTeamPacket.Parameters.serializer(),
             value,
         )
     }
@@ -601,10 +590,10 @@ internal object TeamUpdateSerializer : KSerializer<TeamUpdate> {
 
     private fun decodeParameters(
         input: CompositeDecoder,
-    ): TeamParameters = input.decodeSerializableElement(
+    ): ClientboundSetPlayerTeamPacket.Parameters = input.decodeSerializableElement(
         descriptor,
         PARAMETERS,
-        TeamParameters.serializer(),
+        ClientboundSetPlayerTeamPacket.Parameters.serializer(),
     )
 
     private fun decodePlayers(

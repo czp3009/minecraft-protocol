@@ -1,84 +1,44 @@
 ---
 name: minecraft-project-docs
-description: Write, restructure, or audit hierarchical AGENTS.md and README.md files in this repository. Use for project or subproject agent guidance, human-facing module documentation, parent/child documentation boundaries, duplicate removal, or alignment of these files with current source, build wiring, and tests. Do not use for API reference or general prose unrelated to AGENTS.md and README.md.
+description: "Audit or restructure this repository's AGENTS.md and README.md hierarchy against source, build scripts and tests. Use for stale API examples, ambiguous module boundaries, parent/child duplication, concise root documentation, or placement of durable rules versus optional skill workflows."
 ---
 
-# Minecraft project docs
+# Minecraft project documentation
 
-Maintain concise, source-derived documentation whose detail increases toward the owning subproject. `AGENTS.md` teaches
-an agent how to develop correctly; `README.md` teaches a human what the project provides and how to use it. Do not blend
-the two audiences.
+## Establish the evidence
 
-This skill is optional guidance, not project evidence. Treat checked-in source, build wiring, tests, and the applicable
-`AGENTS.md` files as authoritative. When they disagree with this skill, correct the skill instead of changing the
-project to satisfy it.
+1. Inventory documents with `rg --files --hidden -g AGENTS.md -g README.md`, excluding generated, dependency and
+   temporary trees. Compare Gradle settings with the documents present in actual subprojects, including buildSrc.
+2. Read each target with its ancestors. Inspect its build script, public declarations and behavior tests before editing
+   claims about targets, defaults, construction, mutability, absence, recovery or resource lifetime.
+3. Check referenced snippets as caller code: every input must have an origin, overloads must resolve, resources must
+   remain open while used, and packet examples must keep direction/state and coroutine ordering coherent.
+4. Distinguish an inaccurate description from an implementation defect. Documentation work does not authorize changing
+   runtime behavior merely to make proposed wording true.
 
-## Load the relevant guide
+## Give each fact one owner
 
-- For any `AGENTS.md` task, read [references/agents-files.md](references/agents-files.md) completely.
-- For any `README.md` task, read [references/readme-files.md](references/readme-files.md) completely.
-- Read both when creating, comparing, or reorganizing both document types.
+| Content                                                                           | Owner                  |
+|-----------------------------------------------------------------------------------|------------------------|
+| Project purpose, distinctive capabilities, module choice and short entry examples | Root README            |
+| Detailed public workflow, defaults, lifetime, failures and extension contract     | Owning module README   |
+| Mandatory shared design or development invariant                                  | Root AGENTS            |
+| Local invariant or verification consequence                                       | Owning module AGENTS   |
+| Conditional inspection, research or audit procedure                               | Focused optional skill |
 
-## Establish scope and evidence
+README and AGENTS serve different audiences: a boundary may need a user consequence in one and an implementation
+constraint in the other. Within either hierarchy, link to its owner and keep only the local consequence. Before moving
+text, preserve unique facts, check affected descendants and repair inbound links. Do not require a skill for normal
+builds or place mandatory rules only in one.
 
-1. Inspect `git status --short` and preserve unrelated work.
-2. Read the root `AGENTS.md` and every nearer `AGENTS.md` governing each file to be changed. Read the relevant parent
-   and target `README.md` files so the new text has the right level of detail.
-3. Inspect the owning build script, public source, tests, generated-source wiring, and directly related sibling modules.
-   Use `rg` and `rg --files` to locate declarations and existing explanations. A current README or skill may guide
-   discovery but is not sufficient evidence for a claim.
-4. Establish the current public behavior, ownership boundary, prerequisites, defaults, resource lifetime, and relevant
-   verification commands before drafting. When release-specific evidence is necessary, resolve the selected release
-   through `./gradlew -q minecraftVersion`; never copy its current literal into documentation.
+Keep the root README easy to scan: identity, a few distinctive capabilities, module navigation, short examples and
+build/demo links. Move complete connection loops and representation details inward. Other files need only headings
+that help their own readers; parallel modules need not have identical outlines.
 
-For a documentation-only request, do not change implementation or build wiring merely to make proposed prose true.
-Document the current contract or report the mismatch. Broaden the edited file set only when moving content is necessary
-to complete an explicitly requested hierarchy refactor.
+## Verify the edit
 
-## Place each fact at one level
-
-Treat `README.md` and `AGENTS.md` as separate audience hierarchies. Within each hierarchy, use the narrowest document
-whose scope covers every place where the fact applies:
-
-- Repository-level files explain the overall purpose, module map, shared conventions, and cross-project workflows.
-- Subproject files explain only that subproject's public contract or local development rules.
-- A nested file adds detail or an exception; it does not restate an ancestor in different words.
-- A directory that merely groups subprojects does not duplicate its children's guides. Every actual Gradle subproject,
-  as established by Gradle settings and build wiring, keeps its own `README.md` and `AGENTS.md`, as required by the root
-  guide.
-
-The same underlying boundary may belong in both document types when both audiences need it. Explain its user-visible
-effect in the README and its ownership or maintenance consequence in AGENTS.md; do not copy the same paragraph between
-them.
-
-When local understanding needs parent context, link to the canonical owner and state only the local consequence. When
-moving a rule outward, verify every affected descendant before deleting its old copies. When moving detail inward,
-ensure no remaining sibling still depends on it. Resolve contradictions from source and tests instead of preserving both
-formulations.
-
-## Draft for decisions, not coverage
-
-Prefer a short document that answers the audience's next real questions. Do not impose a fixed heading template or
-repeat content merely to make parallel modules look symmetrical. Match the repository's existing documentation language
-and terminology unless the user requests otherwise. Use the representation-stage and module names established by the
-root guide.
-
-Describe only current behavior. Refer to release and tool versions through their owning selector or role. Stable
-protocol identifiers, format revisions, status codes, and example addresses may remain literal when they are part of the
-contract.
-
-Update a README when a public capability, entry point, prerequisite, default, or user-visible constraint changes. Update
-AGENTS.md when ownership, development invariants, evidence, or verification workflow changes. An internal edit that
-changes neither does not require documentation churn.
-
-## Verify the result
-
-- Re-read every changed file together with its ancestors and remove repetition, contradictions, promises, and details
-  owned elsewhere.
-- Check claims, symbol names, signatures, defaults, target availability, paths, and commands against authoritative
-  project files. Confirm relative links and any anchors changed by the edit.
-- Check that examples introduce every value before use and visibly preserve required lifecycle, coroutine, and failure
-  semantics.
-- Run `git diff --check`. Run a narrow compile or test task only when an example or behavioral claim cannot be validated
-  confidently by inspection; never run Gradle wrapper invocations concurrently.
-- Report the documents changed, important placement decisions, and verification performed.
+- Recheck changed prose against declarations and tests, including required context inputs and actual generated wiring.
+- Compare ancestors/descendants and remove duplicate rules, API catalogues and repeated explanations around examples.
+- Check local links and changed anchors, stale module/symbol names and copied release/tool version literals.
+- Run `git diff --check`. Compile or test when a changed example or source edit needs it; prose-only edits normally do
+  not require new tests. Report factual corrections separately from editorial changes.

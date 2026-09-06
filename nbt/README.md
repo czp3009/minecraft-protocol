@@ -27,10 +27,12 @@ val nbtDocument = NbtDocument(nbtCompound)
 val namedNbtTag = NamedNbtTag("", nbtCompound)
 
 val decodedDataVersion = (nbtCompound["DataVersion"] as NbtInt).value
-nbtCompound.forEachEntry { name, nbtTag ->
-    // Visits entries in insertion order without copying the compound
-}
-val editableEntries = nbtCompound.value // Defensive copy for further composition
+check(decodedDataVersion == dataVersion)
+check(namedNbtTag.nbtTag == nbtDocument.root)
+val editableEntries = nbtCompound.value.toMutableMap()
+editableEntries["LevelName"] = NbtString("Another name")
+val renamedDocument = NbtDocument(NbtCompound(editableEntries))
+check(renamedDocument.root["LevelName"] != nbtDocument.root["LevelName"])
 ```
 
 `size`, indexed access, and iteration read the immutable snapshot without copying, while `value` returns a defensive

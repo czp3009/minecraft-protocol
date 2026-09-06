@@ -4,13 +4,13 @@ package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.wire.*
+import kotlin.uuid.Uuid
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlin.uuid.Uuid
 
 @Serializable
 data class ProfileProperty(
@@ -120,17 +120,6 @@ data class ClientInformation(
     val particleStatus: ParticleStatus,
 )
 
-@Serializable
-enum class ResourcePackResult {
-    SUCCESSFULLY_DOWNLOADED,
-    DECLINED,
-    FAILED_TO_DOWNLOAD,
-    ACCEPTED,
-    DOWNLOADED,
-    INVALID_URL,
-    FAILED_TO_RELOAD,
-    DISCARDED,
-}
 
 @Serializable
 enum class BuiltInServerLinkLabel {

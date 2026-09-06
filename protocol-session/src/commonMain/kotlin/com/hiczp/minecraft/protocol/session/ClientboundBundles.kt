@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.protocol.session
 
-import com.hiczp.minecraft.protocol.model.packet.BundleDelimiterPacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundBundleDelimiterPacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundBundlePacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
 import kotlinx.coroutines.channels.ChannelResult
@@ -22,12 +22,12 @@ internal object ClientboundBundleCodec {
         receivePacket: suspend () -> ClientboundPacket,
     ): ClientboundPacket {
         val first = receivePacket()
-        if (first !== BundleDelimiterPacket) return first
+        if (first !== ClientboundBundleDelimiterPacket) return first
 
         val subPackets = mutableListOf<ClientboundPacket>()
         while (true) {
             val clientboundPacket = receivePacket()
-            if (clientboundPacket === BundleDelimiterPacket) return ClientboundBundlePacket(subPackets)
+            if (clientboundPacket === ClientboundBundleDelimiterPacket) return ClientboundBundlePacket(subPackets)
             requireSubPacket(clientboundPacket)
             if (subPackets.size == ClientboundBundlePacket.MAX_SUB_PACKET_COUNT) {
                 val maximum = ClientboundBundlePacket.MAX_SUB_PACKET_COUNT
@@ -46,13 +46,13 @@ internal object ClientboundBundleCodec {
             throw MinecraftSessionException("A clientbound bundle exceeds $maximum packets")
         }
         clientboundBundlePacket.forEach(::requireSubPacket)
-        sendPacket(BundleDelimiterPacket)
+        sendPacket(ClientboundBundleDelimiterPacket)
         clientboundBundlePacket.forEach { clientboundPacket -> sendPacket(clientboundPacket) }
-        sendPacket(BundleDelimiterPacket)
+        sendPacket(ClientboundBundleDelimiterPacket)
     }
 
     fun rejectStandaloneDelimiter(clientboundPacket: ClientboundPacket) {
-        if (clientboundPacket === BundleDelimiterPacket) {
+        if (clientboundPacket === ClientboundBundleDelimiterPacket) {
             throw MinecraftSessionException(
                 "Bundle delimiters are session-owned; send a ClientboundBundlePacket instead",
             )
@@ -60,7 +60,7 @@ internal object ClientboundBundleCodec {
     }
 
     private fun requireSubPacket(clientboundPacket: ClientboundPacket) {
-        if (clientboundPacket === BundleDelimiterPacket || clientboundPacket is ClientboundBundlePacket) {
+        if (clientboundPacket === ClientboundBundleDelimiterPacket || clientboundPacket is ClientboundBundlePacket) {
             throw MinecraftSessionException("A clientbound bundle cannot contain delimiters or nested bundles")
         }
     }

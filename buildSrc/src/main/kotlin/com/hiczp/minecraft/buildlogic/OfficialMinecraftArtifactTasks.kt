@@ -1,5 +1,11 @@
 package com.hiczp.minecraft.buildlogic
 
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.zip.ZipFile
+import kotlin.io.path.createDirectories
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.readText
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.gradle.api.DefaultTask
@@ -7,12 +13,6 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
-import java.nio.file.Files
-import java.nio.file.Path
-import java.util.zip.ZipFile
-import kotlin.io.path.createDirectories
-import kotlin.io.path.isRegularFile
-import kotlin.io.path.readText
 
 @CacheableTask
 abstract class DownloadOfficialMinecraftServerTask :
@@ -33,7 +33,7 @@ abstract class DownloadOfficialMinecraftServerTask :
 
     @TaskAction
     fun download() {
-        val metadata = protocolJson.decodeFromString<JsonObject>(
+        val metadata = buildLogicJson.decodeFromString<JsonObject>(
             versionMetadata.asFile.get().toPath().readText(),
         )
         val server = metadata.getValue("downloads").jsonObject.getValue("server").jsonObject
@@ -41,7 +41,7 @@ abstract class DownloadOfficialMinecraftServerTask :
 
         val destination = serverJar.asFile.get().toPath()
         runBlocking {
-            ProtocolHttp.download(
+            DownloadHttp.download(
                 url = serverUrl,
                 destination = destination,
                 offline = offline.get(),
@@ -66,11 +66,11 @@ abstract class AnalyzeOfficialMinecraftTargetTask :
     @TaskAction
     fun analyze() {
         val server = serverJar.asFile.get().toPath()
-        val minecraftProtocolTarget = server.readMinecraftProtocolTarget()
+        val officialMinecraftTarget = server.readOfficialMinecraftTarget()
         val output = outputFile.asFile.get().toPath()
-        output.writeJson(minecraftProtocolTarget.toOfficialMinecraftTargetReportJson(), sortKeys = true)
+        output.writeJson(officialMinecraftTarget.toOfficialMinecraftTargetReportJson(), sortKeys = true)
         logger.lifecycle(
-            "Analyzed Minecraft ${minecraftProtocolTarget.minecraftVersion} target: $output",
+            "Analyzed Minecraft ${officialMinecraftTarget.minecraftVersion} target: $output",
         )
     }
 }
@@ -88,11 +88,11 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
     @TaskAction
     fun generate() {
         val serverJar = serverJar.asFile.get().toPath()
-        val minecraftProtocolTarget = serverJar.readMinecraftProtocolTarget()
+        val officialMinecraftTarget = serverJar.readOfficialMinecraftTarget()
         val outputDirectory = outputDirectory.asFile.get().toPath()
         val workDirectory = createIsolatedTemporaryDirectory("reports")
         val reports = try {
-            generateReports(serverJar, minecraftProtocolTarget, workDirectory)
+            generateReports(serverJar, officialMinecraftTarget, workDirectory)
         } finally {
             workDirectory.deleteTree()
         }
@@ -108,7 +108,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
 
     private fun generateReports(
         serverJar: Path,
-        minecraftProtocolTarget: MinecraftProtocolTarget,
+        officialMinecraftTarget: OfficialMinecraftTarget,
         workDirectory: Path,
     ): Map<String, JsonObject> {
         val generatorOutput = workDirectory.resolve("generated")
@@ -164,7 +164,7 @@ abstract class AnalyzeOfficialMinecraftReportsTask :
             check(source.isRegularFile()) {
                 "Vanilla data generator did not create reports/$name"
             }
-            protocolJson.decodeFromString<JsonObject>(source.readText())
+            buildLogicJson.decodeFromString<JsonObject>(source.readText())
         }
         validateReports(reports)
         return reports

@@ -22,7 +22,7 @@ class ForgeRegistrySync(
         }
     }
 
-    fun resolve(staticRegistrySchema: StaticRegistrySchema): ProtocolRegistryContext =
+    fun resolve(staticRegistrySchema: StaticRegistrySchema): PacketCodecContext =
         staticRegistrySchema.resolve(requireForgeCompatible(staticRegistrySchema, remoteRegistrySnapshot))
             .withForgeRegistrySizes(forgeRegistrySnapshots)
 
@@ -116,9 +116,9 @@ internal fun requireForgeCompatible(
     return remoteRegistrySnapshot
 }
 
-internal fun ProtocolRegistryContext.withForgeRegistrySizes(
+internal fun PacketCodecContext.withForgeRegistrySizes(
     forgeRegistrySnapshots: Map<Identifier, ForgeRegistrySnapshot>,
-): ProtocolRegistryContext {
+): PacketCodecContext {
     val registrySizes = forgeRegistrySnapshots.mapNotNull { (registryId, forgeRegistrySnapshot) ->
         forgeRegistrySnapshot.wireSize.takeIf { it > 0 }?.let { registryId to it }
     }.toMap()

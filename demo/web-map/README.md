@@ -38,8 +38,6 @@ Or start the native x64 server:
 .\gradlew.bat :demo:web-map:runReleaseExecutableMingwX64
 ```
 
-Open <http://127.0.0.1:8080> after the server starts. Press `Ctrl+C` in PowerShell to stop it.
-
 ## Linux
 
 Set the world directory:
@@ -63,8 +61,6 @@ Or start the native server matching the machine architecture:
 # ARM64
 ./gradlew :demo:web-map:runReleaseExecutableLinuxArm64
 ```
-
-Open <http://127.0.0.1:8080> after the server starts. Press `Ctrl+C` in the terminal to stop it.
 
 ## macOS
 

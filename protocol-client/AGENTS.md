@@ -1,42 +1,21 @@
 # protocol-client
 
-This module owns client-side Status, Login, Configuration, and entry into Play.
+- `MinecraftClientConnection` exposes direction-limited channels and committed state, not its socket, frame stream or
+  mutable session. Its constructor can wrap a caller-supplied packet connection; `connect` owns socket creation.
+- `negotiate` exclusively borrows both channels until the first Play Login has been received. Initial-world packets
+  remain on `incoming` for the application's packet loop.
+- The low-level client endpoint consumes and answers direct Configuration/Play KeepAlive requests. Do not duplicate
+  those replies in negotiation or projection helpers.
+- Online Login owns the timing of the Session Server `/join` call; account acquisition stays outside the flow.
+- `MinecraftClientNegotiationResult` retains one `MinecraftDimensionContext` and one `DataPackConfigurationSnapshot`.
+  Layout conveniences derive from that context, and captured pack fields are not copied onto a second result.
+  Registry-view resolution uses that result's retained context and requires no live connection or I/O.
+- The result's Chunk-decoder factory uses its initial dimension/registry facts and requests only application defaults,
+  read mappings and missing-data providers. It returns the shared plain codec without retaining the connection.
+- Install the resolved registry context on the connection. Domain block/biome defaults and missing packet fields enter
+  only through the caller's world codec contexts; negotiation does not choose or cross-validate them.
+- Shared registry/layout resolution comes from `protocol-configuration`; world decoding comes from `protocol-world`.
+  Endpoint adapters own bundle registration and unresolved relation handling. Rebind world codecs after a registry
+  epoch or dimension change.
 
-## Local contract
-
-- `MinecraftClientConnection` exposes direction-limited packet channels and connection state, not its socket, frame
-  stream, or mutable low-level session.
-- High-level negotiation handles cookies, custom Login queries, compression, online encryption, client information,
-  Known Packs, Configuration tasks, registry context, and the selected loader profile. It borrows the public channels
-  exclusively until it returns.
-- The low-level client endpoint consumes and answers direct official Configuration and Play KeepAlive requests. Do not
-  duplicate that reply in negotiation or application packet loops.
-- Preserve the zero-configuration vanilla path: `connect` defaults the connection definition and transport, while
-  `negotiate` requires only the caller's identity and defaults the vanilla profile, protocol data, Known Packs, and
-  client settings. Loader or mod behavior is an explicit override.
-- Online Login decides when the Session Server `/join` call occurs. It consumes a caller-supplied `HttpClient` and does
-  not own account-token acquisition.
-- The negotiation result retains one composed `MinecraftDimensionContext` for the Play Login dimension and exposes its
-  `MinecraftDimensionLayout`/`ChunkLayout` as derived conveniences. Install that context's registry context on the
-  connection; semantic block/biome defaults enter only when the caller constructs the `ChunkContext` and
-  `ChunkPacketDecoderContext`. Do not add cross-source identity, layout, or Section-count validation to negotiation or
-  semantic packet decoding.
-- Shared registry/layout adaptation comes from the Configuration module, while reusable clientbound Chunk/entity plain
-  codecs belong to the world-protocol adapter module. Bind caller-provided contexts or prebuilt codecs to the current
-  connection epoch and dimension, reuse them there, and replace them on reconfiguration or dimension change. This
-  endpoint invokes the plain codecs directly rather than a fluent conversion and does not own a duplicate decoder or
-  projection implementation. Every field absent
-  from a packet, including local Chunk status and other save-oriented state, comes from the caller's provider rather
-  than a hidden client or vanilla default. Packet-derived Chunks have no persistence metadata; supplying that metadata
-  and encoding them for storage remain explicit caller operations after decoding.
-- Received data-pack views expose only Configuration-visible resources and may resolve tags against the installed
-  context or caller-supplied schemas. Do not imply that they reconstruct server-only pack content.
-- `MinecraftClientNegotiationResult` stores one `DataPackConfigurationSnapshot` directly instead of duplicating its
-  Known Packs, feature flags, synchronized registries, and registry tags or wrapping them in another public result.
-
-## Verification
-
-The official-server scenario has a four-minute coroutine budget. Keep `jsNodeTest`'s outer Mocha watchdog longer so
-bounded diagnostics and cleanup finish before the test process is terminated.
-
-Run `:protocol-client:jvmTest`.
+Run `:protocol-client:jvmTest`, including its official-server scenario.

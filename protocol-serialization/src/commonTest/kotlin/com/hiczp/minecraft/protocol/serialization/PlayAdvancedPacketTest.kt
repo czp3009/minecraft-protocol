@@ -35,9 +35,9 @@ class PlayAdvancedPacketTest {
     @Test
     fun `entity metadata uses serializer IDs and ff terminator`() {
         assertBytes(
-            SetEntityMetadataPacket(
-                entityId = 1,
-                metadata = EntityMetadata(
+            ClientboundSetEntityDataPacket(
+                id = 1,
+                packedItems = EntityMetadata(
                     listOf(
                         EntityMetadataEntry(
                             2,
@@ -46,7 +46,7 @@ class PlayAdvancedPacketTest {
                     ),
                 ),
             ),
-            SetEntityMetadataPacket.serializer(),
+            ClientboundSetEntityDataPacket.serializer(),
             "010201ac02ff",
         )
         assertBytes(
@@ -65,7 +65,7 @@ class PlayAdvancedPacketTest {
 
     @Test
     fun `recipe displays recursively dispatch through built in type IDs`() {
-        val placeGhostRecipePacket = PlaceGhostRecipePacket(
+        val clientboundPlaceGhostRecipePacket = ClientboundPlaceGhostRecipePacket(
             containerId = 1,
             recipeDisplay = RecipeDisplay.Shapeless(
                 ingredients = listOf(SlotDisplay.Empty),
@@ -74,22 +74,22 @@ class PlayAdvancedPacketTest {
             ),
         )
         assertBytes(
-            placeGhostRecipePacket,
-            PlaceGhostRecipePacket.serializer(),
+            clientboundPlaceGhostRecipePacket,
+            ClientboundPlaceGhostRecipePacket.serializer(),
             "01000100040201",
         )
     }
 
     @Test
     fun `player info action mask controls entry fields`() {
-        val playerInfoUpdatePacket = PlayerInfoUpdatePacket(
+        val clientboundPlayerInfoUpdatePacket = ClientboundPlayerInfoUpdatePacket(
             PlayerInfoUpdatePayload(
                 actions = setOf(
-                    PlayerInfoAction.ADD_PLAYER,
-                    PlayerInfoAction.UPDATE_LATENCY,
+                    ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER,
+                    ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LATENCY,
                 ),
                 entries = listOf(
-                    PlayerInfoEntry(
+                    ClientboundPlayerInfoUpdatePacket.Entry(
                         profileId = Uuid.fromLongs(0, 0),
                         profile = PlayerListProfile("a", emptyList()),
                         latency = 300,
@@ -98,15 +98,15 @@ class PlayAdvancedPacketTest {
             ),
         )
         assertBytes(
-            playerInfoUpdatePacket,
-            PlayerInfoUpdatePacket.serializer(),
+            clientboundPlayerInfoUpdatePacket,
+            ClientboundPlayerInfoUpdatePacket.serializer(),
             "110100000000000000000000000000000000016100ac02",
         )
     }
 
     @Test
     fun `objective action owns all conditionally present fields`() {
-        val setObjectivePacket = SetObjectivePacket(
+        val clientboundSetObjectivePacket = ClientboundSetObjectivePacket(
             objectiveName = "x",
             update = ObjectiveUpdate.Add(
                 displayName = TextComponent(NbtString("x")),
@@ -115,8 +115,8 @@ class PlayAdvancedPacketTest {
             ),
         )
         assertBytes(
-            setObjectivePacket,
-            SetObjectivePacket.serializer(),
+            clientboundSetObjectivePacket,
+            ClientboundSetObjectivePacket.serializer(),
             "01780008000178010100",
         )
     }
@@ -129,8 +129,8 @@ class PlayAdvancedPacketTest {
             "02010000000000000005",
         )
 
-        val waypointPacket = WaypointPacket(
-            operation = WaypointOperation.UPDATE,
+        val clientboundTrackedWaypointPacket = ClientboundTrackedWaypointPacket(
+            operation = ClientboundTrackedWaypointPacket.Operation.UPDATE,
             waypoint = TrackedWaypoint.Chunk(
                 identifier = WaypointIdentifier.Entity(Uuid.fromLongs(0, 0)),
                 icon = WaypointIcon(Identifier("test"), 0x112233),
@@ -138,12 +138,12 @@ class PlayAdvancedPacketTest {
                 z = 300,
             ),
         )
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(
-            waypointPacket,
+        val encoded = MinecraftPacketPayloadFormat.encodeToByteArray(
+            clientboundTrackedWaypointPacket,
         )
         assertEquals(
-            waypointPacket,
-            MinecraftProtocolFormat.decodeFromByteArray<WaypointPacket>(
+            clientboundTrackedWaypointPacket,
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundTrackedWaypointPacket>(
                 encoded,
             ),
         )
@@ -168,18 +168,18 @@ class PlayAdvancedPacketTest {
     @Test
     fun `map color patch uses zero width as its only absence sentinel`() {
         assertBytes(
-            MapDataPacket(
+            ClientboundMapItemDataPacket(
                 mapId = 1,
                 scale = 1,
                 locked = false,
                 decorations = null,
                 colorPatch = null,
             ),
-            MapDataPacket.serializer(),
+            ClientboundMapItemDataPacket.serializer(),
             "0101000000",
         )
         assertBytes(
-            MapDataPacket(
+            ClientboundMapItemDataPacket(
                 mapId = 1,
                 scale = 1,
                 locked = false,
@@ -192,7 +192,7 @@ class PlayAdvancedPacketTest {
                     colors = ByteString(byteArrayOf(5, 6)),
                 ),
             ),
-            MapDataPacket.serializer(),
+            ClientboundMapItemDataPacket.serializer(),
             "010100010002010304020506",
         )
     }
@@ -200,15 +200,15 @@ class PlayAdvancedPacketTest {
     @Test
     fun `physical display codecs enforce their wire widths`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 LightDataLayer.serializer(),
                 LightDataLayer(ByteString(ByteArray(LightDataLayer.DATA_LAYER_BYTES + 1))),
             )
         }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftProtocolFormat.encodeToByteArray(
-                MapDataPacket.serializer(),
-                MapDataPacket(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundMapItemDataPacket.serializer(),
+                ClientboundMapItemDataPacket(
                     mapId = 1,
                     scale = 1,
                     locked = false,
@@ -233,11 +233,11 @@ class PlayAdvancedPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, value),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, value),
         )
         assertEquals(
             value,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

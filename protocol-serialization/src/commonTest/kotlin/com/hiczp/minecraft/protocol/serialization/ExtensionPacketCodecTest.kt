@@ -4,12 +4,12 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.wire.VarInt
+import kotlin.test.*
 import kotlinx.io.Buffer
 import kotlinx.io.Sink
 import kotlinx.io.Source
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
-import kotlin.test.*
 
 class ExtensionPacketCodecTest {
     @Test
@@ -137,13 +137,13 @@ class ExtensionPacketCodecTest {
         assertEquals(
             remappedId,
             packetRegistry.encodePayload(
-                StatusRequestPacket,
+                ServerboundStatusRequestPacket,
                 ConnectionState.STATUS,
                 PacketDirection.SERVERBOUND,
             ).packetKey.id,
         )
         assertEquals(
-            StatusRequestPacket,
+            ServerboundStatusRequestPacket,
             packetRegistry.decodePayload(
                 ConnectionState.STATUS,
                 PacketDirection.SERVERBOUND,
@@ -236,7 +236,7 @@ private data class TopLevelNumberPacket(
 private data object TopLevelNumberPacketCodec :
     PacketBodyCodec<TopLevelNumberPacket> {
     override fun encode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: TopLevelNumberPacket,
         sink: Sink,
     ) {
@@ -244,7 +244,7 @@ private data object TopLevelNumberPacketCodec :
     }
 
     override fun decode(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,

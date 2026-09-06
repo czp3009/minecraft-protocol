@@ -23,9 +23,9 @@ import kotlin.uuid.Uuid
  */
 internal object OfficialCodecFixtureGenerator {
     fun generate(): JsonElement {
-        val minecraftProtocolFormat = MinecraftProtocolFormat(
-            MinecraftProtocolFormatConfiguration(
-                protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 0),
+        val minecraftPacketPayloadFormat = MinecraftPacketPayloadFormat(
+            MinecraftPacketPayloadFormatConfiguration(
+                packetCodecContext = testPacketCodecContext(),
             ),
         )
         val fixtures = buildJsonArray {
@@ -37,15 +37,20 @@ internal object OfficialCodecFixtureGenerator {
                 val kSerializer = packetCodec.kSerializer as KSerializer<Packet>
                 val packetName = kSerializer.descriptor.serialName
                 val samples = explicitSamples(packetCodec.packetClass)
-                    ?: ProtocolSampleProfile.entries.mapNotNull { protocolSampleProfile ->
+                    ?: PacketSampleProfile.entries.mapNotNull { packetSampleProfile ->
                         runCatching {
-                            protocolSampleProfile.name.lowercase() to kSerializer.protocolValue(protocolSampleProfile)
+                            packetSampleProfile.name.lowercase() to kSerializer.packetSampleValue(packetSampleProfile)
                         }.getOrNull()
                     }
                 val seenPayloads = mutableSetOf<String>()
                 for ((sampleName, samplePacket) in samples) {
                     val encodedPacketPayload = runCatching {
-                        MinecraftPacketRegistry.encodePayload(samplePacket, minecraftProtocolFormat)
+                        MinecraftPacketRegistry.encodePayload(
+                            samplePacket,
+                            packetCodec.packetKey.connectionState,
+                            packetCodec.packetKey.packetDirection,
+                            minecraftPacketPayloadFormat
+                        )
                     }.getOrNull() ?: continue
                     val payloadHex = encodedPacketPayload.payload.toHexString()
                     if (!seenPayloads.add(payloadHex)) {
@@ -75,10 +80,10 @@ internal object OfficialCodecFixtureGenerator {
 
     private fun explicitSamples(packetClass: KClass<*>): List<Pair<String, Packet>>? =
         when (packetClass) {
-            StatusResponsePacket::class ->
+            ClientboundStatusResponsePacket::class ->
                 listOf(
-                    "defaults" to StatusResponsePacket(ServerStatus()),
-                    "all_fields" to StatusResponsePacket(
+                    "defaults" to ClientboundStatusResponsePacket(ServerStatus()),
+                    "all_fields" to ClientboundStatusResponsePacket(
                         ServerStatus(
                             description = JsonTextComponent("""{"text":"test"}"""),
                             players = ServerStatus.Players(
@@ -98,46 +103,48 @@ internal object OfficialCodecFixtureGenerator {
                     ),
                 )
 
-            LoginDisconnectPacket::class ->
+            ClientboundLoginDisconnectPacket::class ->
                 listOf(
                     "text_component" to
-                            LoginDisconnectPacket(JsonTextComponent("""{"text":"test"}""")),
+                            ClientboundLoginDisconnectPacket(JsonTextComponent("""{"text":"test"}""")),
                 )
 
-            ConfigurationShowDialogPacket::class ->
+            ClientboundShowDialogPacket::class ->
                 listOf(
-                    "notice_dialog" to ConfigurationShowDialogPacket(
-                        NbtCompound(
+                    "notice_dialog" to ClientboundShowDialogPacket(
+                        DialogHolder.Direct(
+                            NbtCompound(
                             mapOf(
                                 "type" to NbtString("minecraft:notice"),
                                 "title" to NbtString("test"),
                             ),
+                            )
                         ),
                     ),
                 )
 
-            ParticlePacket::class ->
+            ClientboundLevelParticlesPacket::class ->
                 (particleRegistrySamples() + additionalParticleBranchSamples())
                     .map { namedNetworkTypeSample ->
-                        "particle-${namedNetworkTypeSample.name}" to ParticlePacket(
+                        "particle-${namedNetworkTypeSample.name}" to ClientboundLevelParticlesPacket(
                             overrideLimiter = false,
                             alwaysShow = true,
                             x = 1.0,
                             y = 2.0,
                             z = 3.0,
-                            offsetX = 0.1f,
-                            offsetY = 0.2f,
-                            offsetZ = 0.3f,
+                            xDist = 0.1f,
+                            yDist = 0.2f,
+                            zDist = 0.3f,
                             maxSpeed = 1.0f,
                             count = 1,
                             particle = namedNetworkTypeSample.value,
                         )
                     }
 
-            CommandsPacket::class ->
+            ClientboundCommandsPacket::class ->
                 commandParserRegistrySamples().map { namedNetworkTypeSample ->
-                    "parser-${namedNetworkTypeSample.name}" to CommandsPacket(
-                        nodes = listOf(
+                    "parser-${namedNetworkTypeSample.name}" to ClientboundCommandsPacket(
+                        entries = listOf(
                             CommandNode.Root(children = listOf(1)),
                             CommandNode.Argument(
                                 name = "value",
@@ -150,30 +157,30 @@ internal object OfficialCodecFixtureGenerator {
                     )
                 }
 
-            DebugSubscriptionRequestPacket::class ->
+            ServerboundDebugSubscriptionRequestPacket::class ->
                 listOf(
-                    "all-subscriptions" to DebugSubscriptionRequestPacket(
+                    "all-subscriptions" to ServerboundDebugSubscriptionRequestPacket(
                         DebugSubscriptionType.entries.toSet(),
                     ),
                 )
 
-            DebugEventPacket::class ->
+            ClientboundDebugEventPacket::class ->
                 debugSubscriptionDataSamples().map { namedNetworkTypeSample ->
-                    "debug-${namedNetworkTypeSample.name}" to DebugEventPacket(
+                    "debug-${namedNetworkTypeSample.name}" to ClientboundDebugEventPacket(
                         DebugSubscriptionEvent(namedNetworkTypeSample.value),
                     )
                 }
 
-            MapDataPacket::class ->
+            ClientboundMapItemDataPacket::class ->
                 listOf(
-                    "without-color-patch" to MapDataPacket(
+                    "without-color-patch" to ClientboundMapItemDataPacket(
                         mapId = 1,
                         scale = 1,
                         locked = false,
                         decorations = null,
                         colorPatch = null,
                     ),
-                    "non-symmetric-color-patch" to MapDataPacket(
+                    "non-symmetric-color-patch" to ClientboundMapItemDataPacket(
                         mapId = 1,
                         scale = 1,
                         locked = false,
@@ -188,35 +195,35 @@ internal object OfficialCodecFixtureGenerator {
                     ),
                 )
 
-            BossBarPacket::class ->
+            ClientboundBossEventPacket::class ->
                 bossBarActionSamples().map { (name, action) ->
-                    name to BossBarPacket(Uuid.fromLongs(1, 2), action)
+                    name to ClientboundBossEventPacket(Uuid.fromLongs(1, 2), action)
                 }
 
-            PlayerInfoUpdatePacket::class ->
+            ClientboundPlayerInfoUpdatePacket::class ->
                 playerInfoUpdateSamples()
 
-            SetObjectivePacket::class ->
+            ClientboundSetObjectivePacket::class ->
                 objectiveUpdateSamples().map { (name, update) ->
-                    name to SetObjectivePacket("objective", update)
+                    name to ClientboundSetObjectivePacket("objective", update)
                 }
 
-            SetPlayerTeamPacket::class ->
+            ClientboundSetPlayerTeamPacket::class ->
                 teamUpdateSamples().map { (name, update) ->
-                    name to SetPlayerTeamPacket("team", update)
+                    name to ClientboundSetPlayerTeamPacket("team", update)
                 }
 
-            WaypointPacket::class ->
+            ClientboundTrackedWaypointPacket::class ->
                 waypointSamples()
 
-            PlaceGhostRecipePacket::class ->
+            ClientboundPlaceGhostRecipePacket::class ->
                 recipeDisplayRegistrySamples().map { namedNetworkTypeSample ->
-                    "recipe-${namedNetworkTypeSample.name}" to PlaceGhostRecipePacket(
+                    "recipe-${namedNetworkTypeSample.name}" to ClientboundPlaceGhostRecipePacket(
                         containerId = 1,
                         recipeDisplay = namedNetworkTypeSample.value,
                     )
                 } + slotDisplayRegistrySamples().map { namedNetworkTypeSample ->
-                    "slot-${namedNetworkTypeSample.name}" to PlaceGhostRecipePacket(
+                    "slot-${namedNetworkTypeSample.name}" to ClientboundPlaceGhostRecipePacket(
                         containerId = 1,
                         recipeDisplay = RecipeDisplay.Shapeless(
                             ingredients = listOf(namedNetworkTypeSample.value),
@@ -226,11 +233,11 @@ internal object OfficialCodecFixtureGenerator {
                     )
                 }
 
-            SetEntityMetadataPacket::class ->
+            ClientboundSetEntityDataPacket::class ->
                 entityDataValueSamples().map { namedDataComponentSample ->
-                    "entity-data-${namedDataComponentSample.name}" to SetEntityMetadataPacket(
-                        entityId = 1,
-                        metadata = EntityMetadata(
+                    "entity-data-${namedDataComponentSample.name}" to ClientboundSetEntityDataPacket(
+                        id = 1,
+                        packedItems = EntityMetadata(
                             listOf(
                                 EntityMetadataEntry(
                                     index = 0,
@@ -241,11 +248,11 @@ internal object OfficialCodecFixtureGenerator {
                     )
                 }
 
-            SetCursorItemPacket::class ->
+            ClientboundSetCursorItemPacket::class ->
                 listOf(
-                    "empty_stack" to SetCursorItemPacket(ItemStack.Empty),
+                    "empty_stack" to ClientboundSetCursorItemPacket(ItemStack.Empty),
                 ) + officialDataComponentSamples().map { namedDataComponentSample ->
-                    "component-${namedDataComponentSample.name}" to SetCursorItemPacket(
+                    "component-${namedDataComponentSample.name}" to ClientboundSetCursorItemPacket(
                         ItemStack.of(
                             itemId = 1,
                             components = DataComponentPatch(
@@ -255,30 +262,30 @@ internal object OfficialCodecFixtureGenerator {
                     )
                 }
 
-            SetScorePacket::class ->
+            ClientboundSetScorePacket::class ->
                 listOf(
-                    "without_optionals" to SetScorePacket(
+                    "without_optionals" to ClientboundSetScorePacket(
                         owner = "owner",
                         objectiveName = "objective",
                         score = 1,
                         display = null,
                         numberFormat = null,
                     ),
-                    "blank_number_format" to SetScorePacket(
+                    "blank_number_format" to ClientboundSetScorePacket(
                         owner = "owner",
                         objectiveName = "objective",
                         score = 1,
                         display = TextComponent.literal("display"),
                         numberFormat = NumberFormat.Blank,
                     ),
-                    "styled_number_format" to SetScorePacket(
+                    "styled_number_format" to ClientboundSetScorePacket(
                         owner = "owner",
                         objectiveName = "objective",
                         score = 1,
                         display = TextComponent.literal("display"),
                         numberFormat = NumberFormat.Styled(NbtCompound(emptyMap())),
                     ),
-                    "fixed_number_format" to SetScorePacket(
+                    "fixed_number_format" to ClientboundSetScorePacket(
                         owner = "owner",
                         objectiveName = "objective",
                         score = 1,
@@ -287,13 +294,13 @@ internal object OfficialCodecFixtureGenerator {
                     ),
                 )
 
-            UpdateRecipesPacket::class ->
+            ClientboundUpdateRecipesPacket::class ->
                 listOf(
-                    "empty" to UpdateRecipesPacket(
+                    "empty" to ClientboundUpdateRecipesPacket(
                         itemSets = emptyMap(),
                         stonecutterRecipes = emptyList(),
                     ),
-                    "item_property_set" to UpdateRecipesPacket(
+                    "item_property_set" to ClientboundUpdateRecipesPacket(
                         itemSets = mapOf(
                             Identifier("test") to RecipePropertySet(listOf(1)),
                         ),
@@ -301,9 +308,9 @@ internal object OfficialCodecFixtureGenerator {
                     ),
                 )
 
-            PlayerSessionPacket::class -> {
+            ServerboundChatSessionUpdatePacket::class -> {
                 listOf(
-                    "rsa_public_key" to PlayerSessionPacket(
+                    "rsa_public_key" to ServerboundChatSessionUpdatePacket(
                         officialChatSession(),
                     ),
                 )
@@ -337,9 +344,9 @@ internal object OfficialCodecFixtureGenerator {
         val profileId = Uuid.fromLongs(1, 2)
         fun packet(
             name: String,
-            playerInfoAction: PlayerInfoAction,
-            playerInfoEntry: PlayerInfoEntry,
-        ): Pair<String, Packet> = name to PlayerInfoUpdatePacket(
+            playerInfoAction: ClientboundPlayerInfoUpdatePacket.Action,
+            playerInfoEntry: ClientboundPlayerInfoUpdatePacket.Entry,
+        ): Pair<String, Packet> = name to ClientboundPlayerInfoUpdatePacket(
             PlayerInfoUpdatePayload(
                 actions = setOf(playerInfoAction),
                 entries = listOf(playerInfoEntry),
@@ -349,68 +356,68 @@ internal object OfficialCodecFixtureGenerator {
         return listOf(
             packet(
                 "add-player",
-                PlayerInfoAction.ADD_PLAYER,
-                PlayerInfoEntry(
+                ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER,
+                ClientboundPlayerInfoUpdatePacket.Entry(
                     profileId = profileId,
                     profile = PlayerListProfile("player", emptyList()),
                 ),
             ),
             packet(
                 "initialize-chat-null",
-                PlayerInfoAction.INITIALIZE_CHAT,
-                PlayerInfoEntry(profileId = profileId, chatSession = null),
+                ClientboundPlayerInfoUpdatePacket.Action.INITIALIZE_CHAT,
+                ClientboundPlayerInfoUpdatePacket.Entry(profileId = profileId, chatSession = null),
             ),
             packet(
                 "initialize-chat-value",
-                PlayerInfoAction.INITIALIZE_CHAT,
-                PlayerInfoEntry(
+                ClientboundPlayerInfoUpdatePacket.Action.INITIALIZE_CHAT,
+                ClientboundPlayerInfoUpdatePacket.Entry(
                     profileId = profileId,
                     chatSession = officialChatSession(),
                 ),
             ),
             packet(
                 "update-game-mode",
-                PlayerInfoAction.UPDATE_GAME_MODE,
-                PlayerInfoEntry(profileId = profileId, gameMode = GameMode.CREATIVE),
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_GAME_MODE,
+                ClientboundPlayerInfoUpdatePacket.Entry(profileId = profileId, gameMode = GameMode.CREATIVE),
             ),
             packet(
                 "update-listed",
-                PlayerInfoAction.UPDATE_LISTED,
-                PlayerInfoEntry(profileId = profileId, listed = true),
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LISTED,
+                ClientboundPlayerInfoUpdatePacket.Entry(profileId = profileId, listed = true),
             ),
             packet(
                 "update-latency",
-                PlayerInfoAction.UPDATE_LATENCY,
-                PlayerInfoEntry(profileId = profileId, latency = 300),
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LATENCY,
+                ClientboundPlayerInfoUpdatePacket.Entry(profileId = profileId, latency = 300),
             ),
             packet(
                 "update-display-name-null",
-                PlayerInfoAction.UPDATE_DISPLAY_NAME,
-                PlayerInfoEntry(profileId = profileId, displayName = null),
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_DISPLAY_NAME,
+                ClientboundPlayerInfoUpdatePacket.Entry(profileId = profileId, displayName = null),
             ),
             packet(
                 "update-display-name-value",
-                PlayerInfoAction.UPDATE_DISPLAY_NAME,
-                PlayerInfoEntry(
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_DISPLAY_NAME,
+                ClientboundPlayerInfoUpdatePacket.Entry(
                     profileId = profileId,
                     displayName = TextComponent.literal("display"),
                 ),
             ),
             packet(
                 "update-list-order",
-                PlayerInfoAction.UPDATE_LIST_ORDER,
-                PlayerInfoEntry(profileId = profileId, listOrder = 300),
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_LIST_ORDER,
+                ClientboundPlayerInfoUpdatePacket.Entry(profileId = profileId, listOrder = 300),
             ),
             packet(
                 "update-hat",
-                PlayerInfoAction.UPDATE_HAT,
-                PlayerInfoEntry(profileId = profileId, showHat = true),
+                ClientboundPlayerInfoUpdatePacket.Action.UPDATE_HAT,
+                ClientboundPlayerInfoUpdatePacket.Entry(profileId = profileId, showHat = true),
             ),
-            "all-actions" to PlayerInfoUpdatePacket(
+            "all-actions" to ClientboundPlayerInfoUpdatePacket(
                 PlayerInfoUpdatePayload(
-                    actions = PlayerInfoAction.entries.toSet(),
+                    actions = ClientboundPlayerInfoUpdatePacket.Action.entries.toSet(),
                     entries = listOf(
-                        PlayerInfoEntry(
+                        ClientboundPlayerInfoUpdatePacket.Entry(
                             profileId = profileId,
                             profile = PlayerListProfile("player", emptyList()),
                             chatSession = officialChatSession(),
@@ -453,7 +460,7 @@ internal object OfficialCodecFixtureGenerator {
         )
 
     private fun teamUpdateSamples(): List<Pair<String, TeamUpdate>> {
-        val teamParameters = TeamParameters(
+        val teamParameters = ClientboundSetPlayerTeamPacket.Parameters(
             displayName = TextComponent.literal("team"),
             playerPrefix = TextComponent.literal("["),
             playerSuffix = TextComponent.literal("]"),
@@ -480,20 +487,20 @@ internal object OfficialCodecFixtureGenerator {
             0x11_22_33,
         )
         return listOf(
-            "empty-entity" to WaypointPacket(
-                WaypointOperation.TRACK,
+            "empty-entity" to ClientboundTrackedWaypointPacket(
+                ClientboundTrackedWaypointPacket.Operation.TRACK,
                 TrackedWaypoint.Empty(entity, plainIcon),
             ),
-            "position-named" to WaypointPacket(
-                WaypointOperation.UPDATE,
+            "position-named" to ClientboundTrackedWaypointPacket(
+                ClientboundTrackedWaypointPacket.Operation.UPDATE,
                 TrackedWaypoint.Position(named, coloredIcon, 1, 2, 3),
             ),
-            "chunk-entity" to WaypointPacket(
-                WaypointOperation.UPDATE,
+            "chunk-entity" to ClientboundTrackedWaypointPacket(
+                ClientboundTrackedWaypointPacket.Operation.UPDATE,
                 TrackedWaypoint.Chunk(entity, plainIcon, 1, 2),
             ),
-            "azimuth-named" to WaypointPacket(
-                WaypointOperation.UNTRACK,
+            "azimuth-named" to ClientboundTrackedWaypointPacket(
+                ClientboundTrackedWaypointPacket.Operation.UNTRACK,
                 TrackedWaypoint.Azimuth(named, coloredIcon, 0.5f),
             ),
         )

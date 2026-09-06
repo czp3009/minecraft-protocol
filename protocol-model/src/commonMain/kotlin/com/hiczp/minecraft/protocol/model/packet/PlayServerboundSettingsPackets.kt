@@ -4,9 +4,9 @@ package com.hiczp.minecraft.protocol.model.packet
 
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RecipeBookCategory
-import com.hiczp.minecraft.protocol.model.type.ResourcePackResult
 import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
+import kotlin.uuid.Uuid
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -16,7 +16,6 @@ import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(
@@ -25,10 +24,10 @@ import kotlin.uuid.Uuid
     PacketDirection.SERVERBOUND,
     officialName = "recipe_book_change_settings",
 )
-data class ChangeRecipeBookSettingsPacket(
-    val book: RecipeBookCategory,
-    val open: Boolean,
-    val filtering: Boolean,
+data class ServerboundRecipeBookChangeSettingsPacket(
+    val bookType: RecipeBookCategory,
+    val isOpen: Boolean,
+    val isFiltering: Boolean,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -38,9 +37,9 @@ data class ChangeRecipeBookSettingsPacket(
     PacketDirection.SERVERBOUND,
     officialName = "recipe_book_seen_recipe",
 )
-data class SetSeenRecipePacket(
+data class ServerboundRecipeBookSeenRecipePacket(
     @VarInt
-    val recipeId: Int,
+    val recipe: Int,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -50,22 +49,35 @@ data class SetSeenRecipePacket(
     PacketDirection.SERVERBOUND,
     officialName = "rename_item",
 )
-data class RenameItemPacket(
+data class ServerboundRenameItemPacket(
     @MaxLength(32_767)
-    val itemName: String,
+    val name: String,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
+@PacketInfo(0x06, ConnectionState.CONFIGURATION, PacketDirection.SERVERBOUND, "resource_pack")
 @PacketInfo(
     0x31,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "resource_pack",
 )
-data class PlayResourcePackResponsePacket(
+data class ServerboundResourcePackPacket(
     val id: Uuid,
-    val result: ResourcePackResult,
-) : PlayStatePacket, ServerboundPacket
+    val action: Action,
+) : ConfigurationStatePacket, PlayStatePacket, ServerboundPacket {
+    @Serializable
+    enum class Action {
+        SUCCESSFULLY_LOADED,
+        DECLINED,
+        FAILED_DOWNLOAD,
+        ACCEPTED,
+        DOWNLOADED,
+        INVALID_URL,
+        FAILED_RELOAD,
+        DISCARDED,
+    }
+}
 
 @Serializable
 enum class SeenAdvancementsActionType {
@@ -188,8 +200,9 @@ internal object SeenAdvancementsActionSerializer : KSerializer<SeenAdvancementsA
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "seen_advancements",
+    shapeException = "SeenAdvancementsAction is a sealed open-tab-or-close-screen value; a tab is present only for the open operation.",
 )
-data class SeenAdvancementsPacket(
+data class ServerboundSeenAdvancementsPacket(
     val action: SeenAdvancementsAction,
 ) : PlayStatePacket, ServerboundPacket
 
@@ -200,9 +213,9 @@ data class SeenAdvancementsPacket(
     PacketDirection.SERVERBOUND,
     officialName = "select_trade",
 )
-data class SelectTradePacket(
+data class ServerboundSelectTradePacket(
     @VarInt
-    val selectedSlot: Int,
+    val item: Int,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -212,11 +225,11 @@ data class SelectTradePacket(
     PacketDirection.SERVERBOUND,
     officialName = "set_beacon",
 )
-data class SetBeaconEffectPacket(
+data class ServerboundSetBeaconPacket(
     @VarInt
-    val primaryEffectId: Int?,
+    val primary: Int?,
     @VarInt
-    val secondaryEffectId: Int?,
+    val secondary: Int?,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -226,6 +239,6 @@ data class SetBeaconEffectPacket(
     PacketDirection.SERVERBOUND,
     officialName = "set_carried_item",
 )
-data class ServerboundSetHeldItemPacket(
+data class ServerboundSetCarriedItemPacket(
     val slot: Short,
 ) : PlayStatePacket, ServerboundPacket

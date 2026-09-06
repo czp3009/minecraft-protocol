@@ -48,8 +48,9 @@ kotlin {
             dependsOn(commonMain.get())
             dependencies {
                 implementation(project(":distribution-metadata"))
-                implementation(project(":protocol-datapack"))
-                implementation(project(":protocol-datapack-vanilla"))
+                implementation(project(":protocol-configuration"))
+                implementation(project(":protocol-configuration-vanilla"))
+                implementation(project(":datapack-vanilla"))
                 implementation(project(":world-io"))
                 implementation(libs.kotlinx.io.core)
                 implementation(libs.kotlinx.coroutines.core)

@@ -16,23 +16,23 @@ class PlayServerboundInteractionPacketTest {
     @Test
     fun `spectator target uses zero-as-absent shifted VarInt`() {
         assertPacketBytes(
-            SpectatorActionPacket(null),
-            SpectatorActionPacket.serializer(),
+            ServerboundSpectatorActionPacket(null),
+            ServerboundSpectatorActionPacket.serializer(),
             "00",
         )
         assertPacketBytes(
-            SpectatorActionPacket(0),
-            SpectatorActionPacket.serializer(),
+            ServerboundSpectatorActionPacket(0),
+            ServerboundSpectatorActionPacket.serializer(),
             "01",
         )
         assertPacketBytes(
-            SpectatorActionPacket(300),
-            SpectatorActionPacket.serializer(),
+            ServerboundSpectatorActionPacket(300),
+            ServerboundSpectatorActionPacket.serializer(),
             "ad02",
         )
         assertFails {
-            MinecraftProtocolFormat.encodeToByteArray(
-                SpectatorActionPacket(-1),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ServerboundSpectatorActionPacket(-1),
             )
         }
     }
@@ -40,22 +40,22 @@ class PlayServerboundInteractionPacketTest {
     @Test
     fun `swing and teleport packets use VarInt hand and fixed UUID`() {
         assertPacketBytes(
-            SwingArmPacket(InteractionHand.OFF_HAND),
-            SwingArmPacket.serializer(),
+            ServerboundSwingPacket(InteractionHand.OFF_HAND),
+            ServerboundSwingPacket.serializer(),
             "01",
         )
         assertPacketBytes(
-            TeleportToEntityPacket(Uuid.fromLongs(0, 0)),
-            TeleportToEntityPacket.serializer(),
+            ServerboundTeleportToEntityPacket(Uuid.fromLongs(0, 0)),
+            ServerboundTeleportToEntityPacket.serializer(),
             "00000000000000000000000000000000",
         )
     }
 
     @Test
     fun `test instance data combines three distinct enum fallback policies`() {
-        val testInstanceBlockActionPacket = TestInstanceBlockActionPacket(
-            position = BlockPosition(0, 0, 0),
-            action = TestInstanceAction.RUN,
+        val serverboundTestInstanceBlockActionPacket = ServerboundTestInstanceBlockActionPacket(
+            pos = BlockPosition(0, 0, 0),
+            action = ServerboundTestInstanceBlockActionPacket.Action.RUN,
             data = TestInstanceData(
                 test = null,
                 size = TestInstanceSize(1, 300, 0),
@@ -66,29 +66,29 @@ class PlayServerboundInteractionPacketTest {
             ),
         )
         assertPacketBytes(
-            testInstanceBlockActionPacket,
-            TestInstanceBlockActionPacket.serializer(),
+            serverboundTestInstanceBlockActionPacket,
+            ServerboundTestInstanceBlockActionPacket.serializer(),
             "0000000000000000060001ac02000301020108000178",
         )
 
-        val fallback = MinecraftProtocolFormat.decodeFromByteArray<TestInstanceBlockActionPacket>(
+        val fallback = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundTestInstanceBlockActionPacket>(
             "00000000000000007f00000000ff01007f00".hexToByteArray(),
         )
-        assertEquals(TestInstanceAction.INIT, fallback.action)
+        assertEquals(ServerboundTestInstanceBlockActionPacket.Action.INIT, fallback.action)
         assertEquals(StructureRotation.COUNTERCLOCKWISE_90, fallback.data.rotation)
         assertEquals(TestInstanceStatus.CLEARED, fallback.data.status)
         assertContentEquals(
             "0000000000000000000000000003000000".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(fallback),
+            MinecraftPacketPayloadFormat.encodeToByteArray(fallback),
         )
     }
 
     @Test
     fun `use item on embeds block hit result before the sequence`() {
         assertPacketBytes(
-            UseItemOnPacket(
+            ServerboundUseItemOnPacket(
                 hand = InteractionHand.OFF_HAND,
-                hit = BlockHitResult(
+                blockHit = BlockHitResult(
                     location = BlockPosition(0, 0, 0),
                     face = BlockFace.EAST,
                     cursorX = 0.0f,
@@ -99,17 +99,17 @@ class PlayServerboundInteractionPacketTest {
                 ),
                 sequence = 300,
             ),
-            UseItemOnPacket.serializer(),
+            ServerboundUseItemOnPacket.serializer(),
             "01000000000000000005000000003f0000003f8000000100ac02",
         )
         assertPacketBytes(
-            UseItemPacket(
+            ServerboundUseItemPacket(
                 hand = InteractionHand.OFF_HAND,
                 sequence = 300,
-                yaw = 1.0f,
-                pitch = -2.0f,
+                yRot = 1.0f,
+                xRot = -2.0f,
             ),
-            UseItemPacket.serializer(),
+            ServerboundUseItemPacket.serializer(),
             "01ac023f800000c0000000",
         )
     }
@@ -118,13 +118,13 @@ class PlayServerboundInteractionPacketTest {
     fun `play custom click action length-prefixes an NBT-End optional`() {
         val id = Identifier("minecraft:x")
         assertPacketBytes(
-            PlayCustomClickActionPacket(id, null),
-            PlayCustomClickActionPacket.serializer(),
+            ServerboundCustomClickActionPacket(id, null),
+            ServerboundCustomClickActionPacket.serializer(),
             "0b6d696e6563726166743a780100",
         )
         assertPacketBytes(
-            PlayCustomClickActionPacket(id, NbtString("x")),
-            PlayCustomClickActionPacket.serializer(),
+            ServerboundCustomClickActionPacket(id, NbtString("x")),
+            ServerboundCustomClickActionPacket.serializer(),
             "0b6d696e6563726166743a780408000178",
         )
     }
@@ -137,11 +137,11 @@ class PlayServerboundInteractionPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

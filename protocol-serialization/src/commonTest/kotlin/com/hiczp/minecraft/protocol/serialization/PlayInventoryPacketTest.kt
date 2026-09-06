@@ -14,33 +14,33 @@ class PlayInventoryPacketTest {
     @Test
     fun `container content slot cursor and player inventory use item stacks`() {
         assertPacketBytes(
-            SetContainerContentPacket(
+            ClientboundContainerSetContentPacket(
                 containerId = 300,
                 stateId = 1,
                 items = listOf(ItemStack.Empty, ItemStack.of(1)),
                 carriedItem = ItemStack.Empty,
             ),
-            SetContainerContentPacket.serializer(),
+            ClientboundContainerSetContentPacket.serializer(),
             "ac020102000101000000",
         )
         assertPacketBytes(
-            SetContainerSlotPacket(
+            ClientboundContainerSetSlotPacket(
                 containerId = 1,
                 stateId = 2,
                 slot = -1,
-                item = ItemStack.Empty,
+                itemStack = ItemStack.Empty,
             ),
-            SetContainerSlotPacket.serializer(),
+            ClientboundContainerSetSlotPacket.serializer(),
             "0102ffff00",
         )
         assertPacketBytes(
-            SetCursorItemPacket(ItemStack.of(2)),
-            SetCursorItemPacket.serializer(),
+            ClientboundSetCursorItemPacket(ItemStack.of(2)),
+            ClientboundSetCursorItemPacket.serializer(),
             "01020000",
         )
         assertPacketBytes(
-            SetPlayerInventorySlotPacket(300, ItemStack.Empty),
-            SetPlayerInventorySlotPacket.serializer(),
+            ClientboundSetPlayerInventoryPacket(300, ItemStack.Empty),
+            ClientboundSetPlayerInventoryPacket.serializer(),
             "ac0200",
         )
     }
@@ -48,9 +48,9 @@ class PlayInventoryPacketTest {
     @Test
     fun `equipment entries use the high bit continuation marker`() {
         assertPacketBytes(
-            SetEquipmentPacket(
-                entityId = 1,
-                updates = EquipmentUpdates(
+            ClientboundSetEquipmentPacket(
+                entity = 1,
+                slots = EquipmentUpdates(
                     listOf(
                         EquipmentUpdate(
                             EquipmentSlot.MAINHAND,
@@ -63,20 +63,20 @@ class PlayInventoryPacketTest {
                     ),
                 ),
             ),
-            SetEquipmentPacket.serializer(),
+            ClientboundSetEquipmentPacket.serializer(),
             "0180000501010000",
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
-                SetEquipmentPacket.serializer(),
-                SetEquipmentPacket(
-                    entityId = 1,
-                    updates = EquipmentUpdates(emptyList()),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundSetEquipmentPacket.serializer(),
+                ClientboundSetEquipmentPacket(
+                    entity = 1,
+                    slots = EquipmentUpdates(emptyList()),
                 ),
             )
         }
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<SetEquipmentPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundSetEquipmentPacket>(
                 "017f00".hexToByteArray(),
             )
         }
@@ -85,12 +85,12 @@ class PlayInventoryPacketTest {
     @Test
     fun `container click uses hashed stacks introduced by 26_2`() {
         assertPacketBytes(
-            ClickContainerPacket(
+            ServerboundContainerClickPacket(
                 containerId = 1,
                 stateId = 2,
-                slot = -1,
-                button = 3,
-                input = ContainerInput.SWAP,
+                slotNum = -1,
+                buttonNum = 3,
+                containerInput = ContainerInput.SWAP,
                 changedSlots = listOf(
                     ChangedHashedSlot(
                         slot = 300,
@@ -111,16 +111,16 @@ class PlayInventoryPacketTest {
                 ),
                 carriedItem = HashedStack.Empty,
             ),
-            ClickContainerPacket.serializer(),
+            ServerboundContainerClickPacket.serializer(),
             "0102ffff030201012c010102010211223344010300",
         )
     }
 
     @Test
     fun `creative slot delimits every untrusted component value`() {
-        val setCreativeModeSlotPacket = SetCreativeModeSlotPacket(
-            slot = 1,
-            item = ItemStack.of(
+        val serverboundSetCreativeModeSlotPacket = ServerboundSetCreativeModeSlotPacket(
+            slotNum = 1,
+            itemStack = ItemStack.of(
                 itemId = 1,
                 components = DataComponentPatch(
                     added = listOf(DataComponent.MaxDamage(300)),
@@ -128,12 +128,12 @@ class PlayInventoryPacketTest {
             ),
         )
         assertPacketBytes(
-            setCreativeModeSlotPacket,
-            SetCreativeModeSlotPacket.serializer(),
+            serverboundSetCreativeModeSlotPacket,
+            ServerboundSetCreativeModeSlotPacket.serializer(),
             "0001010101000202ac02",
         )
         assertFailsWith<SerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<SetCreativeModeSlotPacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundSetCreativeModeSlotPacket>(
                 "000164010000".hexToByteArray(),
             )
         }
@@ -147,11 +147,11 @@ class PlayInventoryPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

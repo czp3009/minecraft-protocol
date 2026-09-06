@@ -24,7 +24,7 @@ the oracle fixture set.
 
 ## Map into the serialization architecture
 
-`MinecraftProtocolFormat` interprets descriptors and annotations from `protocol-model`. Use ordinary generated
+`MinecraftPacketPayloadFormat` interprets descriptors and annotations from `protocol-model`. Use ordinary generated
 `kotlinx.serialization` structure when descriptor order plus existing annotations matches the wire. Use a custom logical
 `KSerializer` in the model for a sealed or conditional logical shape that remains independent of bytes. Extend the
 physical format only when the wire representation itself requires special behavior.
@@ -33,9 +33,9 @@ Keep NBT packet wrappers distinct from binary NBT semantics. Delegate the latter
 outside payload encoding and keep outer length framing, zlib envelopes, AES/CFB8, and network channels outside this
 module.
 
-Audit contextual defaults such as block-state and biome registry sizes against the selected vanilla data. Prefer
-connection-synchronized context where the protocol supplies it; do not let a stale default silently establish release
-compatibility.
+Check explicit registry mappings/sizes when decoding palette containers. Full Chunk packet payloads carry raw Section
+bytes and need no layout; only `MinecraftChunkSectionPayloadFormat` receives Section count and registry context for
+inner decoding. Do not reintroduce a dimension requirement into the outer packet format.
 
 ## Design verification samples
 

@@ -11,11 +11,11 @@ import kotlinx.serialization.Serializable
     PacketDirection.CLIENTBOUND,
     officialName = "level_event",
 )
-data class WorldEventPacket(
-    val eventId: Int,
-    val location: BlockPosition,
+data class ClientboundLevelEventPacket(
+    val type: Int,
+    val pos: BlockPosition,
     val data: Int,
-    val disableRelativeVolume: Boolean,
+    val globalEvent: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -25,43 +25,9 @@ data class WorldEventPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "low_disk_space_warning",
 )
-data object LowDiskSpaceWarningPacket :
+data object ClientboundLowDiskSpaceWarningPacket :
     PlayStatePacket,
     ClientboundPacket
-
-@Serializable
-@PacketInfo(
-    0x35,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "move_entity_pos",
-)
-data class UpdateEntityPositionPacket(
-    @VarInt
-    val entityId: Int,
-    val deltaX: Short,
-    val deltaY: Short,
-    val deltaZ: Short,
-    val onGround: Boolean,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
-@PacketInfo(
-    0x36,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "move_entity_pos_rot",
-)
-data class UpdateEntityPositionAndRotationPacket(
-    @VarInt
-    val entityId: Int,
-    val deltaX: Short,
-    val deltaY: Short,
-    val deltaZ: Short,
-    val yaw: Angle,
-    val pitch: Angle,
-    val onGround: Boolean,
-) : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -70,25 +36,10 @@ data class UpdateEntityPositionAndRotationPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "move_minecart_along_track",
 )
-data class MoveMinecartAlongTrackPacket(
+data class ClientboundMoveMinecartPacket(
     @VarInt
     val entityId: Int,
-    val steps: List<MinecartStep>,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
-@PacketInfo(
-    0x38,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "move_entity_rot",
-)
-data class UpdateEntityRotationPacket(
-    @VarInt
-    val entityId: Int,
-    val yaw: Angle,
-    val pitch: Angle,
-    val onGround: Boolean,
+    val lerpSteps: List<MinecartStep>,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -100,8 +51,8 @@ data class UpdateEntityRotationPacket(
 )
 data class ClientboundMoveVehiclePacket(
     val position: Vector3d,
-    val yaw: Float,
-    val pitch: Float,
+    val yRot: Float,
+    val xRot: Float,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -111,7 +62,7 @@ data class ClientboundMoveVehiclePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "open_book",
 )
-data class OpenBookPacket(
+data class ClientboundOpenBookPacket(
     val hand: InteractionHand,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -122,11 +73,11 @@ data class OpenBookPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "open_screen",
 )
-data class OpenScreenPacket(
+data class ClientboundOpenScreenPacket(
     @VarInt
     val containerId: Int,
     @VarInt
-    val menuTypeId: Int,
+    val type: Int,
     val title: TextComponent,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -137,32 +88,22 @@ data class OpenScreenPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "open_sign_editor",
 )
-data class OpenSignEditorPacket(
-    val location: BlockPosition,
-    val frontText: Boolean,
+data class ClientboundOpenSignEditorPacket(
+    val pos: BlockPosition,
+    val isFrontText: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
-@PacketInfo(
-    0x3D,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "ping",
-)
-data class ClientboundPingPacket(
-    val id: Int,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
+@PacketInfo(0x01, ConnectionState.STATUS, PacketDirection.CLIENTBOUND, "pong_response")
 @PacketInfo(
     0x3E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "pong_response",
 )
-data class PongResponsePacket(
-    val timestamp: Long,
-) : PlayStatePacket, ClientboundPacket
+data class ClientboundPongResponsePacket(
+    val time: Long,
+) : PlayStatePacket, StatusStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -170,6 +111,7 @@ data class PongResponsePacket(
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_abilities",
+    shapeException = "PlayerAbilities is the shared logical abilities value used by initial world/bootstrap and other protocol-facing consumers; its flags and speeds remain one value.",
 )
 data class ClientboundPlayerAbilitiesPacket(
     val abilities: PlayerAbilities,

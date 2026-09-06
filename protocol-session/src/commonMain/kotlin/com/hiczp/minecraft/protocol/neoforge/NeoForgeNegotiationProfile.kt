@@ -2,7 +2,7 @@ package com.hiczp.minecraft.protocol.neoforge
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
 import com.hiczp.minecraft.protocol.model.type.RemoteRegistrySnapshot
 import com.hiczp.minecraft.protocol.model.type.StaticRegistrySchema
 import com.hiczp.minecraft.protocol.session.*
@@ -31,7 +31,7 @@ data class NeoForgeServerProfileDefinition(
     val neoForgeNetworkConfiguration: NeoForgeNetworkConfiguration = NeoForgeNetworkConfiguration(),
     val neoForgeFrozenRegistrySync: NeoForgeFrozenRegistrySync? = null,
     /** Caller-built context retained by reference across connections. */
-    val protocolRegistryContext: ProtocolRegistryContext? = null,
+    val packetCodecContext: PacketCodecContext? = null,
     val configFiles: List<NeoForgeConfigFilePacket> = emptyList(),
     val knownDataMaps: Map<Identifier, List<NeoForgeKnownDataMap>> = emptyMap(),
     val extensibleEnums: List<NeoForgeEnumEntry> = emptyList(),
@@ -300,17 +300,17 @@ class NeoForgeClientProfile(
         else -> false
     }
 
-    override suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext {
+    override suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext {
         if (expectedFrozenRegistryIds != null) {
             throw NeoForgeNegotiationException(
                 "Configuration finished during NeoForge frozen registry sync",
             )
         }
         ensureNetworkSetupForOtherPeer()
-        val remoteRegistrySnapshot = frozenRemoteRegistrySnapshot ?: return protocolRegistryContext
-        return protocolRegistryContext.withStaticRegistryResolution(
+        val remoteRegistrySnapshot = frozenRemoteRegistrySnapshot ?: return packetCodecContext
+        return packetCodecContext.withStaticRegistryResolution(
             neoForgeClientProfileDefinition.staticRegistrySchema.resolve(remoteRegistrySnapshot),
         )
     }
@@ -439,7 +439,7 @@ class NeoForgeServerProfile(
         minecraftServerPacketConnection.outgoing.send(
             NeoForgeModdedNetworkQueryPacket(emptyMap()),
         )
-        minecraftServerPacketConnection.outgoing.send(ConfigurationPingPacket(NEGOTIATION_PING_ID))
+        minecraftServerPacketConnection.outgoing.send(ClientboundPingPacket(NEGOTIATION_PING_ID))
         while (!receivedProbePong) {
             minecraftServerPacketConnection.requestFlush()
             val serverboundPacket = minecraftServerPacketConnection.incoming.receive()
@@ -517,7 +517,7 @@ class NeoForgeServerProfile(
             true
         }
 
-        is ConfigurationPongPacket -> {
+        is ServerboundPongPacket -> {
             if (serverStage != ServerStage.INITIAL || serverboundPacket.id != NEGOTIATION_PING_ID) {
                 return false
             }
@@ -590,17 +590,10 @@ class NeoForgeServerProfile(
         else -> false
     }
 
-    override suspend fun resolveProtocolRegistryContext(
-        protocolRegistryContext: ProtocolRegistryContext,
-    ): ProtocolRegistryContext {
-        val sharedProtocolRegistryContext =
-            neoForgeServerProfileDefinition.protocolRegistryContext ?: return protocolRegistryContext
-        val sectionCount = protocolRegistryContext.chunkSectionCount ?: return sharedProtocolRegistryContext
-        return if (sharedProtocolRegistryContext.chunkSectionCount == sectionCount) {
-            sharedProtocolRegistryContext
-        } else {
-            sharedProtocolRegistryContext.withChunkSectionCount(sectionCount)
-        }
+    override suspend fun resolvePacketCodecContext(
+        packetCodecContext: PacketCodecContext,
+    ): PacketCodecContext {
+        return neoForgeServerProfileDefinition.packetCodecContext ?: packetCodecContext
     }
 
     override suspend fun preparePlay(

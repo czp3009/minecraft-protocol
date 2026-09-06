@@ -17,7 +17,9 @@ any state built from it.
 
 ## Query server status
 
-A Status connection performs one Handshake, Status request, and Ping/Pong exchange:
+Create a caller-owned Ktor `SelectorManager(Dispatchers.Default)` and keep it open until its connections close. `host`
+is the server address and `pingPayload` is any application-selected Long. A Status connection performs one Handshake,
+Status request, and Ping/Pong exchange:
 
 ```kotlin
 suspend fun queryStatus(
@@ -32,13 +34,14 @@ suspend fun queryStatus(
 }
 ```
 
-The result exposes the server's `StatusResponsePacket` as `statusResponsePacket` and the matching
-`StatusPongResponsePacket` as `statusPongResponsePacket`. The response packet contains a shared, typed `ServerStatus`;
+The result exposes the server's `ClientboundStatusResponsePacket` as `clientboundStatusResponsePacket` and the matching
+`ClientboundPongResponsePacket` as `clientboundPongResponsePacket`. The response packet contains a shared, typed
+`ServerStatus`;
 the client never has to parse the enclosing protocol JSON:
 
 ```kotlin
 fun advertisedProtocol(minecraftStatusExchange: MinecraftStatusExchange): Int? =
-    minecraftStatusExchange.statusResponsePacket.status.version?.protocol
+   minecraftStatusExchange.clientboundStatusResponsePacket.status.version?.protocol
 ```
 
 Status cannot continue into Login; close it and open a new connection when joining.
@@ -46,107 +49,20 @@ Status cannot continue into Login; close it and open a new connection when joini
 ## Enter Play
 
 The preset negotiation handles compression, optional encryption, cookies, Login queries, client information, Known
-Packs, synchronized registries, tags, Finish Configuration, and the first `PlayLoginPacket`. It returns before the
-server's initial-world bootstrap, Chunk batches, and Entities. The repository's
-[client quick start](../README.md#connect-a-client) owns the default offline connection lifetime; this guide continues
+Packs, synchronized registries, tags, Finish Configuration, and the first `ClientboundLoginPacket`. The initial-world
+bootstrap, Chunk batches and Entities remain on `incoming` for the application to receive. The repository's
+[client quick start](../README.md#client-connect-to-a-server) owns the default offline connection lifetime; this guide
+continues
 from Login into progressive world reception.
 
 `negotiate()` runs in the calling coroutine and exclusively uses both packet channels until it returns. Do not read from
 `incoming` or send to `outgoing` from another coroutine during that call. The preset has no built-in admission timeout;
 wrap it in the deadline appropriate for the application.
 
-Direct official Configuration and Play KeepAlive requests are answered automatically by the connection endpoint and do
-not appear on `incoming`. The reply uses the connection's writer and is flushed immediately, so application packet loops
-must neither send a second reply nor call `requestFlush()` for it. KeepAlive inside a logical clientbound bundle is not
-extracted from that bundle.
-
-After Play begins, send packets through `outgoing` and publish queued data with `requestFlush()` at the application's
-normal tick boundary. Use the suspending `flush()` only when the caller must wait until all earlier queued packets have
-reached the transport's flush boundary.
-
-### Receive the initial world
-
-The client does not receive one complete world snapshot. It advances through the initial Play stream in order:
-
-1. `negotiate()` consumes `PlayLoginPacket` and returns the dimension and registry context needed to decode Chunks.
-2. Bootstrap packets establish difficulty, spawn, abilities, distances, player position, and the center Chunk. Apply a
-   `SynchronizePlayerPositionPacket` before replying with its `ConfirmTeleportationPacket`.
-3. `ChunkBatchStartPacket` opens a batch. Decode and store each `ChunkDataAndUpdateLightPacket` as it arrives rather
-   than waiting for the whole view.
-4. `ChunkBatchFinishedPacket` closes the batch and states its Chunk count. Reply with
-   `ChunkBatchReceivedPacket`, whose `desiredChunksPerTick` tells the server how quickly to send later batches.
-5. Keep the same single packet loop running for later Chunk batches, Entity bundles, updates, and ordinary Play traffic.
-   The library projects complete Chunk packets and Entity pairing bundles; the application applies later incremental
-   world packets to its own state.
-
-This connection-scoped example performs the required replies while leaving player/world storage and throughput
-measurement with the application:
-
-```kotlin
-suspend fun runPlayPacketLoop(
-    minecraftClientConnection: MinecraftClientConnection,
-    minecraftOfflineIdentity: MinecraftOfflineIdentity,
-    desiredChunksPerTick: () -> Float,
-    applyPlayerPosition: suspend (SynchronizePlayerPositionPacket) -> Unit,
-    storeChunk: suspend (Chunk<ProtocolBlockState, ProtocolRegistryEntry>) -> Unit,
-    handlePacket: suspend (ClientboundPacket) -> Unit,
-) {
-    val minecraftClientNegotiationResult =
-        minecraftClientConnection.negotiate(minecraftOfflineIdentity)
-    val minecraftChunkPacketDecoder = minecraftClientNegotiationResult.minecraftDimensionContext
-        .createMinecraftChunkContext()
-       .packetDecoder()
-    var chunkBatchOpen = false
-    var receivedChunkCount = 0
-
-    for (clientboundPacket in minecraftClientConnection.incoming) {
-        when (clientboundPacket) {
-            ChunkBatchStartPacket -> {
-                check(!chunkBatchOpen) { "Received a nested Chunk batch" }
-                chunkBatchOpen = true
-                receivedChunkCount = 0
-            }
-
-            is ChunkDataAndUpdateLightPacket -> {
-                storeChunk(minecraftChunkPacketDecoder.decode(clientboundPacket))
-                if (chunkBatchOpen) receivedChunkCount++
-            }
-
-            is ChunkBatchFinishedPacket -> {
-                check(chunkBatchOpen) { "Received Chunk batch finish without a start" }
-                check(clientboundPacket.batchSize == receivedChunkCount) {
-                    "Received $receivedChunkCount Chunks in a batch declared as ${clientboundPacket.batchSize}"
-                }
-                chunkBatchOpen = false
-                val requestedChunksPerTick = desiredChunksPerTick()
-                require(requestedChunksPerTick.isFinite() && requestedChunksPerTick > 0.0f)
-                minecraftClientConnection.outgoing.send(
-                    ChunkBatchReceivedPacket(requestedChunksPerTick),
-                )
-                minecraftClientConnection.requestFlush()
-            }
-
-            is SynchronizePlayerPositionPacket -> {
-                applyPlayerPosition(clientboundPacket)
-                minecraftClientConnection.outgoing.send(
-                    ConfirmTeleportationPacket(clientboundPacket.teleportId),
-                )
-                minecraftClientConnection.requestFlush()
-            }
-
-            else -> handlePacket(clientboundPacket)
-        }
-    }
-}
-```
-
-`desiredChunksPerTick` may be a fixed application policy for a simple client or a value derived from measured batch
-processing time. The library does not calculate it, store a world, or acknowledge Chunk batches automatically. The
-server may keep a bounded number of batches in flight after receiving feedback, so the client must acknowledge every
-finished batch and continue processing packets instead of waiting for an end-of-map marker. Entity pairing bundles reach
-`handlePacket` and can be decoded with the helper described below. The
-[`protocol-server` flow](../protocol-server/README.md#stream-chunk-batches-over-ticks) describes the matching tick-side
-queue and acknowledgement state.
+The endpoint consumes and answers direct KeepAlive requests, so the application must not reply again. After Play,
+enqueue through `outgoing` and call `requestFlush()` at a tick
+boundary. [protocol-session](../protocol-session/README.md)
+documents KeepAlive, bundle and flush semantics.
 
 ### Configure negotiation
 
@@ -168,7 +84,7 @@ val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
         allowServerListings = true,
         particleStatus = ParticleStatus.ALL,
     ),
-    resourcePackResult = ResourcePackResult.ACCEPTED,
+   resourcePackResult = ServerboundResourcePackPacket.Action.ACCEPTED,
 )
 
 val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(
@@ -177,14 +93,19 @@ val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(
 )
 ```
 
-No options object is required for vanilla. The default `protocolData`, static registry schema, and accepted Known Packs
-come from [`protocol-datapack-vanilla`](../protocol-datapack-vanilla/README.md). Pass options only to override client
+No options object is required for vanilla. The default `configurationData`, static registry schema, and accepted Known
+Packs
+come from [`protocol-configuration-vanilla`](../protocol-configuration-vanilla/README.md). Pass options only to override
+client
 behavior or to connect with custom registry/data-pack definitions.
 
 ## Online Login
 
 Online Login takes profile values already obtained by a launcher and a caller-owned Ktor `HttpClient` for the Session
-Server `/join` request:
+Server `/join` request. Obtain the token and profile through [account-auth](../account-auth/README.md), parse the
+returned `minecraftProfileResponse.id` with `Uuid.parseHex(minecraftProfileResponse.id)`, and use its `name`.
+Construct/configure `HttpClient` with the
+application's Ktor engine; pass a fresh connection from `MinecraftClientConnection.connect(...)`:
 
 ```kotlin
 suspend fun playOnline(
@@ -206,138 +127,224 @@ suspend fun playOnline(
 }
 ```
 
-The caller configures and closes the `HttpClient`. [`account-auth`](../account-auth/README.md) shows how a launcher
-obtains the token and profile; [`protocol-auth`](../protocol-auth/README.md) documents the game identity and
-key-exchange APIs.
+The caller closes the HTTP client after its operations finish. [protocol-auth](../protocol-auth/README.md) documents
+the identity and key-exchange APIs used by this flow.
 
 ## Use received Configuration data
 
-`MinecraftClientNegotiationResult.dataPackConfigurationSnapshot` retains the data-pack-related values received during
-Configuration. The connection already contains the registry context resolved from those values and the selected profile.
-
-Convert both into a client registry view:
+`MinecraftClientNegotiationResult` retains the received `dataPackConfigurationSnapshot` and the registry context
+resolved
+for that negotiation in `minecraftDimensionContext`. Use `resolveClientRegistryView()` to query received registries and
+tags. This helper accepts a result returned by `negotiate()` and returns the member identifiers of a tag in the selected
+registry, or `null` if that tag was not sent. Construct the selectors with `Identifier("minecraft:worldgen/biome")`
+and a tag identifier from the server's data packs, for example `Identifier("minecraft:is_overworld")`:
 
 ```kotlin
-suspend fun useClientRegistryView(
-    minecraftClientConnection: MinecraftClientConnection,
+fun registryTagMembers(
     minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
-    consume: suspend (ClientRegistryView) -> Unit,
-) {
-    val clientRegistryView = minecraftClientNegotiationResult.resolveClientRegistryView(minecraftClientConnection)
-    consume(clientRegistryView)
+    registryId: Identifier,
+    tagId: Identifier,
+): List<Identifier>? {
+   val clientRegistryView = minecraftClientNegotiationResult.resolveClientRegistryView()
+   return clientRegistryView.tag(registryId, tagId)
+      ?.registryIdMapEntries
+      ?.map { it.id }
 }
 ```
+
+This is synchronous in-memory resolution with no network operation or connection parameter. It also works after the
+connection closes. Replacing the connection's registry context later does not change which context this result uses;
+use the corresponding new snapshot and context to inspect a later Configuration epoch.
 
 The snapshot retains synchronized registries and feature flags; the resolved view exposes registry entries, block
 states, and tags. Neither can contain recipes, loot tables, functions, advancements, or other server-only data-pack
 files because Configuration does not transmit them.
 
-For a hand-written Configuration flow, make each source explicit:
-
-```kotlin
-fun resolveConfiguration(
-    dataPackConfigurationSnapshot: DataPackConfigurationSnapshot,
-    protocolData: ProtocolData,
-    staticRegistrySchema: StaticRegistrySchema,
-    remoteRegistrySnapshot: RemoteRegistrySnapshot,
-): ClientRegistryView = dataPackConfigurationSnapshot.resolveClientRegistryView(
-    protocolData = protocolData,
-    staticRegistrySchema = staticRegistrySchema,
-    remoteRegistrySnapshot = remoteRegistrySnapshot,
-)
-```
-
-See [`protocol-datapack`](../protocol-datapack/README.md) for all constructible stages.
+For a hand-written Configuration flow, use the explicit snapshot/schema inputs documented in
+[protocol-configuration](../protocol-configuration/README.md#resolve-received-configuration).
 
 ## Decode Chunk packets
 
-Configuration and Play Login are resolved together during `negotiate()`. The returned `minecraftDimensionContext`
-contains the selected `DimensionId`, synchronized dimension-type ID/raw ID, resolved layout, and active registries. It
-deliberately stops before block and biome defaults because those are semantic codec choices, not negotiation input. For
-vanilla data, create the complete Chunk context with its defaults and then create the packet decoder fluently:
+### Plain API: construct the decoder
+
+The `minecraftDimensionContext` input comes from the result of `negotiate()` above. It contains the dimension identity,
+synchronized type/layout and registry mappings. Construct a decoder once per dimension and Configuration epoch. This
+application chooses air/plains for absent terrain, retains update-tag fields dynamically, and initializes facts absent
+from the packet to local empty or unknown values:
 
 ```kotlin
-fun createChunkDecoder(
-    minecraftClientNegotiationResult: MinecraftClientNegotiationResult,
-): MinecraftChunkPacketDecoder {
-    val minecraftChunkContext = minecraftClientNegotiationResult.minecraftDimensionContext
-        .createMinecraftChunkContext()
-   return minecraftChunkContext.packetDecoder()
-}
-
-fun decodeChunk(
-    chunkDataAndUpdateLightPacket: ChunkDataAndUpdateLightPacket,
-    minecraftChunkPacketDecoder: MinecraftChunkPacketDecoder,
-): Chunk<ProtocolBlockState, ProtocolRegistryEntry> =
-    minecraftChunkPacketDecoder.decode(chunkDataAndUpdateLightPacket)
+fun createChunkDecoder(minecraftDimensionContext: MinecraftDimensionContext): ChunkPacketDecoder = ChunkPacketDecoder(
+   ChunkPacketDecoderContext(
+      chunkContext = minecraftDimensionContext.chunkContext(
+         defaultBlockState = BlockState(BlockId("minecraft:air")),
+         defaultBiome = BiomeId("minecraft:plains"),
+      ),
+      packetCodecContext = minecraftDimensionContext.packetCodecContext,
+      chunkPacketReadMappings = ChunkPacketReadMappings.dynamic(NbtPropertyReadMappings()),
+      chunkPacketMissingDataProvider = {
+         ChunkPacketMissingData(status = "minecraft:full", inhabitedTime = 0, isLightCorrect = false)
+      },
+   ),
+)
 ```
 
-Packet heightmaps, block entities, lighting, position, palettes, and biomes become a directly usable semantic Chunk. Its
-`chunkMetadata.chunkStorageMetadata` is null because network Chunk packets do not carry data version, generation status,
-inhabited time, scheduled ticks, or other persistence-only fields. Persistent encoding requires the caller to explicitly
-reconstruct or merge every omitted storage field and any persistent Block Entity data absent from the server's update
-tags; the decoder never invents or implicitly retains that state.
+### Convenience API: construct it from the negotiation result
 
-The decoder uses its selected layout to place packet Sections and resolves palette IDs through the installed registry
-context. It does not compare an already decoded Section list or a parallel protocol Section count with that layout;
-applications that need those cross-source checks can perform them before decoding. The result is the same semantic
-`Chunk<ProtocolBlockState, ProtocolRegistryEntry>` used by the disk and server paths; the client does not need a
-data-pack directory or a separately assembled registry adapter.
+With `minecraftClientNegotiationResult` returned by `negotiate()` above, the library's `chunkPacketDecoder` extension
+constructs the same complete context. Supply only the four application choices; dimension identity, layout and registry
+mappings come from the result. This replaces `createChunkDecoder(...)` above:
 
-`dataPackConfigurationSnapshot`, `resolveClientRegistryView(...)`, `playLoginPacket`, `minecraftDimensionContext`,
-`minecraftDimensionLayout`, and `chunkLayout` remain available for inspection and custom decoders. The explicit
-`MinecraftChunkPacketDecoder(protocolRegistryContext, chunkCodecContext)` constructor is the low-level entry. Rebuild
-the context and decoder after reconfiguration or a dimension change.
+```kotlin
+val chunkPacketDecoder = minecraftClientNegotiationResult.chunkPacketDecoder(
+   defaultBlockState = BlockState(BlockId("minecraft:air")),
+   defaultBiome = BiomeId("minecraft:plains"),
+   chunkPacketReadMappings = ChunkPacketReadMappings.dynamic(NbtPropertyReadMappings()),
+   chunkPacketMissingDataProvider = {
+      ChunkPacketMissingData(status = "minecraft:full", inhabitedTime = 0, isLightCorrect = false)
+   },
+)
+```
 
-For a modded registry without `minecraft:air` or `minecraft:plains`, pass `defaultBlock` and `defaultBiome` to
-`createMinecraftChunkContext`. Changing those values never changes the packets sent during negotiation.
+Both paths return `ChunkPacketDecoder` and need no live connection. Use either result in `runPlayPacketLoop` below;
+conversion is `chunkPacketDecoder.decode(packet)`, or the `protocol-world` extension
+`packet.toChunk(chunkPacketDecoder)`.
+
+These are explicit application choices, not recovered server state. Update tags carry only the server-selected Block
+Entity fields; they do not reconstruct private inventories. Saving a received Chunk requires a separately configured
+NBT encoder. See [protocol-world](../protocol-world/README.md#chunk-packet-conversion) for each provider's contract.
+Replace this decoder after reconfiguration or a dimension change.
+
+### Receive the initial world
+
+The client does not receive one complete world snapshot. It advances through the initial Play stream in order:
+
+1. `negotiate()` consumes `ClientboundLoginPacket` and returns the dimension and registry context needed to decode
+   Chunks.
+2. Bootstrap packets establish difficulty, spawn, abilities, distances, player position, and the center Chunk. Apply a
+   `ClientboundPlayerPositionPacket` before replying with its `ServerboundAcceptTeleportationPacket`.
+3. `ClientboundChunkBatchStartPacket` opens a batch. Decode and store each `ClientboundLevelChunkWithLightPacket` as it
+   arrives rather
+   than waiting for the whole view.
+4. `ClientboundChunkBatchFinishedPacket` closes the batch and states its Chunk count. Reply with
+   `ServerboundChunkBatchReceivedPacket`, whose `desiredChunksPerTick` tells the server how quickly to send later
+   batches.
+5. Keep the same single packet loop running for later Chunk batches, Entity bundles, updates, and ordinary Play traffic.
+   The library projects complete Chunk packets and Entity pairing bundles; the application applies later incremental
+   world packets to its own state.
+
+Continue after `negotiate()` on the same open connection. Pass
+either decoder constructed above as `chunkPacketDecoder`. The application callbacks apply a received player position,
+store a decoded `Chunk`, and handle
+other `ClientboundPacket` values. `desiredChunksPerTick` supplies the application's measured or configured receive rate:
+
+```kotlin
+suspend fun runPlayPacketLoop(
+   minecraftClientConnection: MinecraftClientConnection,
+   chunkPacketDecoder: ChunkPacketDecoder,
+   desiredChunksPerTick: () -> Float,
+   applyPlayerPosition: suspend (ClientboundPlayerPositionPacket) -> Unit,
+   storeChunk: suspend (Chunk) -> Unit,
+   handlePacket: suspend (ClientboundPacket) -> Unit,
+) {
+   var chunkBatchOpen = false
+   var receivedChunkCount = 0
+
+   for (clientboundPacket in minecraftClientConnection.incoming) {
+      when (clientboundPacket) {
+         ClientboundChunkBatchStartPacket -> {
+            check(!chunkBatchOpen) { "Received a nested Chunk batch" }
+            chunkBatchOpen = true
+            receivedChunkCount = 0
+         }
+
+         is ClientboundLevelChunkWithLightPacket -> {
+            storeChunk(chunkPacketDecoder.decode(clientboundPacket))
+            if (chunkBatchOpen) receivedChunkCount++
+         }
+
+         is ClientboundChunkBatchFinishedPacket -> {
+            check(chunkBatchOpen) { "Received Chunk batch finish without a start" }
+            check(clientboundPacket.batchSize == receivedChunkCount) {
+               "Received $receivedChunkCount Chunks in a batch declared as ${clientboundPacket.batchSize}"
+            }
+            chunkBatchOpen = false
+            val requestedChunksPerTick = desiredChunksPerTick()
+            require(requestedChunksPerTick.isFinite() && requestedChunksPerTick > 0.0f)
+            minecraftClientConnection.outgoing.send(
+               ServerboundChunkBatchReceivedPacket(requestedChunksPerTick),
+            )
+            minecraftClientConnection.requestFlush()
+         }
+
+         is ClientboundPlayerPositionPacket -> {
+            applyPlayerPosition(clientboundPacket)
+            minecraftClientConnection.outgoing.send(
+               ServerboundAcceptTeleportationPacket(clientboundPacket.id),
+            )
+            minecraftClientConnection.requestFlush()
+         }
+
+         else -> handlePacket(clientboundPacket)
+      }
+   }
+}
+```
+
+`desiredChunksPerTick` may be a fixed application policy for a simple client or a value derived from measured batch
+processing time. The library does not calculate it, store a world, or acknowledge Chunk batches automatically. The
+server may keep a bounded number of batches in flight after receiving feedback, so the client must acknowledge every
+finished batch and continue processing packets instead of waiting for an end-of-map marker. Entity pairing bundles reach
+`handlePacket` and can be decoded with the helper described below. The
+[`protocol-server` flow](../protocol-server/README.md#stream-chunk-batches-over-ticks) describes the matching tick-side
+queue and acknowledgement state.
 
 ## Decode Entity pairing bundles
 
-The typed incoming channel combines delimiter-framed clientbound bundles into `ClientboundBundlePacket`. A pairing
-bundle can be converted to one or more semantic Entities:
+The incoming channel combines delimiter-framed messages into `ClientboundBundlePacket`. Pass a prebuilt shared
+`EntityPacketDecoder` to `toEntities`. Construct it with `EntityPacketDecoder(EntityPacketDecoderContext(...))`,
+supplying the negotiated packet registry context, application mappings and missing-data provider
+described in [protocol-world](../protocol-world/README.md#entities-and-items).
+`registerEntity` stores the decoded Entity under its connection-local Int ID; `pendingPacket` receives unresolved tails:
 
 ```kotlin
-fun decodeEntities(
-    minecraftClientConnection: MinecraftClientConnection,
+fun applyPairing(
     clientboundBundlePacket: ClientboundBundlePacket,
-): List<Entity<NbtCompound>>? {
-    val minecraftEntityPacketDecoder = MinecraftEntityPacketDecoder(minecraftClientConnection.protocolRegistryContext)
-    return clientboundBundlePacket.toEntitiesOrNull(minecraftEntityPacketDecoder)
-}
+    entityPacketDecoder: EntityPacketDecoder,
+    registerEntity: (Int, Entity) -> Unit,
+    pendingPacket: (EntityPacketDecodeResult) -> Unit,
+): List<EntityPacketDecodeResult> = clientboundBundlePacket.toEntities(
+   entityPacketDecoder, registerEntity, pendingPacket,
+)
 ```
 
-The basic form restores registry-resolved type, UUID, position, velocity, and rotation, while leaving subtype data as an
-empty `NbtCompound`. Supply a `MinecraftEntityPacketAdapter<E>` when the application needs to register entities and
-apply pairing metadata, attributes, equipment, passenger relationships, or leash state to its own runtime type.
-
-`toEntity()` is the strict one-Entity form. `toEntities()` accepts several pairing sequences in one bundle, and the
-`OrNull` variants leave unrelated bundles available to the normal packet dispatcher.
+The endpoint registers the spawn before applying its following metadata/equipment/attribute mappings. Connection IDs,
+passenger/vehicle/leash resolution and visibility belong to the application. Check `isEntityPairingBundle` before
+using this adapter; route unrelated bundles through the ordinary dispatcher.
 
 ## Know the client projection boundary
 
-The connection has already decoded every registered wire payload before it places a typed `ClientboundPacket` on
-`incoming`. Semantic projection into the shared world-format values is narrower:
+| Received value                                                                | Semantic path                             | Application responsibility                                              |
+|-------------------------------------------------------------------------------|-------------------------------------------|-------------------------------------------------------------------------|
+| Full Chunk packet                                                             | `ChunkPacketDecoder`                      | Supply omitted facts and retain the returned mutable Chunk              |
+| Entity pairing bundle                                                         | `EntityPacketDecoder` and bundle adapters | Register Entities and resolve relation tails                            |
+| Container content/slot packets                                                | `ItemStackPacketDecoder` for each slot    | Maintain the active menu separately from Chunk Block Entity update data |
+| Block/biome/light/Block Entity updates and Chunk removal                      | Typed packets                             | Apply the update to current Chunk data                                  |
+| Later Entity movement, metadata, equipment, attributes, relations and removal | Typed packets                             | Resolve connection IDs and update the current Entity graph              |
+| POI                                                                           | No aggregate vanilla client packet        | Keep server POI state or define a custom projection                     |
 
-| Received value                                                                                                                           | Current semantic path                  | Result and caller responsibility                                                               |
-|------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------|------------------------------------------------------------------------------------------------|
-| `ChunkDataAndUpdateLightPacket`                                                                                                          | `MinecraftChunkPacketDecoder.decode()` | Produces a complete computational `Chunk`; the application stores it by dimension and position |
-| Entity pairing `ClientboundBundlePacket`                                                                                                 | `MinecraftEntityPacketDecoder`         | Produces `Entity` values or invokes a caller adapter for pairing state                         |
-| `BlockUpdatePacket`, `UpdateSectionBlocksPacket`, `ChunkBiomesPacket`, `LightUpdatePacket`, `BlockEntityDataPacket`, `UnloadChunkPacket` | No high-level projector                | The application applies the typed update or removes the Chunk from its own world state         |
-| Later Entity movement, metadata, equipment, attributes, relationship, and removal packets                                                | No high-level state applier            | The application resolves the runtime Entity ID and updates its own Entity table                |
-| POI data                                                                                                                                 | No vanilla clientbound packet          | No client-side `PoiChunk` can be reconstructed from the network                                |
-
-Consequently, the full-Chunk receive path is immediately usable for computation but is not a maintained client-world
-mirror. The Entity decoder likewise restores `Entity`, not `EntityChunk`: the latter is an on-disk grouping with a data
-version and Chunk position that the network does not transmit losslessly. Applications that need long-lived state keep
-one packet consumer, route these typed updates into their own state model, and rebuild the Chunk decoder after a
-dimension change or reconfiguration.
+The library does not maintain a client world or run gameplay. [protocol-world](../protocol-world/README.md) documents
+the shared conversions and [the field inventory](../world-format/CHUNK-DATA.md) describes information lost at each
+representation boundary.
 
 ## Loader profiles and custom packets
 
 Declare possible custom packet codecs in a shareable `MinecraftConnectionDefinition`, then use the matching
-per-connection profile. Keep the connection open while consuming the negotiation result and Play traffic. This Fabric
-example makes that lifetime explicit through a caller-supplied `play` block:
+per-connection profile. `MinecraftOfflineIdentity("Player")` constructs the identity. Custom
+`PacketCodecRegistration` entries are built as shown
+in [protocol-session](../protocol-session/README.md#register-custom-packets);
+`StaticRegistrySchema(...)` describes the application's local registry definitions. Supply an empty codec list when no
+extra packets are needed. Keep the connection open for Play traffic; the returned negotiation data has no I/O lifetime.
+The application `play` callback receives that open connection and its negotiation result:
 
 ```kotlin
 suspend fun runFabric(
@@ -372,8 +379,8 @@ NeoForge and Forge definitions and profiles are documented in
 ## Custom negotiation and lifetime
 
 Applications may implement their own Handshake/Login/Configuration flow using `incoming`, `outgoing`, `awaitState`,
-`installProtocolRegistryContext`, `activateExtensionRoutes`, authentication helpers, and profile hooks. The maintained
-[`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientProtocol.kt) is
+`installPacketCodecContext`, `activateExtensionRoutes`, authentication helpers, and profile hooks. The maintained
+[`negotiate` implementation](src/commonMain/kotlin/com/hiczp/minecraft/protocol/client/MinecraftClientNegotiation.kt) is
 the complete source-level ordering reference. Endpoint-managed direct KeepAlive replies remain active in a hand-written
 flow and must not be duplicated there.
 

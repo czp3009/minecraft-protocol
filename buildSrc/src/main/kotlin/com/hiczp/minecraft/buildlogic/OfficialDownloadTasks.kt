@@ -1,5 +1,12 @@
 package com.hiczp.minecraft.buildlogic
 
+import java.nio.file.Files
+import java.nio.file.Path
+import javax.inject.Inject
+import kotlin.io.path.createDirectories
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
+import kotlin.io.path.readText
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -12,13 +19,6 @@ import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
-import java.nio.file.Files
-import java.nio.file.Path
-import javax.inject.Inject
-import kotlin.io.path.createDirectories
-import kotlin.io.path.isRegularFile
-import kotlin.io.path.name
-import kotlin.io.path.readText
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // DownloadVersionManifestTask
@@ -43,7 +43,7 @@ abstract class DownloadVersionManifestTask : DefaultTask() {
     fun download() {
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
-            val byteArray = ProtocolHttp.getBytes(url = manifestUrl.get(), offline = offline.get())
+            val byteArray = DownloadHttp.getBytes(url = manifestUrl.get(), offline = offline.get())
             destination.parent.createDirectories()
             destination.atomicWrite(byteArray)
         }
@@ -77,7 +77,7 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
     @TaskAction
     fun download() {
         val version = minecraftVersion.get()
-        val manifest = protocolJson.decodeFromString<JsonObject>(
+        val manifest = buildLogicJson.decodeFromString<JsonObject>(
             manifestFile.asFile.get().toPath().readText(),
         )
         val entry = manifest.getValue("versions").jsonArray
@@ -90,7 +90,7 @@ abstract class DownloadVersionMetadataTask : DefaultTask() {
         val metadataUrl = entry.getValue("url").jsonPrimitive.content
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
-            val byteArray = ProtocolHttp.getBytes(url = metadataUrl, offline = offline.get())
+            val byteArray = DownloadHttp.getBytes(url = metadataUrl, offline = offline.get())
             destination.parent.createDirectories()
             destination.atomicWrite(byteArray)
         }
@@ -123,7 +123,7 @@ abstract class DownloadHmcSpecificsTask : DefaultTask() {
     fun download() {
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
-            ProtocolHttp.download(
+            DownloadHttp.download(
                 url = assetUrl.get(),
                 destination = destination,
                 offline = offline.get(),
@@ -153,7 +153,7 @@ abstract class DownloadFabricLoaderProfileTask : DefaultTask() {
         val destination = outputFile.asFile.get().toPath()
         runBlocking {
             val url = profileUrl.get()
-            val byteArray = ProtocolHttp.getBytes(url = url, offline = offline.get())
+            val byteArray = DownloadHttp.getBytes(url = url, offline = offline.get())
             destination.parent.createDirectories()
             destination.atomicWrite(byteArray)
         }
@@ -181,7 +181,7 @@ abstract class DownloadHeadlessMcLauncherTask : DefaultTask() {
         val version = headlessMcVersion.get()
         val destination = launcherFile.asFile.get().toPath()
         runBlocking {
-            ProtocolHttp.download(
+            DownloadHttp.download(
                 url = "https://github.com/headlesshq/headlessmc/releases/download/$version/headlessmc-launcher-wrapper-$version.jar",
                 destination = destination,
                 offline = offline.get(),
@@ -224,14 +224,14 @@ abstract class DownloadHeadlessMcAssetReplacementsTask : DefaultTask() {
             coroutineScope {
                 listOf(
                     async {
-                        ProtocolHttp.download(
+                        DownloadHttp.download(
                             url = "$sourceRoot/dummy.ogg",
                             destination = dummyOggFile.asFile.get().toPath(),
                             offline = offline.get(),
                         )
                     },
                     async {
-                        ProtocolHttp.download(
+                        DownloadHttp.download(
                             url = "$sourceRoot/dummy.png",
                             destination = dummyPngFile.asFile.get().toPath(),
                             offline = offline.get(),
@@ -286,13 +286,13 @@ abstract class DownloadMinecraftClientJarTask : DefaultTask() {
 
     @TaskAction
     fun download() {
-        val metadata = protocolJson.decodeFromString<JsonObject>(
+        val metadata = buildLogicJson.decodeFromString<JsonObject>(
             metadataFile.asFile.get().toPath().readText(),
         )
         val client = metadata.getValue("downloads").jsonObject.getValue("client").jsonObject
         val destination = clientJar.asFile.get().toPath()
         runBlocking {
-            ProtocolHttp.download(
+            DownloadHttp.download(
                 url = client.getValue("url").jsonPrimitive.content,
                 destination = destination,
                 offline = offline.get(),
@@ -334,13 +334,13 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
 
     @TaskAction
     fun download() {
-        val metadata = protocolJson.decodeFromString<JsonObject>(
+        val metadata = buildLogicJson.decodeFromString<JsonObject>(
             metadataFile.asFile.get().toPath().readText(),
         )
         val libraries = linkedMapOf<String, ClientArtifactSpec>().apply {
             putAll(collectClientLibraryArtifacts(metadata))
             collectFabricLibraryArtifacts(
-                protocolJson.decodeFromString<JsonObject>(fabricProfileFile.asFile.get().toPath().readText()),
+                buildLogicJson.decodeFromString<JsonObject>(fabricProfileFile.asFile.get().toPath().readText()),
             ).forEach { (path, clientArtifactSpec) ->
                 val previous = put(path, clientArtifactSpec)
                 check(previous == null || previous == clientArtifactSpec) {
@@ -361,7 +361,7 @@ abstract class DownloadMinecraftClientLibrariesTask : DefaultTask() {
                         async {
                             semaphore.acquire()
                             try {
-                                ProtocolHttp.download(
+                                DownloadHttp.download(
                                     url = clientArtifactSpec.url,
                                     destination = staging.resolve(relative),
                                     offline = offline.get(),
@@ -411,7 +411,7 @@ abstract class DownloadMinecraftClientAssetIndexTask : DefaultTask() {
 
     @TaskAction
     fun download() {
-        val metadata = protocolJson.decodeFromString<JsonObject>(
+        val metadata = buildLogicJson.decodeFromString<JsonObject>(
             metadataFile.asFile.get().toPath().readText(),
         )
         val assetIndex = metadata.getValue("assetIndex").jsonObject
@@ -421,7 +421,7 @@ abstract class DownloadMinecraftClientAssetIndexTask : DefaultTask() {
         val destination = output.resolve("$assetIndexId.json")
         try {
             runBlocking {
-                ProtocolHttp.download(
+                DownloadHttp.download(
                     url = assetIndex.getValue("url").jsonPrimitive.content,
                     destination = staging.resolve("$assetIndexId.json"),
                     offline = offline.get(),
@@ -536,7 +536,7 @@ abstract class DownloadMinecraftClientAssetObjectsTask : DefaultTask() {
                         async {
                             semaphore.acquire()
                             try {
-                                ProtocolHttp.download(
+                                DownloadHttp.download(
                                     url = "https://resources.download.minecraft.net/${officialClientAsset.relativePath}",
                                     destination = staging.resolve(officialClientAsset.relativePath),
                                     offline = offline.get(),
@@ -638,7 +638,7 @@ private fun readOfficialClientAssets(
         "Expected exactly one asset index file in $indexesDirectory, found ${indexFiles.size}: ${indexFiles.map { it.name }}"
     }
     val assets = linkedMapOf<String, OfficialClientAsset>()
-    protocolJson.decodeFromString<JsonObject>(indexFiles.single().readText())
+    buildLogicJson.decodeFromString<JsonObject>(indexFiles.single().readText())
         .getValue("objects")
         .jsonObject
         .forEach { (name, jsonElement) ->

@@ -1,104 +1,75 @@
 # world-format
 
-This module owns filesystem-independent world schemas, data-pack formats, Anvil containers and compression, coordinate
-conversion, and semantic Chunk/entity values for the repository-selected release.
+## Standalone schemas and packs
 
-## Structured world data
+- `MinecraftWorldFormat.WORLD_VERSION` comes from the official target artifact. Persisted fields stay named
+  `DataVersion`; applications own compatibility checks and migration.
+- Model only the selected-release `LevelDat`, `PlayerData`, saved-data, advancement and statistics schemas. Keep each
+  file schema in its own type-named source file. Shared saved-data envelopes and payloads live in `format.data`.
+- Use generated serializers for fixed structures. Apply property/type adapters for official list/array differences;
+  use file-level `@UseSerializers` for uniform mappings within a model file. The advancement root requires its custom
+  map-composite serializer because dynamic advancement IDs share the object with `DataVersion`.
+- Standalone serializers reject unknown fields by default. Raw NBT/JSON paths preserve unmodeled content; this strict
+  schema policy does not apply to open Chunk property scopes.
+- Pack decoders are extensible. `WorldDataPackLoadResult` is a detached partial selection: preserve enabled low-to-high
+  order and already loaded packs, aggregate unavailable IDs, and add no core-pack or discovery policy. Retain an
+  already ordered loaded list; normalize only an out-of-order one.
+- `WorldGenSettingsData` preserves strong dimension keys and reference-or-inline type holders. `DimensionTypeLayout`
+  is the shared layout-field decoder; protocol consumers do not duplicate it.
 
-- `MinecraftWorldFormat.WORLD_VERSION` is generated from the matching official server's `version.json`; serialized NBT
-  fields remain named `DataVersion`. Do not hand-copy this value or depend on `protocol-model` to obtain it.
-- Treat persisted `DataVersion` as persistence metadata. Complete standalone-file schemas may own it, but
-  representation-independent Chunk, Entity Chunk, and POI Chunk values do not; their NBT decoders return it in the
-  corresponding decode result without comparing it to a selected or caller-supplied version. Applications own
-  compatibility preflight and migration policy.
-- `LevelDat`, `PlayerData`, root/dimension saved data, advancements, and statistics model only the selected release.
-  Audit official reader/writer behavior on release updates; do not keep old-schema branches or add an implicit
-  DataFixer. Keep the common saved-data envelope and all root/dimension saved-data models in
-  `com.hiczp.minecraft.world.format.data`; data-pack models remain in their existing `datapack` package.
-- Keep each standalone world-file schema in its own type-named source file; do not group models from unrelated storage
-  paths merely because they share a serialization library.
-- Fixed structures use generated serializers with schema annotations and defaults. Keep NBT value adapters at the model
-  property/type boundary when the official array/list representation differs from the domain type's generated shape; use
-  file-level `@UseSerializers` when one model file maps every occurrence of a repeated domain type the same way. The
-  advancement root keeps its custom map-composite serializer because dynamic advancement IDs share the object with
-  `DataVersion`; annotations cannot flatten a map into that root object.
-- Typed decoding is strict about unknown fields by default. Raw `NbtDocument`/`NbtTag` and `JsonElement` are the
-  lossless escape hatches for unmodeled content.
-- `DataPackArchive` is raw path-to-bytes input, `DataPack` is parsed content, and `DataPackStack`/
-  `ResolvedDataPackStack` own priority resolution. These values remain filesystem- and protocol-independent. Decoders
-  are caller-extensible.
-- `WorldDataPackLoadResult` is the detached partial-selection handoff: it retains persisted pack IDs and feature
-  configuration plus packs already supplied by a lower reader. Retain an already ordered loaded-pack list by reference;
-  normalize only an out-of-order list because enabled low-to-high priority is part of data-pack semantics. Completing it
-  reports every unavailable ID together and adds no vanilla-core, filesystem-discovery, or protocol policy.
-- Keep semantic namespaced identities such as `DimensionId`, `DimensionTypeId`, and `SavedDataId` in this module.
-  External text enters through their parsing/serialization boundaries; filesystem validation remains in `world-io`.
-- `WorldGenSettingsData` retains dimension keys and the reference-or-inline dimension-type holder shape strongly.
-  `DimensionTypeLayout` is the shared decoder for layout fields in registry and inline NBT; protocol consumers must not
-  duplicate that field extraction.
+## Anvil and coordinates
 
-## Anvil and compression
+- `AnvilRegionFormat` receives compressed records and preserves their compression registrations. Container parsing,
+  compression and semantic NBT decoding are separate operations; unchanged records can be repacked without inflation.
+- CUSTOM compression remains injectable. Maintained libraries own raw codecs/checksums; this module owns Minecraft
+  containers. Reject overlap, truncation, overflow, invalid identifiers and checksum failure at their format boundary.
+- Container structure failures use `AnvilFormatException`; I/O, NBT, cancellation and custom-codec failures retain
+  their own categories. Stream operations leave caller endpoints open.
+- `MinecraftCoordinates` owns scalar and typed conversions, including floor semantics for negative coordinates.
+  `ChunkRange`/`RegionRange` are inclusive rectangular products: `..` preserves endpoint order, `..<` excludes both
+  upper axes, and `enclosing` explicitly normalizes unordered corners. Name scale-reducing coverage `covering...`.
 
-- Separate region-container parsing from filesystem access, decompression, and NBT decoding. Stream methods are
-  canonical and never close caller-owned endpoints.
-- `AnvilRegionFormat` receives already-compressed records, preserves each record's compression registration, and does
-  not choose compression. Callers can inspect or repack a region without inflating unchanged payloads.
-- Reject intrinsic corruption such as overlap, truncation, overflow, invalid Region compression identifiers, and
-  checksum failure.
-- Keep CUSTOM compression injectable through the public registry. Maintained libraries own raw compression and
-  checksums; this module owns Minecraft containers and validation.
-- Structural failures use `AnvilFormatException`; stream/backend I/O, NBT, cancellation, and custom-codec failures
-  retain their owning categories.
+## Mutable domain values
 
-## Semantic values and coordinates
+- `Chunk`, `EntityChunk` and `PoiChunk` retain absolute Chunk positions. Section Y, Block Entity/POI positions and
+  named definition identities belong to enclosing map keys, not duplicate entry fields. Absolute helpers validate
+  membership and delegate to local operations.
+- `Chunk` models completed data, without `ProtoChunk` progression. NBT decoding attempts the completed schema even
+  for a nonterminal `status`, which it exposes for caller decisions. It neither rejects by status nor preserves all
+  unfinished generation data; lossless preservation of that input requires raw NBT.
+- Full constructors retain supplied mutable references; empty constructors allocate empty data. Deletion changes
+  reachability only. Do not add detach tracking, hidden indexes, invalidation or graph ownership.
+- `ChunkContext` contains raw-ID-free dimension/layout and default block/biome facts. Its reference on a Chunk is
+  replaceable. A decoder attaches its context's same reference; an encoder uses only its explicitly supplied context.
+- `DataProperties.entries` is the single dynamic store. Typed keys check token identity and share values with named
+  access; mappings and wrappers keep no second copy. `BlockState` and its canonical string properties are immutable.
+- Preserve primitive NBT widths and unknown nested fields at each open owner. Structural field names cannot also
+  appear in that owner's properties. Custom writers pass the supplied mapping to child writes so operation-local
+  cycle detection covers callbacks without installing ownership on the graph.
+- Missing counts, individual height samples, light layers, passenger knowledge and materialized attributes differ from
+  known empty values. Shared attribute defaults and POI definitions remain separate from current instances.
+- Palette mutation preserves stable indices, which are not registry IDs. Encoding uses a non-mutating compact
+  snapshot; `compact()` is the explicit mutating operation.
 
-- `MinecraftCoordinates` is the canonical implementation for scalar and typed conversions. Preserve floor semantics for
-  negative coordinates and checked region membership.
-- `ChunkRange` and `RegionRange` are inclusive rectangular coordinate products. `..` preserves endpoint order, `..<`
-  excludes the upper corner on both axes, and `enclosing` is the explicit operation that normalizes unordered corners.
-  Name scale-reducing conversions `covering...` when their reverse expands to cell boundaries.
-- Positioned `Chunk`, `EntityChunk`, `PoiChunk`, and `BlockEntity` retain or receive their absolute coordinates.
-  Absolute helpers validate membership and delegate to local operations.
-- The computation-facing `Chunk` contract is a fully generated final value; this module does not model `ProtoChunk`
-  progression or provide APIs that fill generation-stage data according to status. A disk decoder still exposes a
-  persisted nonterminal status so callers can identify, reject, or route that input, but such a value is not a supported
-  computation input. Use raw `NbtDocument` when unfinished generation data must be preserved losslessly.
-- `ChunkContext` owns the dimension identity/layout and default block-state/biome facts needed by semantic Chunk
-  operations. A Chunk exposes its context as a read-only caller convenience; library codecs and stores do not read it.
-  Do not depend on protocol or vanilla-default modules to construct this context; protocol-aware callers obtain
-  matching adapters from the owning protocol modules.
-- Chunk NBT encoding and decoding use separate `ChunkNbtEncoderContext` and `ChunkNbtDecoderContext` values. The decoder
-  context contains the `ChunkContext` whose same reference is attached to every decoded Chunk. The encoder receives its
-  own `ChunkContext` explicitly and never obtains or cross-validates it through `chunk.context`. Each context also owns
-  the `NbtFormat` used by that direction; encoder-only persistence metadata remains in the encoder context.
-- Keep `DataVersion` and `LastUpdate` outside the semantic Chunk in `ChunkNbtMetadata`; decoding returns both alongside
-  the Chunk, and encoding receives them through `ChunkNbtEncoderContext`. `LastUpdate` is a caller-supplied absolute
-  world game-time value, not wall-clock time; do not invent it from a clock, default, callback, or save snapshot.
-- Preserve the selected release's scheduled-tick persistence semantics: `block_ticks` and `fluid_ticks` store an `Int`
-  relative delay in `t`, and list order participates in restoring sub-tick order. Do not reinterpret that delay as an
-  absolute timestamp or derive it from `LastUpdate`.
-- Strongly type stable Chunk structure. An explicitly open, mod-extensible content subtree such as Block Entity data
-  may remain an `NbtCompound`; do not duplicate structural fields already promoted into typed properties inside it.
-- Retain caller-selected subtype generics on `Entity<E>` and `EntityChunk<E>`. Strongly type stable common fields, use
-  explicit registries or adapters for vanilla and mod subtype data, and keep `NbtCompound` as the lossless fallback for
-  content that cannot be closed over by this library.
-- A packet-derived Chunk may be NBT-encoded when the caller supplies the encoder context and persistence metadata. Do
-  not add nullable source markers or reject it as incomplete; every field absent from the network value comes from the
-  caller-supplied packet decoder context, not a library default. Document that those values are client-local and that
-  the resulting save is lossy rather than an equivalent server backup.
-- Palette mutation preserves stable IDs. Encoding uses a non-mutating compact snapshot; `compact()` is the explicit
-  mutating operation.
-- Directional Chunk, Entity Chunk, and POI Chunk codecs canonically decode one decompressed binary NBT `Source` into the
-  semantic value or encode that value to a `Sink`; they neither close caller-owned streams nor flush a sink. Their raw
-  `NbtDocument` entry points are explicit tree-level branches over the same private semantic implementation, not a
-  required intermediate in the ordinary stream path. Only retaining and rewriting the raw document preserves unmodeled
-  fields; conversion through a typed semantic value remains intentionally lossy for those fields.
-- Receiver-oriented conversion extensions are conveniences over those plain directional codecs. Accept either the
-  already constructed encoder/decoder or its complete context, delegate exactly once, and never read a receiver context
-  or duplicate the conversion. Compressed-record helpers additionally compose the owning compression format without
-  creating a direct packet-to-persistence conversion.
+## Domain NBT codecs
+
+- Read `DataVersion` and terrain `LastUpdate` from the input record into separate metadata results. Encoders receive
+  the values to write through their contexts; decoder contexts do not accept them. None enters the domain graphs.
+- Scheduled ticks hold absolute trigger times in memory. `block_ticks`/`fluid_ticks` persist Int relative delays in
+  `t`; decode by adding the explicit context `tickBase`, encode by subtracting it with official integer narrowing, and
+  restore sub-tick order from list order. Never substitute `LastUpdate` or wall-clock time for the tick base.
+- NBT decoder contexts carry the domain context attached to their result. Terrain/POI encoder contexts carry only
+  `ChunkLayout`; the Entity encoder needs no domain context. Each direction owns its NBT format and mappings; terrain
+  codecs also need a tick base, and encoding needs persistence metadata. Stream codecs consume decompressed binary NBT
+  directly, without a required `NbtDocument` intermediate, and neither close endpoints nor flush sinks. Document entry
+  points share the same semantic implementation.
+- Packet-derived values can be saved with an explicit NBT encoder and metadata. Do not add source markers or reject
+  them as incomplete; caller-supplied missing data is local state, not recovered server state.
+- Compressed-record conveniences compose compression and the plain NBT codec. They do not bypass the domain value
+  with a direct packet-to-persistence conversion.
 
 ## Verification
 
-Run `:world-format:jvmTest`. Compression changes also require JS Node, WasmJS Node, and host Native tests; region-wire
-changes require `:world-io:jvmTest`.
+Run `:world-format:jvmTest`. Compression changes also require JS Node, WasmJS Node and host Native tests; changed
+persisted bytes require `:world-io:jvmTest`. Domain API changes also exercise user computation and conversion scenarios
+in world-format, protocol-world and world-io; concrete game-content wrappers stay in those tests.

@@ -7,7 +7,8 @@ non-source generation, fixture templates, and Fixture Host service wiring.
 
 - `BuildVersions` selects toolchains and bytecode targets. `MinecraftTarget`, `HeadlessMcTarget`, `FabricLoaderTarget`,
   and `HmcSpecificsTarget` independently select exact external inputs; do not derive one selector from another.
-- Official-data producers own separate target, packet/registry/block reports, Configuration captures, and extracted
+- Official-data producers own separate target, packet/registry/block reports, packet class/member analysis,
+  Configuration captures, and extracted
   data-pack outputs.
 - Fixture producers acquire every version-pinned server/client runtime, library, asset, wrapper, loader, and mod input
   before launch. Fixture processes do not download missing resources.

@@ -15,43 +15,43 @@ class PlayCommonPacketTest {
     fun `container cookie cooldown and chat packets match official primitive codecs`() {
         assertContentEquals(
             "ac02".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
-                ClientboundCloseContainerPacket(300),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundContainerClosePacket(300),
             ),
         )
         assertContentEquals(
             "010002fffd".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
-                SetContainerPropertyPacket(1, 2, -3),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundContainerSetDataPacket(1, 2, -3),
             ),
         )
         assertContentEquals(
             "0e6d696e6563726166743a74657374".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
-                PlayCookieRequestPacket(Identifier("minecraft:test")),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundCookieRequestPacket(Identifier("minecraft:test")),
             ),
         )
         assertContentEquals(
             "0f6d696e6563726166743a67726f757014".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
-                SetCooldownPacket(Identifier("minecraft:group"), 20),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundCooldownPacket(Identifier("minecraft:group"), 20),
             ),
         )
 
-        val chatSuggestionsPacket = ChatSuggestionsPacket(
-            ChatSuggestionsAction.SET,
+        val clientboundCustomChatCompletionsPacket = ClientboundCustomChatCompletionsPacket(
+            ClientboundCustomChatCompletionsPacket.Action.SET,
             listOf("one", "two"),
         )
         val suggestionsBytes = "0202036f6e650374776f".hexToByteArray()
         assertContentEquals(
             suggestionsBytes,
-            MinecraftProtocolFormat.encodeToByteArray(
-                chatSuggestionsPacket,
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                clientboundCustomChatCompletionsPacket,
             ),
         )
         assertEquals(
-            chatSuggestionsPacket,
-            MinecraftProtocolFormat.decodeFromByteArray<ChatSuggestionsPacket>(
+            clientboundCustomChatCompletionsPacket,
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundCustomChatCompletionsPacket>(
                 suggestionsBytes,
             ),
         )
@@ -59,24 +59,24 @@ class PlayCommonPacketTest {
 
     @Test
     fun `custom payload dispatches vanilla brand and preserves unknown bytes`() {
-        val brand = PlayClientboundPluginMessagePacket(
+        val brand = ClientboundCustomPayloadPacket(
             CustomPayload.Brand("vanilla"),
         )
         val brandBytes = "0f6d696e6563726166743a6272616e640776616e696c6c61".hexToByteArray()
         assertContentEquals(
             brandBytes,
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 brand,
             ),
         )
         assertEquals(
             brand,
-            MinecraftProtocolFormat.decodeFromByteArray<PlayClientboundPluginMessagePacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundCustomPayloadPacket>(
                 brandBytes,
             ),
         )
 
-        val unknown = PlayClientboundPluginMessagePacket(
+        val unknown = ClientboundCustomPayloadPacket(
             CustomPayload.Unknown(
                 Identifier("example:raw"),
                 ByteString(byteArrayOf(1, 2, 3)),
@@ -85,21 +85,21 @@ class PlayCommonPacketTest {
         val unknownBytes = "0b6578616d706c653a726177010203".hexToByteArray()
         assertContentEquals(
             unknownBytes,
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 unknown,
             ),
         )
         assertEquals(
             unknown,
-            MinecraftProtocolFormat.decodeFromByteArray<PlayClientboundPluginMessagePacket>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundCustomPayloadPacket>(
                 unknownBytes,
             ),
         )
 
         assertContentEquals(
             "0f6d696e6563726166743a6272616e6403616263".hexToByteArray(),
-            MinecraftProtocolFormat.encodeToByteArray(
-                PlayClientboundPluginMessagePacket(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundCustomPayloadPacket(
                     CustomPayload.Unknown(
                         Identifier("minecraft:brand"),
                         ByteString(byteArrayOf(0x03, 0x61, 0x62, 0x63)),

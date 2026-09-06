@@ -5,12 +5,12 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.decodeFromByteArray
-import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 
 internal data class NamedDataComponentSample(
     val name: String,
@@ -22,13 +22,13 @@ internal fun dataComponentTestSamples(): List<NamedDataComponentSample> =
     buildList {
         for (dataComponentType in DataComponentType.entries) {
             val kSerializer = serializerForDataComponentType(dataComponentType)
-            for (protocolSampleProfile in ProtocolSampleProfile.entries) {
+            for (packetSampleProfile in PacketSampleProfile.entries) {
                 val dataComponent = runCatching {
-                    kSerializer.protocolValue(protocolSampleProfile)
+                    kSerializer.packetSampleValue(packetSampleProfile)
                 }.getOrNull() ?: continue
                 add(
                     NamedDataComponentSample(
-                        name = "${dataComponentType.wireName.substringAfter(':')}-${protocolSampleProfile.name.lowercase()}",
+                        name = "${dataComponentType.wireName.substringAfter(':')}-${packetSampleProfile.name.lowercase()}",
                         dataComponentType = dataComponentType,
                         value = dataComponent,
                     ),
@@ -54,12 +54,12 @@ class DataComponentSerializationTest {
                     added = listOf(namedDataComponentSample.value),
                 ),
             )
-            val byteArray = MinecraftProtocolFormat.encodeToByteArray(
+            val byteArray = MinecraftPacketPayloadFormat.encodeToByteArray(
                 itemStack,
             )
             assertEquals(
                 itemStack,
-                MinecraftProtocolFormat.decodeFromByteArray<ItemStack>(
+                MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
                     byteArray,
                 ),
                 namedDataComponentSample.name,

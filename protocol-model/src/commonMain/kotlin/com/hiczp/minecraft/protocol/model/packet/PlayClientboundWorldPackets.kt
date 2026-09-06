@@ -14,7 +14,7 @@ import kotlin.uuid.Uuid
     PacketDirection.CLIENTBOUND,
     officialName = "bundle_delimiter",
 )
-data object BundleDelimiterPacket : PlayStatePacket, ClientboundPacket
+data object ClientboundBundleDelimiterPacket : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -23,20 +23,20 @@ data object BundleDelimiterPacket : PlayStatePacket, ClientboundPacket
     PacketDirection.CLIENTBOUND,
     officialName = "add_entity",
 )
-data class SpawnEntityPacket(
+data class ClientboundAddEntityPacket(
     @VarInt
-    val entityId: Int,
-    val entityUuid: Uuid,
+    val id: Int,
+    val uuid: Uuid,
     @VarInt
-    val typeId: Int,
+    val type: Int,
     val x: Double,
     val y: Double,
     val z: Double,
     @LowPrecisionVector
-    val velocity: Vector3d,
-    val pitch: Angle,
-    val yaw: Angle,
-    val headYaw: Angle,
+    val movement: Vector3d,
+    val xRot: Angle,
+    val yRot: Angle,
+    val yHeadRot: Angle,
     @VarInt
     val data: Int,
 ) : PlayStatePacket, ClientboundPacket
@@ -48,11 +48,11 @@ data class SpawnEntityPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "animate",
 )
-data class EntityAnimationPacket(
+data class ClientboundAnimatePacket(
     @VarInt
-    val entityId: Int,
+    val id: Int,
     @UnsignedByte
-    val animationId: Int,
+    val action: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -62,8 +62,8 @@ data class EntityAnimationPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "award_stats",
 )
-data class AwardStatisticsPacket(
-    val statistics: List<StatisticEntry>,
+data class ClientboundAwardStatsPacket(
+    val stats: List<StatisticEntry>,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -73,9 +73,9 @@ data class AwardStatisticsPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "block_changed_ack",
 )
-data class AcknowledgeBlockChangePacket(
+data class ClientboundBlockChangedAckPacket(
     @VarInt
-    val sequenceId: Int,
+    val sequence: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -85,12 +85,12 @@ data class AcknowledgeBlockChangePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "block_destruction",
 )
-data class SetBlockDestroyStagePacket(
+data class ClientboundBlockDestructionPacket(
     @VarInt
-    val entityId: Int,
-    val location: BlockPosition,
+    val id: Int,
+    val pos: BlockPosition,
     @UnsignedByte
-    val destroyStage: Int,
+    val progress: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -100,12 +100,12 @@ data class SetBlockDestroyStagePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "block_entity_data",
 )
-data class BlockEntityDataPacket(
-    val location: BlockPosition,
+data class ClientboundBlockEntityDataPacket(
+    val pos: BlockPosition,
     @VarInt
-    val typeId: Int,
+    val type: Int,
     @NetworkNbt
-    val data: NbtCompound,
+    val tag: NbtCompound,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -115,14 +115,14 @@ data class BlockEntityDataPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "block_event",
 )
-data class BlockActionPacket(
-    val location: BlockPosition,
+data class ClientboundBlockEventPacket(
+    val pos: BlockPosition,
     @UnsignedByte
-    val actionId: Int,
+    val b0: Int,
     @UnsignedByte
-    val actionParameter: Int,
+    val b1: Int,
     @VarInt
-    val blockTypeId: Int,
+    val block: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -132,10 +132,10 @@ data class BlockActionPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "block_update",
 )
-data class BlockUpdatePacket(
-    val location: BlockPosition,
+data class ClientboundBlockUpdatePacket(
+    val pos: BlockPosition,
     @VarInt
-    val blockStateId: Int,
+    val blockState: Int,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -145,9 +145,9 @@ data class BlockUpdatePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "boss_event",
 )
-data class BossBarPacket(
-    val uuid: Uuid,
-    val action: BossBarAction,
+data class ClientboundBossEventPacket(
+    val id: Uuid,
+    val operation: BossBarAction,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -174,7 +174,7 @@ data class ClientboundChangeDifficultyPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "chunk_batch_finished",
 )
-data class ChunkBatchFinishedPacket(
+data class ClientboundChunkBatchFinishedPacket(
     @VarInt
     val batchSize: Int,
 ) : PlayStatePacket, ClientboundPacket
@@ -186,7 +186,7 @@ data class ChunkBatchFinishedPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "chunk_batch_start",
 )
-data object ChunkBatchStartPacket : PlayStatePacket, ClientboundPacket
+data object ClientboundChunkBatchStartPacket : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
@@ -195,9 +195,16 @@ data object ChunkBatchStartPacket : PlayStatePacket, ClientboundPacket
     PacketDirection.CLIENTBOUND,
     officialName = "chunks_biomes",
 )
-data class ChunkBiomesPacket(
-    val chunks: List<ChunkBiomeData>,
-) : PlayStatePacket, ClientboundPacket
+data class ClientboundChunksBiomesPacket(
+    val chunkBiomeData: List<ChunkBiomeData>,
+) : PlayStatePacket, ClientboundPacket {
+    @Serializable
+    data class ChunkBiomeData(
+        val pos: ChunkPos,
+        @MaxByteLength(2_097_152)
+        val buffer: ByteString,
+    )
+}
 
 @Serializable
 @PacketInfo(
@@ -206,8 +213,8 @@ data class ChunkBiomesPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "clear_titles",
 )
-data class ClearTitlesPacket(
-    val reset: Boolean,
+data class ClientboundClearTitlesPacket(
+    val resetTimes: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -217,12 +224,19 @@ data class ClearTitlesPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "command_suggestions",
 )
-data class CommandSuggestionsResponsePacket(
+data class ClientboundCommandSuggestionsPacket(
     @VarInt
     val id: Int,
     @VarInt
     val start: Int,
     @VarInt
     val length: Int,
-    val matches: List<CommandSuggestionMatch>,
-) : PlayStatePacket, ClientboundPacket
+    val suggestions: List<Entry>,
+) : PlayStatePacket, ClientboundPacket {
+    @Serializable
+    data class Entry(
+        @MaxLength(32_767)
+        val text: String,
+        val tooltip: TextComponent?,
+    )
+}

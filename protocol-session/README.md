@@ -18,7 +18,12 @@ Accordingly:
 - `MinecraftClientPacketConnection` receives `ClientboundPacket` and sends `ServerboundPacket`;
 - `MinecraftServerPacketConnection` receives `ServerboundPacket` and sends `ClientboundPacket`.
 
-Both expose ordinary coroutine channels:
+Both expose ordinary coroutine channels. The high-level `MinecraftClientConnection.connect(...)` result implements
+`MinecraftClientPacketConnection`; `MinecraftServer.accept()` returns a `MinecraftServerPacketConnection`
+implementation.
+The root [client/server examples](../README.md#client-connect-to-a-server) show their construction and lifetime.
+For this lower-level helper, construct a packet appropriate to the current state, such as
+`ServerboundPingRequestPacket(payload)` after the Status response. `handleIncoming` receives each typed reply:
 
 ```kotlin
 suspend fun handleClientConnection(
@@ -51,19 +56,10 @@ Those requests are consumed by the endpoint, flushed through the connection's wr
 part of that bundle; the official server sends KeepAlive directly, so the endpoint does not inspect bundle contents for
 this behavior.
 
-The server endpoint owns challenge generation, pending-response validation, and timeout handling. Select the official
-packet pair explicitly at the protocol lifecycle boundary:
-
-```kotlin
-fun enterConfigurationKeepAlive(minecraftServerPacketConnection: MinecraftServerPacketConnection) {
-    minecraftServerPacketConnection.enableConfigurationKeepAlive()
-}
-
-fun replaceWithPlayKeepAlive(minecraftServerPacketConnection: MinecraftServerPacketConnection) {
-    minecraftServerPacketConnection.disableKeepAlive()
-    minecraftServerPacketConnection.enablePlayKeepAlive()
-}
-```
+The server endpoint owns challenge generation, pending-response validation and timeout handling. Its
+`enableKeepAlive()` method defaults to the official packet pair in both Configuration and Play. For a hand-written
+negotiation, call it after entering Configuration. Disable that run at the finish acknowledgement, await committed Play
+state, then enable a fresh run before sending Play packets. Use the server connection returned by `accept()`.
 
 Each enable call starts a fresh timer and clears any pending challenge. The default interval is 15 seconds. At each
 interval boundary, an existing pending challenge terminates the connection; otherwise the endpoint records and sends a
@@ -80,85 +76,6 @@ state. Mods with another packet pair can call the lower-level
 Connection-generated KeepAlive packets and client replies share the connection's only writer with public `outgoing`
 traffic. They take priority at the next logical packet boundary and flush immediately, but never interrupt a frame or a
 logical bundle already being written.
-
-## Definitions and registry context
-
-`MinecraftConnectionDefinition` is a shareable data description of packet codecs, the format, initial registries, and
-channel capacities. It retains those values rather than rebuilding them, so callers that supply collection-backed
-registries keep those inputs stable. Vanilla users of `MinecraftClientConnection.connect` and `MinecraftServer.bind` do
-not need to construct one: both high-level entry points default to `MinecraftConnectionDefinition()` and the built-in
-vanilla packet registry.
-
-Create a definition only when adding extension codecs, replacing the format, or changing channel capacities:
-
-```kotlin
-fun createConnectionDefinition(
-    protocolRegistryContext: ProtocolRegistryContext,
-    serializersModule: SerializersModule,
-    extensionCodecs: List<PacketCodecRegistration<out Packet>>,
-): MinecraftConnectionDefinition {
-    val minecraftProtocolFormat = MinecraftProtocolFormat(
-        minecraftProtocolFormatConfiguration = MinecraftProtocolFormat.minecraftProtocolFormatConfiguration.copy(
-            protocolRegistryContext = protocolRegistryContext,
-        ),
-        serializersModule = serializersModule,
-    )
-    return MinecraftConnectionDefinition.compose(
-        extensionCodecs = extensionCodecs,
-        minecraftProtocolFormat = minecraftProtocolFormat,
-    )
-}
-```
-
-Create one definition at application lifetime and pass it to each client connection or accepted server connection.
-Negotiation can later install a connection-specific `ProtocolRegistryContext` and activate only the extension routes the
-peer accepted.
-
-`incomingCapacity` and `outgoingCapacity` are passed to the coroutine channels. Use `outgoing.trySend()` when a tick
-must detect a full queue without suspending and apply its own slow-peer policy.
-
-## Flush queued packets
-
-`requestFlush()` is the normal tick-end operation. It returns immediately, coalesces repeated requests, and asks the
-writer to flush packets already accepted by `outgoing`:
-
-```kotlin
-fun publishTick(
-    minecraftServerPacketConnection: MinecraftServerPacketConnection,
-    clientboundPackets: Iterable<ClientboundPacket>,
-): Boolean {
-    for (clientboundPacket in clientboundPackets) {
-        if (minecraftServerPacketConnection.outgoing.trySend(clientboundPacket).isFailure) return false
-    }
-    minecraftServerPacketConnection.requestFlush()
-    return true
-}
-```
-
-Use suspending `flush()` when the calling coroutine must wait for that ordered flush. A completed flush is not proof
-that the peer received or decoded the packets; protocol acknowledgements arrive separately through `incoming`.
-
-## Clientbound bundles
-
-`ClientboundBundlePacket` is one logical Play message containing ordered sub-packets. Sending it as one channel value
-prevents another channel value from interleaving with its delimiter-bounded wire sequence:
-
-```kotlin
-suspend fun sendEntityPairing(
-    minecraftServerPacketConnection: MinecraftServerPacketConnection,
-    spawnEntityPacket: SpawnEntityPacket,
-    setEntityMetadataPacket: SetEntityMetadataPacket,
-) {
-    minecraftServerPacketConnection.outgoing.sendBundle(listOf(spawnEntityPacket, setEntityMetadataPacket))
-}
-```
-
-The client side performs the inverse operation and publishes one complete `ClientboundBundlePacket`; ordinary callers do
-not see partial bundles or delimiter packets. A bundle may contain at most 4,096 packets and cannot contain another
-bundle or a delimiter. Do not put `StartConfigurationPacket` or another terminal state-transition packet in a bundle;
-the official protocol expects it to stand alone. The library intentionally leaves this semantic rule to callers instead
-of inspecting bundle members. Send only `ClientboundBundlePacket`; raw delimiter packets are owned by the server packet
-session and are rejected at its public send boundary.
 
 ## Register custom packets
 
@@ -195,6 +112,95 @@ minecraftPacketConnection.activateExtensionRoutes(minecraftPacketConnection.acti
 Factories also cover Login queries and top-level numeric packet IDs. Valid unregistered or inactive routes arrive as
 direction-correct `UnknownPacket` values containing the complete route and payload. A malformed registered body is still
 an error, not an unknown packet.
+
+## Definitions and registry context
+
+`MinecraftConnectionDefinition` is a shareable data description of packet codecs, the format, initial registries, and
+channel capacities. It retains those values rather than rebuilding them, so callers that supply collection-backed
+registries keep those inputs stable. Vanilla users of `MinecraftClientConnection.connect` and `MinecraftServer.bind` do
+not need to construct one: both high-level entry points default to `MinecraftConnectionDefinition()` and the built-in
+vanilla packet registry.
+
+Create a definition only when adding extension codecs, replacing the format, or changing channel capacities.
+`extensionCodecs` can be `listOf(counterCodec)` from the registration above. Construct `SerializersModule { ... }` with
+application serializers (or use `EmptySerializersModule()`), and obtain `packetCodecContext` from the resolved
+Configuration result, `VanillaConfigurationData.completePacketCodecContext`, or
+`StaticRegistrySchema(registries, blocks).resolve(...)` as documented in [protocol-model](../protocol-model/README.md):
+
+```kotlin
+fun createConnectionDefinition(
+    packetCodecContext: PacketCodecContext,
+    serializersModule: SerializersModule,
+    extensionCodecs: List<PacketCodecRegistration<out Packet>>,
+): MinecraftConnectionDefinition {
+    val minecraftPacketPayloadFormat = MinecraftPacketPayloadFormat(
+        minecraftPacketPayloadFormatConfiguration = MinecraftPacketPayloadFormat.minecraftPacketPayloadFormatConfiguration.copy(
+            packetCodecContext = packetCodecContext,
+        ),
+        serializersModule = serializersModule,
+    )
+    return MinecraftConnectionDefinition.compose(
+        extensionCodecs = extensionCodecs,
+        minecraftPacketPayloadFormat = minecraftPacketPayloadFormat,
+    )
+}
+```
+
+Create one definition at application lifetime and pass it to each client connection or accepted server connection.
+Negotiation can later install a connection-specific `PacketCodecContext` and activate only the extension routes the
+peer accepted.
+
+`incomingCapacity` and `outgoingCapacity` are passed to the coroutine channels. Use `outgoing.trySend()` when a tick
+must detect a full queue without suspending and apply its own slow-peer policy.
+
+## Flush queued packets
+
+`requestFlush()` is the normal tick-end operation. It returns immediately, coalesces repeated requests, and asks the
+writer to flush packets already accepted by `outgoing`. In this example, the accepted server connection supplies
+`minecraftServerPacketConnection`; `clientboundPackets` is the application's ordered list of constructed Play packet
+values, such as `ClientboundSetChunkCacheRadiusPacket(viewDistance)`:
+
+```kotlin
+fun publishTick(
+    minecraftServerPacketConnection: MinecraftServerPacketConnection,
+    clientboundPackets: Iterable<ClientboundPacket>,
+): Boolean {
+    for (clientboundPacket in clientboundPackets) {
+        if (minecraftServerPacketConnection.outgoing.trySend(clientboundPacket).isFailure) return false
+    }
+    minecraftServerPacketConnection.requestFlush()
+    return true
+}
+```
+
+Use suspending `flush()` when the calling coroutine must wait for that ordered flush. A completed flush is not proof
+that the peer received or decoded the packets; protocol acknowledgements arrive separately through `incoming`.
+
+## Clientbound bundles
+
+`ClientboundBundlePacket` is one logical Play message containing ordered sub-packets. Sending it as one channel value
+prevents another channel value from interleaving with its delimiter-bounded wire sequence. The following inputs are
+the `ClientboundAddEntityPacket(...)` and `ClientboundSetEntityDataPacket(...)` constructed by the application's entity
+projection, or obtained from `EntityPacketEncoder.encode(...)`
+in [protocol-world](../protocol-world/README.md#entities-and-items):
+
+```kotlin
+suspend fun sendEntityPairing(
+    minecraftServerPacketConnection: MinecraftServerPacketConnection,
+    clientboundAddEntityPacket: ClientboundAddEntityPacket,
+    clientboundSetEntityDataPacket: ClientboundSetEntityDataPacket,
+) {
+    minecraftServerPacketConnection.outgoing.sendBundle(listOf(clientboundAddEntityPacket, clientboundSetEntityDataPacket))
+}
+```
+
+The client side performs the inverse operation and publishes one complete `ClientboundBundlePacket`; ordinary callers do
+not see partial bundles or delimiter packets. A bundle may contain at most 4,096 packets and cannot contain another
+bundle or a delimiter. Do not put `ClientboundStartConfigurationPacket` or another terminal state-transition packet in a
+bundle;
+the official protocol expects it to stand alone. The library intentionally leaves this semantic rule to callers instead
+of inspecting bundle members. Send only `ClientboundBundlePacket`; raw delimiter packets are owned by the server packet
+session and are rejected at its public send boundary.
 
 ## Negotiation profiles
 

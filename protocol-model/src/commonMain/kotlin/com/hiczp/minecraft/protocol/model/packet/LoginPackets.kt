@@ -13,40 +13,43 @@ import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(0x00, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "login_disconnect")
-data class LoginDisconnectPacket(
+data class ClientboundLoginDisconnectPacket(
     @MaxLength(262_144)
     val reason: JsonTextComponent,
 ) : LoginStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(0x01, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "hello")
-data class EncryptionRequestPacket(
+data class ClientboundHelloPacket(
     @MaxLength(20)
     val serverId: String,
     val publicKey: ByteString,
-    val verifyToken: ByteString,
+    val challenge: ByteString,
     val shouldAuthenticate: Boolean,
 ) : LoginStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(0x02, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "login_finished")
-data class LoginSuccessPacket(
-    val profile: GameProfile,
+data class ClientboundLoginFinishedPacket(
+    val gameProfile: GameProfile,
     val sessionId: Uuid,
 ) : LoginStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(0x03, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "login_compression")
-data class SetCompressionPacket(
+data class ClientboundLoginCompressionPacket(
     @VarInt
-    val threshold: Int,
+    val compressionThreshold: Int,
 ) : LoginStatePacket, ClientboundPacket
 
 @Serializable
-@PacketInfo(0x04, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "custom_query")
-data class LoginPluginRequestPacket(
+@PacketInfo(
+    0x04, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "custom_query",
+    shapeException = "CustomQueryPayload is a runtime interface that writes buffers; channel and owned data bytes provide its lossless, buffer-independent payload representation.",
+)
+data class ClientboundCustomQueryPacket(
     @VarInt
-    val messageId: Int,
+    val transactionId: Int,
     val channel: Identifier,
     @RemainingBytes
     @MaxByteLength(1_048_576)
@@ -54,44 +57,30 @@ data class LoginPluginRequestPacket(
 ) : LoginStatePacket, ClientboundPacket
 
 @Serializable
-@PacketInfo(0x05, ConnectionState.LOGIN, PacketDirection.CLIENTBOUND, "cookie_request")
-data class LoginCookieRequestPacket(
-    val key: Identifier,
-) : LoginStatePacket, ClientboundPacket
-
-@Serializable
 @PacketInfo(0x00, ConnectionState.LOGIN, PacketDirection.SERVERBOUND, "hello")
-data class LoginStartPacket(
+data class ServerboundHelloPacket(
     @MaxLength(16)
     val name: String,
-    val playerUuid: Uuid,
+    val profileId: Uuid,
 ) : LoginStatePacket, ServerboundPacket
 
 @Serializable
 @PacketInfo(0x01, ConnectionState.LOGIN, PacketDirection.SERVERBOUND, "key")
-data class EncryptionResponsePacket(
-    val sharedSecret: ByteString,
-    val verifyToken: ByteString,
+data class ServerboundKeyPacket(
+    val keybytes: ByteString,
+    val encryptedChallenge: ByteString,
 ) : LoginStatePacket, ServerboundPacket
 
 @Serializable
 @PacketInfo(0x02, ConnectionState.LOGIN, PacketDirection.SERVERBOUND, "custom_query_answer")
-data class LoginPluginResponsePacket(
+data class ServerboundCustomQueryAnswerPacket(
     @VarInt
-    val messageId: Int,
+    val transactionId: Int,
     @RemainingBytes
     @MaxByteLength(1_048_576)
-    val data: ByteString?,
+    val payload: ByteString?,
 ) : LoginStatePacket, ServerboundPacket
 
 @Serializable
 @PacketInfo(0x03, ConnectionState.LOGIN, PacketDirection.SERVERBOUND, "login_acknowledged")
-data object LoginAcknowledgedPacket : LoginStatePacket, ServerboundPacket
-
-@Serializable
-@PacketInfo(0x04, ConnectionState.LOGIN, PacketDirection.SERVERBOUND, "cookie_response")
-data class LoginCookieResponsePacket(
-    val key: Identifier,
-    @MaxByteLength(5_120)
-    val payload: ByteString?,
-) : LoginStatePacket, ServerboundPacket
+data object ServerboundLoginAcknowledgedPacket : LoginStatePacket, ServerboundPacket

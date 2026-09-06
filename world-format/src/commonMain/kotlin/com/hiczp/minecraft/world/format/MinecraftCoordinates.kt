@@ -10,6 +10,12 @@ import kotlin.math.floor
  * functions to this object.
  */
 object MinecraftCoordinates {
+    /** ChunkPos's long representation preserves two signed 32-bit Chunk coordinates. */
+    fun packedChunk(chunkPosition: ChunkPosition): Long =
+        (chunkPosition.x.toLong() and 0xffffffffL) or ((chunkPosition.z.toLong() and 0xffffffffL) shl 32)
+
+    fun chunkFromPacked(packed: Long): ChunkPosition = ChunkPosition(packed.toInt(), (packed ushr 32).toInt())
+
     /** Returns the Block containing a continuous world position. */
     fun block(x: Double, y: Double, z: Double): BlockPosition =
         BlockPosition(blockCoordinate(x), blockCoordinate(y), blockCoordinate(z))

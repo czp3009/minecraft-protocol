@@ -3,10 +3,6 @@ package com.hiczp.minecraft.buildlogic
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.KModifier.INTERNAL
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
-import kotlinx.serialization.json.*
-import org.gradle.api.DefaultTask
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.tasks.*
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
@@ -15,6 +11,10 @@ import java.util.zip.GZIPOutputStream
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
+import kotlinx.serialization.json.*
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.*
 
 /** Generates a portable manifest and independently loaded per-pack payloads from extracted official data packs. */
 @CacheableTask
@@ -31,7 +31,7 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         val extractedDataPacksDirectoryPath = extractedDataPacksDirectory.asFile.get().toPath()
         val manifestPath = extractedDataPacksDirectoryPath.resolve(MANIFEST_FILE)
         check(manifestPath.isRegularFile()) { "Official data-pack manifest is missing: $manifestPath" }
-        val dataPackManifest = protocolJson.decodeFromString<JsonObject>(manifestPath.readText())
+        val dataPackManifest = buildLogicJson.decodeFromString<JsonObject>(manifestPath.readText())
         check(dataPackManifest.getValue("schema_version").jsonPrimitive.int == EXTRACTION_SCHEMA_VERSION) {
             "Unsupported official data-pack extraction schema"
         }
@@ -217,7 +217,7 @@ abstract class GenerateVanillaDataPackSourcesTask : DefaultTask() {
         private const val EXTRACTION_SCHEMA_VERSION = 1
         private const val PAYLOAD_SCHEMA_VERSION = 4
         private const val MANIFEST_FILE = "manifest.json"
-        private const val GENERATED_PACKAGE = "com.hiczp.minecraft.protocol.datapack.vanilla"
+        private const val GENERATED_PACKAGE = "com.hiczp.minecraft.world.format.datapack.vanilla"
         private const val SOURCE_CHUNK_SIZE = 12_000
         private val LIST_OF = MemberName("kotlin.collections", "listOf")
 

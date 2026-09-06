@@ -15,16 +15,16 @@ class PlayClientboundUpdatePacketTest {
     @Test
     fun `transfer and attributes use current registry and modifier codecs`() {
         assertPacketBytes(
-            PlayTransferPacket("x", 255),
-            PlayTransferPacket.serializer(),
+            ClientboundTransferPacket("x", 255),
+            ClientboundTransferPacket.serializer(),
             "0178ff01",
         )
-        val updateAttributesPacket = UpdateAttributesPacket(
+        val clientboundUpdateAttributesPacket = ClientboundUpdateAttributesPacket(
             entityId = 1,
             attributes = listOf(
-                AttributeSnapshot(
-                    attributeTypeId = 300,
-                    baseValue = 1.0,
+                ClientboundUpdateAttributesPacket.AttributeSnapshot(
+                    attribute = 300,
+                    base = 1.0,
                     modifiers = listOf(
                         AttributeModifier(
                             Identifier("minecraft:x"),
@@ -36,12 +36,12 @@ class PlayClientboundUpdatePacketTest {
             ),
         )
         assertPacketBytes(
-            updateAttributesPacket,
-            UpdateAttributesPacket.serializer(),
+            clientboundUpdateAttributesPacket,
+            ClientboundUpdateAttributesPacket.serializer(),
             "0101ac023ff0000000000000010b6d696e6563726166743a78c00000000000000002",
         )
 
-        val invalidOperation = MinecraftProtocolFormat.decodeFromByteArray<UpdateAttributesPacket>(
+        val invalidOperation = MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundUpdateAttributesPacket>(
             "0101010000000000000000010b6d696e6563726166743a7800000000000000008001".hexToByteArray(),
         )
         assertEquals(
@@ -53,11 +53,11 @@ class PlayClientboundUpdatePacketTest {
     @Test
     fun `attribute list keeps official maximum of 128`() {
         val attributes = List(129) {
-            AttributeSnapshot(0, 0.0, emptyList())
+            ClientboundUpdateAttributesPacket.AttributeSnapshot(0, 0.0, emptyList())
         }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
-                UpdateAttributesPacket(1, attributes),
+            MinecraftPacketPayloadFormat.encodeToByteArray(
+                ClientboundUpdateAttributesPacket(1, attributes),
             )
         }
     }
@@ -65,33 +65,36 @@ class PlayClientboundUpdatePacketTest {
     @Test
     fun `mob effect preserves raw flag bits including unknown bits`() {
         assertPacketBytes(
-            EntityEffectPacket(
+            ClientboundUpdateMobEffectPacket(
                 entityId = 1,
-                effectTypeId = 2,
-                amplifier = 3,
-                durationTicks = -1,
+                effect = 2,
+                effectAmplifier = 3,
+                effectDurationTicks = -1,
                 flags = MobEffectFlags(0xFF.toByte()),
             ),
-            EntityEffectPacket.serializer(),
+            ClientboundUpdateMobEffectPacket.serializer(),
             "010203ffffffff0fff",
         )
     }
 
     @Test
     fun `play tag update is nested prefixed registry and tag data`() {
-        val playUpdateTagsPacket = PlayUpdateTagsPacket(
-            linkedMapOf(
-                Identifier("minecraft:block") to listOf(
+        val clientboundUpdateTagsPacket = ClientboundUpdateTagsPacket(
+            listOf(
+                RegistryTags(
+                    Identifier("minecraft:block"),
+                    listOf(
                     TagDefinition(
                         Identifier("minecraft:test"),
                         listOf(1, 300),
                     ),
                 ),
+                )
             ),
         )
         assertPacketBytes(
-            playUpdateTagsPacket,
-            PlayUpdateTagsPacket.serializer(),
+            clientboundUpdateTagsPacket,
+            ClientboundUpdateTagsPacket.serializer(),
             "010f6d696e6563726166743a626c6f636b010e6d696e6563726166743a746573740201ac02",
         )
     }
@@ -99,27 +102,27 @@ class PlayClientboundUpdatePacketTest {
     @Test
     fun `projectile report details and clear dialog use direct shapes`() {
         assertPacketBytes(
-            ProjectilePowerPacket(300, 1.0),
-            ProjectilePowerPacket.serializer(),
+            ClientboundProjectilePowerPacket(300, 1.0),
+            ClientboundProjectilePowerPacket.serializer(),
             "ac023ff0000000000000",
         )
         assertPacketBytes(
-            PlayCustomReportDetailsPacket(
+            ClientboundCustomReportDetailsPacket(
                 listOf(ReportDetail("x", "y")),
             ),
-            PlayCustomReportDetailsPacket.serializer(),
+            ClientboundCustomReportDetailsPacket.serializer(),
             "0101780179",
         )
         assertPacketBytes(
-            ClearDialogPacket,
-            ClearDialogPacket.serializer(),
+            ClientboundClearDialogPacket,
+            ClientboundClearDialogPacket.serializer(),
             "",
         )
     }
 
     @Test
     fun `server links support built-in and component labels`() {
-        val builtIn = PlayServerLinksPacket(
+        val builtIn = ClientboundServerLinksPacket(
             listOf(
                 ServerLink(
                     ServerLinkLabel.BuiltIn(BuiltInServerLinkLabel.BUG_REPORT),
@@ -129,11 +132,11 @@ class PlayClientboundUpdatePacketTest {
         )
         assertPacketBytes(
             builtIn,
-            PlayServerLinksPacket.serializer(),
+            ClientboundServerLinksPacket.serializer(),
             "0101000175",
         )
 
-        val custom = PlayServerLinksPacket(
+        val custom = ClientboundServerLinksPacket(
             listOf(
                 ServerLink(
                     ServerLinkLabel.Custom(
@@ -145,11 +148,11 @@ class PlayClientboundUpdatePacketTest {
         )
         assertPacketBytes(
             custom,
-            PlayServerLinksPacket.serializer(),
+            ClientboundServerLinksPacket.serializer(),
             "0100080001780175",
         )
 
-        val invalidBuiltIn = MinecraftProtocolFormat.decodeFromByteArray<PlayServerLinksPacket>(
+        val invalidBuiltIn = MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundServerLinksPacket>(
             "01017f0175".hexToByteArray(),
         )
         assertEquals(
@@ -166,11 +169,11 @@ class PlayClientboundUpdatePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

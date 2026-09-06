@@ -15,12 +15,12 @@ import kotlinx.serialization.Serializable
     PacketDirection.SERVERBOUND,
     officialName = "chat_command_signed",
 )
-data class SignedChatCommandPacket(
+data class ServerboundChatCommandSignedPacket(
     @MaxLength(32_767)
     val command: String,
-    val timestampEpochMillis: Long,
+    val timeStamp: Long,
     val salt: Long,
-    val arguments: SignedCommandArguments,
+    val argumentSignatures: SignedCommandArguments,
     val lastSeenMessages: LastSeenMessagesUpdate,
 ) : PlayStatePacket, ServerboundPacket
 
@@ -31,10 +31,10 @@ data class SignedChatCommandPacket(
     PacketDirection.SERVERBOUND,
     officialName = "chat",
 )
-data class ChatMessagePacket(
+data class ServerboundChatPacket(
     @MaxLength(256)
     val message: String,
-    val timestampEpochMillis: Long,
+    val timeStamp: Long,
     val salt: Long,
     @FixedLength(256)
     val signature: ByteString?,
@@ -48,6 +48,6 @@ data class ChatMessagePacket(
     PacketDirection.SERVERBOUND,
     officialName = "chat_session_update",
 )
-data class PlayerSessionPacket(
-    val session: ChatSessionData,
+data class ServerboundChatSessionUpdatePacket(
+    val chatSession: ChatSessionData,
 ) : PlayStatePacket, ServerboundPacket

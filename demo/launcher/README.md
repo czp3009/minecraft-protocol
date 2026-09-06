@@ -68,60 +68,21 @@ cd demo/launcher/build/install/launcher-jvm
 ./bin/launcher
 ```
 
-## Windows Native
+## Native distributions
 
-Install the x64 executable distribution:
+Run the install task matching your host, then enter the indicated distribution directory and start its executable:
+
+| Host        | Gradle task                                  | Directory below `demo/launcher/build/install/` | Executable        |
+|-------------|----------------------------------------------|------------------------------------------------|-------------------|
+| Windows x64 | `:demo:launcher:installMingwX64Executable`   | `launcher-mingwX64`                            | `.\launcher.exe`  |
+| Linux x64   | `:demo:launcher:installLinuxX64Executable`   | `launcher-linuxX64`                            | `./launcher.kexe` |
+| Linux ARM64 | `:demo:launcher:installLinuxArm64Executable` | `launcher-linuxArm64`                          | `./launcher.kexe` |
+| macOS ARM64 | `:demo:launcher:installMacosArm64Executable` | `launcher-macosArm64`                          | `./launcher.kexe` |
+
+For example, on Windows:
 
 ```powershell
 .\gradlew.bat :demo:launcher:installMingwX64Executable
-```
-
-Enter the generated application directory and run it:
-
-```powershell
 Set-Location demo/launcher/build/install/launcher-mingwX64
 .\launcher.exe
-```
-
-## Linux Native
-
-Install the x64 executable distribution:
-
-```shell
-./gradlew :demo:launcher:installLinuxX64Executable
-```
-
-Enter the generated application directory and run it:
-
-```shell
-cd demo/launcher/build/install/launcher-linuxX64
-./launcher.kexe
-```
-
-On Linux ARM64, install the matching executable distribution:
-
-```shell
-./gradlew :demo:launcher:installLinuxArm64Executable
-```
-
-Enter the generated application directory and run it:
-
-```shell
-cd demo/launcher/build/install/launcher-linuxArm64
-./launcher.kexe
-```
-
-## macOS Native
-
-Install the ARM64 executable distribution:
-
-```shell
-./gradlew :demo:launcher:installMacosArm64Executable
-```
-
-Enter the generated application directory and run it:
-
-```shell
-cd demo/launcher/build/install/launcher-macosArm64
-./launcher.kexe
 ```

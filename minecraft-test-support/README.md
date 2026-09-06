@@ -49,7 +49,9 @@ probe succeeds. Callers therefore receive a reachable server rather than merely 
 ## Drive a headless official client
 
 `newHeadlessClient` returns after HMC-Specifics is ready and a correlated GUI query observes the vanilla title screen.
-It does not connect automatically:
+It does not connect automatically. Bind the test server before this call and pass its port as `testServerPort`.
+`recordControlState` receives the `HeadlessMinecraftClientState` returned by `connectHeadlessClient`; the other callback
+waits for and asserts packets observed on the test server's accepted connection:
 
 ```kotlin
 suspend fun connectOfficialClient(
@@ -69,8 +71,6 @@ suspend fun connectOfficialClient(
     }
 }
 ```
-
-The parameters make the loopback server, optional diagnostic recording, and packet-level assertion explicit.
 
 `connectHeadlessClient` returns a correlated post-command `HeadlessMinecraftClientState`. `headlessClientState` requests
 another correlated snapshot, and `disconnectHeadlessClient` waits for a newly observed title screen.

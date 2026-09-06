@@ -10,8 +10,8 @@ hashes. Integrity checks, filesystem operations, installation, and launching rem
 ## HTTP client
 
 Create `MinecraftDistributionMetadataApiClient` with a caller-configured, caller-closed Ktor `HttpClient`. The caller
-installs JSON content negotiation for typed metadata operations; streaming downloads do not require it. The module does
-not create an engine, install plugins, or close the client. The client delegates the public
+installs JSON content negotiation for typed metadata operations; streaming downloads do not require it. The client
+delegates the public
 `MinecraftDistributionMetadataApi` contract to the module's Ktorfit-generated implementation, so consumers do not apply
 the Ktorfit or KSP Gradle plugins.
 
@@ -33,13 +33,12 @@ val minecraftDistributionMetadataApi = MinecraftDistributionMetadataApiClient(ap
 ## Resolve the current release and its assets
 
 This example follows the release selected by Version Manifest V2 and turns every asset-index entry into a download
-descriptor without downloading the asset bytes. `applicationHttpClient` is the configured client from above.
+descriptor without downloading the asset bytes. Pass the `minecraftDistributionMetadataApi` constructed above:
 
 ```kotlin
 suspend fun currentReleaseAssetDownloads(
-    applicationHttpClient: HttpClient,
+    minecraftDistributionMetadataApi: MinecraftDistributionMetadataApi,
 ): List<MinecraftDownload> {
-    val minecraftDistributionMetadataApi = MinecraftDistributionMetadataApiClient(applicationHttpClient)
     val minecraftVersionManifest = minecraftDistributionMetadataApi.versionManifest()
     val minecraftVersionReference = minecraftVersionManifest.versions.single {
         it.id == minecraftVersionManifest.latest.release
@@ -81,8 +80,8 @@ artifacts. Retry, cache, offline, persistence, and installation policy remain wi
 ## Streaming downloads
 
 `download(url)` prepares a Ktor `HttpStatement` for any caller-supplied URL. Preparing the statement performs no
-request;
-each execution sends a GET using the caller's client configuration. Consume the response inside `execute { ... }` to
+request; each execution sends a GET using the caller's client configuration. Consume the response inside
+`execute { ... }` to
 stream it. Ktor releases the response when the block completes, including early completion, failure, and cancellation;
 the response channel must not escape the block. Calling the parameterless `execute()` instead buffers the response.
 
@@ -97,7 +96,9 @@ These extensions on `MinecraftDistributionMetadataApi` delegate to the same URL 
 Asset hashes identify individual resource objects. The asset-index JSON document itself has a full URL in version
 metadata and is read through `assetIndex(url)`.
 
-For example, the caller can copy a download into a supplied `kotlinx.io.RawSink` using Ktor's channel API:
+Select a `MinecraftDownload` from `currentReleaseAssetDownloads(minecraftDistributionMetadataApi)` above and supply a
+caller-owned `kotlinx.io.RawSink`, such as an in-memory `Buffer` or a platform file sink. This function copies the
+selected download without closing the caller's sink:
 
 ```kotlin
 suspend fun copyDownload(
@@ -109,6 +110,4 @@ suspend fun copyDownload(
 }
 ```
 
-The download APIs do not validate hash syntax, declared size, URL hosts, or response bytes. Descriptor fields remain
-available for caller-owned integrity checks. Progress reporting, buffering, persistence, retries, and caching are also
-caller decisions.
+Use the response stream for application-owned progress reporting, buffering or integrity checks.

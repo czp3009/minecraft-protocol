@@ -1,15 +1,19 @@
 package com.hiczp.minecraft.protocol.serialization
 
-import com.hiczp.minecraft.protocol.model.type.ChunkData
-import com.hiczp.minecraft.protocol.model.type.ChunkSection
+import com.hiczp.minecraft.protocol.model.packet.ClientboundLevelChunkPacketData
+import com.hiczp.minecraft.protocol.model.packet.ClientboundLevelChunkWithLightPacket
+import com.hiczp.minecraft.protocol.model.type.BitSet
+import com.hiczp.minecraft.protocol.model.type.ByteString
+import com.hiczp.minecraft.protocol.model.type.ClientboundLightUpdatePacketData
+import com.hiczp.minecraft.protocol.model.type.LevelChunkSectionData
 import com.hiczp.minecraft.protocol.model.type.PackedLongArray
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
-import kotlinx.serialization.decodeFromByteArray
-import kotlinx.serialization.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 
 class ChunkSerializationTest {
     @Test
@@ -19,42 +23,67 @@ class ChunkSerializationTest {
 
         assertContentEquals(
             expected,
-            testMinecraftProtocolFormat().encodeToByteArray(chunkSection),
+            testMinecraftPacketPayloadFormat().encodeToByteArray(chunkSection),
         )
         assertEquals(
             expected = chunkSection,
-            actual = testMinecraftProtocolFormat().decodeFromByteArray<ChunkSection>(expected),
+            actual = testMinecraftPacketPayloadFormat().decodeFromByteArray<LevelChunkSectionData>(expected),
         )
     }
 
     @Test
-    fun `chunk section list is byte length prefixed and dimension sized`() {
-        val chunkData = ChunkData(
+    fun `chunk packet bytes do not require a dimension or registries`() {
+        val sectionFormat = sectionFormat(1)
+        val chunkData = ClientboundLevelChunkPacketData(
             heightmaps = emptyMap(),
-            sections = listOf(wikiExampleSection()),
-            blockEntities = emptyList(),
+            buffer = sectionFormat.encode(listOf(wikiExampleSection())),
+            blockEntitiesData = emptyList(),
         )
-        val minecraftProtocolFormat = testMinecraftProtocolFormat(chunkSectionCount = 1)
         val expected = "001200000000000001022703ccffccffccffccff00".hexToByteArray()
 
         assertContentEquals(
             expected,
-            minecraftProtocolFormat.encodeToByteArray(chunkData),
+            MinecraftPacketPayloadFormat.encodeToByteArray(chunkData),
         )
         assertEquals(
             chunkData,
-            minecraftProtocolFormat.decodeFromByteArray<ChunkData>(expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundLevelChunkPacketData>(expected),
         )
+        assertEquals(listOf(wikiExampleSection()), sectionFormat.decode(chunkData.buffer))
 
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<ChunkData>(expected)
+            sectionFormat(2).decode(chunkData.buffer)
         }
+        assertFailsWith<IllegalArgumentException> {
+            sectionFormat(2).encode(listOf(wikiExampleSection()))
+        }
+
+        val opaqueData = chunkData.copy(buffer = ByteString(byteArrayOf(127)))
+        val mask = BitSet(longArrayOf())
+        val packet = ClientboundLevelChunkWithLightPacket(
+            -12, 9, opaqueData, ClientboundLightUpdatePacketData(mask, mask, mask, mask, emptyList(), emptyList()),
+        )
+        val bytes = MinecraftPacketPayloadFormat.encodeToByteArray(packet)
+        assertEquals(
+            packet,
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundLevelChunkWithLightPacket>(bytes)
+        )
+        assertFailsWith<MinecraftSerializationException> { sectionFormat.decode(opaqueData.buffer) }
+    }
+
+    @Test
+    fun `raw section length and section payload bounds have separate owners`() {
+        val sectionFormat = sectionFormat(1)
+        val bytes = sectionFormat.encode(listOf(wikiExampleSection())).toByteArray()
+        assertFailsWith<MinecraftSerializationException> { sectionFormat.decode(ByteString(bytes.copyOf(bytes.size - 1))) }
+        assertFailsWith<MinecraftSerializationException> { sectionFormat.decode(ByteString(bytes.copyOf(bytes.size + 1))) }
+        assertFailsWith<IllegalArgumentException> { sectionFormat(-1) }
+        val oversized = ClientboundLevelChunkPacketData(
+            emptyMap(), ByteString(ByteArray(ClientboundLevelChunkPacketData.TWO_MEGABYTES + 1)), emptyList(),
+        )
+        assertFailsWith<MinecraftSerializationException> { MinecraftPacketPayloadFormat.encodeToByteArray(oversized) }
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat(
-                MinecraftProtocolFormatConfiguration(
-                    protocolRegistryContext = testProtocolRegistryContext(chunkSectionCount = 2),
-                ),
-            ).encodeToByteArray(chunkData)
+            MinecraftPacketPayloadFormat.decodeFromByteArray<ClientboundLevelChunkPacketData>("0081808001".hexToByteArray())
         }
     }
 
@@ -62,20 +91,20 @@ class ChunkSerializationTest {
     fun `direct palettes derive bits and packed length from registries`() {
         val blockData = PackedLongArray(LongArray(1_024))
         val biomeData = PackedLongArray(LongArray(8))
-        val chunkSection = ChunkSection(
-            nonAirBlockCount = 0,
+        val chunkSection = LevelChunkSectionData(
+            nonEmptyBlockCount = 0,
             fluidCount = 0,
-            blockStates = PalettedContainer.Direct(blockData),
+            states = PalettedContainer.Direct(blockData),
             biomes = PalettedContainer.Direct(biomeData),
         )
 
-        val minecraftProtocolFormat = testMinecraftProtocolFormat()
-        val encoded = minecraftProtocolFormat.encodeToByteArray(chunkSection)
+        val minecraftPacketPayloadFormat = testMinecraftPacketPayloadFormat()
+        val encoded = minecraftPacketPayloadFormat.encodeToByteArray(chunkSection)
         assertEquals(15, encoded[4].toInt() and 0xFF)
         assertEquals(7, encoded[4 + 1 + 1_024 * Long.SIZE_BYTES].toInt() and 0xFF)
         assertEquals(
             chunkSection,
-            minecraftProtocolFormat.decodeFromByteArray<ChunkSection>(encoded),
+            minecraftPacketPayloadFormat.decodeFromByteArray<LevelChunkSectionData>(encoded),
         )
     }
 
@@ -90,27 +119,27 @@ class ChunkSerializationTest {
         raw[index++] = 0
         raw[index] = 0
 
-        val minecraftProtocolFormat = testMinecraftProtocolFormat()
-        val decoded = minecraftProtocolFormat.decodeFromByteArray<ChunkSection>(raw)
+        val minecraftPacketPayloadFormat = testMinecraftPacketPayloadFormat()
+        val decoded = minecraftPacketPayloadFormat.decodeFromByteArray<LevelChunkSectionData>(raw)
         assertEquals(
             PalettedContainer.Indirect(
                 bitsPerEntry = 4,
                 palette = listOf(0),
                 data = PackedLongArray(LongArray(256)),
             ),
-            decoded.blockStates,
+            decoded.states,
         )
 
-        val canonical = minecraftProtocolFormat.encodeToByteArray(decoded)
+        val canonical = minecraftPacketPayloadFormat.encodeToByteArray(decoded)
         assertEquals(4, canonical[4].toInt() and 0xFF)
     }
 
     @Test
     fun `palettes reject wrong packed sizes and unknown registry IDs`() {
-        val invalidSize = ChunkSection(
-            nonAirBlockCount = 0,
+        val invalidSize = LevelChunkSectionData(
+            nonEmptyBlockCount = 0,
             fluidCount = 0,
-            blockStates = PalettedContainer.Indirect(
+            states = PalettedContainer.Indirect(
                 bitsPerEntry = 4,
                 palette = listOf(0),
                 data = PackedLongArray(LongArray(255)),
@@ -118,26 +147,26 @@ class ChunkSerializationTest {
             biomes = PalettedContainer.Single(0),
         )
         assertFailsWith<MinecraftSerializationException> {
-            testMinecraftProtocolFormat().encodeToByteArray(invalidSize)
+            testMinecraftPacketPayloadFormat().encodeToByteArray(invalidSize)
         }
 
-        val invalidId = ChunkSection(
-            nonAirBlockCount = 0,
+        val invalidId = LevelChunkSectionData(
+            nonEmptyBlockCount = 0,
             fluidCount = 0,
-            blockStates = PalettedContainer.Single(
+            states = PalettedContainer.Single(
                 TEST_BLOCK_STATE_REGISTRY_SIZE,
             ),
             biomes = PalettedContainer.Single(0),
         )
         assertFailsWith<MinecraftSerializationException> {
-            testMinecraftProtocolFormat().encodeToByteArray(invalidId)
+            testMinecraftPacketPayloadFormat().encodeToByteArray(invalidId)
         }
     }
 
-    private fun wikiExampleSection(): ChunkSection = ChunkSection(
-        nonAirBlockCount = 0,
+    private fun wikiExampleSection(): LevelChunkSectionData = LevelChunkSectionData(
+        nonEmptyBlockCount = 0,
         fluidCount = 0,
-        blockStates = PalettedContainer.Single(0),
+        states = PalettedContainer.Single(0),
         biomes = PalettedContainer.Indirect(
             bitsPerEntry = 1,
             palette = listOf(39, 3),
@@ -145,5 +174,9 @@ class ChunkSerializationTest {
                 longArrayOf(0xCCFFCCFFCCFFCCFFuL.toLong()),
             ),
         ),
+    )
+
+    private fun sectionFormat(sectionCount: Int) = MinecraftChunkSectionPayloadFormat(
+        MinecraftChunkSectionPayloadFormatConfiguration(testPacketCodecContext(), sectionCount),
     )
 }

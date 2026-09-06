@@ -8,7 +8,7 @@ import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.wire.RemainingBytes
 import com.hiczp.minecraft.protocol.model.wire.VarInt
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
@@ -67,7 +67,7 @@ object NeoForgeSplitPayloads {
         encodeTarget(routedCustomPayload).size
 
     private fun encodeTarget(routedCustomPayload: RoutedCustomPayload): ByteArray =
-        MinecraftProtocolFormat.Default.encodeToByteArray(
+        MinecraftPacketPayloadFormat.Default.encodeToByteArray(
             NeoForgeSplitTarget(
                 routedCustomPayload.route.packetId,
                 routedCustomPayload.route.channel,
@@ -140,7 +140,7 @@ class NeoForgeSplitAssembler {
             offset += fragment.size
         }
         clear()
-        val neoForgeSplitTarget = MinecraftProtocolFormat.Default.decodeFromByteArray<NeoForgeSplitTarget>(
+        val neoForgeSplitTarget = MinecraftPacketPayloadFormat.Default.decodeFromByteArray<NeoForgeSplitTarget>(
             targetBytes,
         )
         return RoutedCustomPayload(

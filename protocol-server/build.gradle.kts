@@ -57,12 +57,13 @@ kotlin {
             api(project(":protocol-session"))
             api(project(":protocol-transport"))
             api(project(":protocol-auth"))
-            api(project(":protocol-datapack"))
+            api(project(":protocol-configuration"))
+            api(project(":protocol-world"))
             api(project(":world-format"))
             api(libs.ktor.client.core)
             api(libs.ktor.network)
             api(libs.ktor.utils)
-            implementation(project(":protocol-datapack-vanilla"))
+            implementation(project(":protocol-configuration-vanilla"))
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
         }
@@ -70,6 +71,7 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(project(":nbt"))
+            implementation(project(":datapack-vanilla"))
             implementation(project(":protocol-client"))
             implementation(project(":minecraft-test-support"))
             implementation(libs.kotlinx.coroutines.test)

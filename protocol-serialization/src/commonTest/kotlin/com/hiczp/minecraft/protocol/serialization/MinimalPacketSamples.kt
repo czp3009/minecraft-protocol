@@ -15,12 +15,12 @@ import kotlinx.serialization.modules.EmptySerializersModule
 import kotlinx.serialization.modules.SerializersModule
 import kotlin.uuid.Uuid
 
-/** Constructs a protocol-valid test value for the selected sample [protocolSampleProfile]. */
-internal fun <T> KSerializer<T>.protocolValue(
-    protocolSampleProfile: ProtocolSampleProfile,
-): T = deserialize(MinimalProtocolValueDecoder(protocolSampleProfile = protocolSampleProfile))
+/** Constructs a protocol-valid test value for the selected sample [packetSampleProfile]. */
+internal fun <T> KSerializer<T>.packetSampleValue(
+    packetSampleProfile: PacketSampleProfile,
+): T = deserialize(MinimalPacketValueDecoder(packetSampleProfile = packetSampleProfile))
 
-internal enum class ProtocolSampleProfile {
+internal enum class PacketSampleProfile {
     MINIMAL,
     NON_NULL,
     NON_EMPTY_COLLECTIONS,
@@ -28,8 +28,8 @@ internal enum class ProtocolSampleProfile {
     LAST_ENUM,
 }
 
-private class MinimalProtocolValueDecoder(
-    private val protocolSampleProfile: ProtocolSampleProfile,
+private class MinimalPacketValueDecoder(
+    private val packetSampleProfile: PacketSampleProfile,
     private val annotations: List<Annotation> = emptyList(),
     private val structureSerialName: String? = null,
 ) : AbstractDecoder(), NbtTagDecoder {
@@ -37,8 +37,8 @@ private class MinimalProtocolValueDecoder(
 
     override fun beginStructure(
         descriptor: SerialDescriptor,
-    ): CompositeDecoder = MinimalProtocolValueDecoder(
-        protocolSampleProfile,
+    ): CompositeDecoder = MinimalPacketValueDecoder(
+        packetSampleProfile,
         annotations,
         descriptor.serialName,
     )
@@ -50,10 +50,10 @@ private class MinimalProtocolValueDecoder(
 
     override fun decodeCollectionSize(descriptor: SerialDescriptor): Int =
         annotations.filterIsInstance<FixedLength>().singleOrNull()?.bytes
-            ?: if (protocolSampleProfile == ProtocolSampleProfile.NON_EMPTY_COLLECTIONS) 1 else 0
+            ?: if (packetSampleProfile == PacketSampleProfile.NON_EMPTY_COLLECTIONS) 1 else 0
 
     override fun decodeBoolean(): Boolean =
-        protocolSampleProfile == ProtocolSampleProfile.TRUE_BOOLEANS
+        packetSampleProfile == PacketSampleProfile.TRUE_BOOLEANS
 
     override fun decodeByte(): Byte = 1
 
@@ -107,19 +107,17 @@ private class MinimalProtocolValueDecoder(
 
     override fun decodeEnum(enumDescriptor: SerialDescriptor): Int =
         when {
-            protocolSampleProfile == ProtocolSampleProfile.LAST_ENUM ->
+            packetSampleProfile == PacketSampleProfile.LAST_ENUM ->
                 enumDescriptor.elementsCount - 1
-
-            enumDescriptor.serialName.endsWith(".HandshakeNextState") -> 1
             enumDescriptor.serialName.endsWith(".DebugSubscriptionType") -> 1
             else -> 0
         }
 
     override fun decodeNotNullMark(): Boolean =
-        protocolSampleProfile == ProtocolSampleProfile.NON_NULL
+        packetSampleProfile == PacketSampleProfile.NON_NULL
 
     override fun decodeInline(descriptor: SerialDescriptor) =
-        MinimalProtocolValueDecoder(protocolSampleProfile, annotations)
+        MinimalPacketValueDecoder(packetSampleProfile, annotations)
 
     override fun <T> decodeSerializableElement(
         descriptor: SerialDescriptor,
@@ -127,8 +125,8 @@ private class MinimalProtocolValueDecoder(
         deserializer: DeserializationStrategy<T>,
         previousValue: T?,
     ): T {
-        return MinimalProtocolValueDecoder(
-            protocolSampleProfile,
+        return MinimalPacketValueDecoder(
+            packetSampleProfile,
             descriptor.getElementAnnotations(index),
         ).decodeSerializableValue(
             deserializer,

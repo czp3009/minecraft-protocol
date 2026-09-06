@@ -3,10 +3,10 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
-import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlinx.serialization.KSerializer
 
 class PlayClientboundGamePacketTest {
     @Test
@@ -38,8 +38,8 @@ class PlayClientboundGamePacketTest {
     @Test
     fun `entity event uses fixed Int followed by raw Byte`() {
         assertPacketBytes(
-            EntityEventPacket(entityId = 1, eventId = -1),
-            EntityEventPacket.serializer(),
+            ClientboundEntityEventPacket(entityId = 1, eventId = -1),
+            ClientboundEntityEventPacket.serializer(),
             "00000001ff",
         )
     }
@@ -47,8 +47,8 @@ class PlayClientboundGamePacketTest {
     @Test
     fun `entity position sync follows PositionMoveRotation codec order`() {
         assertPacketBytes(
-            TeleportEntityPacket(
-                entityId = 300,
+            ClientboundEntityPositionSyncPacket(
+                id = 300,
                 values = PositionMoveRotation(
                     position = Vector3d(1.0, 2.0, 3.0),
                     deltaMovement = Vector3d(-1.0, 0.0, 0.5),
@@ -57,7 +57,7 @@ class PlayClientboundGamePacketTest {
                 ),
                 onGround = true,
             ),
-            TeleportEntityPacket.serializer(),
+            ClientboundEntityPositionSyncPacket.serializer(),
             "ac023ff000000000000040000000000000004008000000000000bff000000000000000000000000000003fe000000000000042b40000c234000001",
         )
     }
@@ -65,8 +65,8 @@ class PlayClientboundGamePacketTest {
     @Test
     fun `packed chunk packets put Z in the high half before X`() {
         assertPacketBytes(
-            UnloadChunkPacket(chunkZ = 2, chunkX = 1),
-            UnloadChunkPacket.serializer(),
+            ClientboundForgetLevelChunkPacket(ChunkPos(1, 2)),
+            ClientboundForgetLevelChunkPacket.serializer(),
             "0000000200000001",
         )
     }
@@ -74,11 +74,11 @@ class PlayClientboundGamePacketTest {
     @Test
     fun `game event is unsigned byte plus float`() {
         assertPacketBytes(
-            GameEventPacket(
+            ClientboundGameEventPacket(
                 GameEventType.LEVEL_CHUNKS_LOAD_START,
                 1.0f,
             ),
-            GameEventPacket.serializer(),
+            ClientboundGameEventPacket.serializer(),
             "0d3f800000",
         )
     }
@@ -86,10 +86,10 @@ class PlayClientboundGamePacketTest {
     @Test
     fun `game rules are a VarInt-prefixed identifier string map`() {
         assertPacketBytes(
-            GameRuleValuesPacket(
+            ClientboundGameRuleValuesPacket(
                 linkedMapOf(Identifier("minecraft:x") to "true"),
             ),
-            GameRuleValuesPacket.serializer(),
+            ClientboundGameRuleValuesPacket.serializer(),
             "010b6d696e6563726166743a780474727565",
         )
     }
@@ -97,20 +97,20 @@ class PlayClientboundGamePacketTest {
     @Test
     fun `game test and horse screen fields use their distinct integer forms`() {
         assertPacketBytes(
-            GameTestHighlightPositionPacket(
-                absolutePosition = BlockPosition(0, 0, 0),
-                relativePosition = BlockPosition(1, 2, 3),
+            ClientboundGameTestHighlightPosPacket(
+                absolutePos = BlockPosition(0, 0, 0),
+                relativePos = BlockPosition(1, 2, 3),
             ),
-            GameTestHighlightPositionPacket.serializer(),
+            ClientboundGameTestHighlightPosPacket.serializer(),
             "00000000000000000000004000003002",
         )
         assertPacketBytes(
-            OpenHorseScreenPacket(
+            ClientboundMountScreenOpenPacket(
                 containerId = 300,
                 inventoryColumns = 3,
                 entityId = 1,
             ),
-            OpenHorseScreenPacket.serializer(),
+            ClientboundMountScreenOpenPacket.serializer(),
             "ac020300000001",
         )
     }
@@ -118,27 +118,27 @@ class PlayClientboundGamePacketTest {
     @Test
     fun `hurt border and keep-alive packets retain fixed versus variable widths`() {
         assertPacketBytes(
-            HurtAnimationPacket(entityId = 1, yaw = 1.5f),
-            HurtAnimationPacket.serializer(),
+            ClientboundHurtAnimationPacket(id = 1, yaw = 1.5f),
+            ClientboundHurtAnimationPacket.serializer(),
             "013fc00000",
         )
         assertPacketBytes(
-            InitializeWorldBorderPacket(
-                centerX = 1.0,
-                centerZ = -2.0,
-                oldDiameter = 3.0,
-                newDiameter = 4.0,
-                speedMilliseconds = 300,
-                portalTeleportBoundary = 2,
+            ClientboundInitializeBorderPacket(
+                newCenterX = 1.0,
+                newCenterZ = -2.0,
+                oldSize = 3.0,
+                newSize = 4.0,
+                lerpTime = 300,
+                newAbsoluteMaxSize = 2,
                 warningBlocks = 3,
-                warningTimeSeconds = 4,
+                warningTime = 4,
             ),
-            InitializeWorldBorderPacket.serializer(),
+            ClientboundInitializeBorderPacket.serializer(),
             "3ff0000000000000c00000000000000040080000000000004010000000000000ac02020304",
         )
         assertPacketBytes(
-            PlayClientboundKeepAlivePacket(0x0102030405060708),
-            PlayClientboundKeepAlivePacket.serializer(),
+            ClientboundKeepAlivePacket(0x0102030405060708),
+            ClientboundKeepAlivePacket.serializer(),
             "0102030405060708",
         )
     }
@@ -151,11 +151,11 @@ class PlayClientboundGamePacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

@@ -25,6 +25,7 @@ Run these commands from the repository root with the checked-in wrapper:
 |------------------------------------------|------------------------------------------------------------------------------------------------------------|
 | `minecraftVersion`                       | Prints the repository-selected Minecraft release without preparing artifacts                               |
 | `prepareOfficialMinecraftData`           | Produces the official target, reports, Configuration captures, and extracted data packs used by generators |
+| `analyzeOfficialMinecraftPackets`        | Derives packet registrations, classes, ordered fields and codec member references for KSP validation       |
 | `prepareOfficialMinecraftServer`         | Prepares an immutable official-server runtime and stopped default template                                 |
 | `prepareHeadlessClient`                  | Prepares an immutable headless official-client runtime and stopped default template                        |
 | `prepareOfficialMinecraftCodecOracle`    | Prepares the official codec oracle used by interoperability tests                                          |

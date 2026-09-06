@@ -3,9 +3,9 @@ package com.hiczp.minecraft.protocol.session
 import com.hiczp.minecraft.protocol.model.packet.ConnectionState
 import com.hiczp.minecraft.protocol.model.packet.Packet
 import com.hiczp.minecraft.protocol.model.packet.PacketRouteKey
-import com.hiczp.minecraft.protocol.model.type.ProtocolRegistryContext
+import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.serialization.PacketCodecRegistration
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import io.ktor.utils.io.core.*
@@ -26,7 +26,7 @@ interface MinecraftPacketConnection<
     /** Closing this channel drains packets already accepted by it, then closes the connection. */
     val outgoing: SendChannel<Outgoing>
     val connectionState: ConnectionState
-    val protocolRegistryContext: ProtocolRegistryContext
+    val packetCodecContext: PacketCodecContext
     val declaredExtensionRoutes: Set<PacketRouteKey>
     val activeExtensionRoutes: Set<PacketRouteKey>
     val isOpen: Boolean
@@ -34,7 +34,7 @@ interface MinecraftPacketConnection<
     /** Returns on an orderly close and throws the original wire/pump failure. */
     suspend fun awaitClosed()
 
-    fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext)
+    fun installPacketCodecContext(packetCodecContext: PacketCodecContext)
 
     fun activateExtensionRoutes(routes: Set<PacketRouteKey>)
 
@@ -59,12 +59,12 @@ interface MinecraftPacketConnection<
  */
 data class MinecraftConnectionDefinition(
     val packetRegistry: PacketRegistry = MinecraftPacketRegistry,
-    val minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    val minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     val incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
     val outgoingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
 ) {
-    val protocolRegistryContext: ProtocolRegistryContext
-        get() = minecraftProtocolFormat.minecraftProtocolFormatConfiguration.protocolRegistryContext
+    val packetCodecContext: PacketCodecContext
+        get() = minecraftPacketPayloadFormat.minecraftPacketPayloadFormatConfiguration.packetCodecContext
 
     companion object {
         const val DEFAULT_CHANNEL_CAPACITY: Int = 16
@@ -72,12 +72,12 @@ data class MinecraftConnectionDefinition(
         /** Explicit pure factory; the caller owns and may share its result. */
         fun compose(
             extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
-            minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+            minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
             incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
             outgoingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
         ): MinecraftConnectionDefinition = MinecraftConnectionDefinition(
             packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, extensionCodecs),
-            minecraftProtocolFormat = minecraftProtocolFormat,
+            minecraftPacketPayloadFormat = minecraftPacketPayloadFormat,
             incomingCapacity = incomingCapacity,
             outgoingCapacity = outgoingCapacity,
         )
@@ -119,8 +119,8 @@ internal class MinecraftPacketConnectionCore<
     override val connectionState: ConnectionState
         get() = minecraftPacketSession.connectionState
 
-    override val protocolRegistryContext: ProtocolRegistryContext
-        get() = minecraftPacketSession.protocolRegistryContext
+    override val packetCodecContext: PacketCodecContext
+        get() = minecraftPacketSession.packetCodecContext
 
     override val declaredExtensionRoutes: Set<PacketRouteKey>
         get() = minecraftPacketSession.declaredExtensionRoutes
@@ -169,9 +169,9 @@ internal class MinecraftPacketConnectionCore<
         terminate(ConnectionTermination.Failed(cause))
     }
 
-    override fun installProtocolRegistryContext(protocolRegistryContext: ProtocolRegistryContext) {
+    override fun installPacketCodecContext(packetCodecContext: PacketCodecContext) {
         ensureOpen()
-        minecraftPacketSession.installProtocolRegistryContext(protocolRegistryContext)
+        minecraftPacketSession.installPacketCodecContext(packetCodecContext)
     }
 
     override suspend fun awaitClosed() {

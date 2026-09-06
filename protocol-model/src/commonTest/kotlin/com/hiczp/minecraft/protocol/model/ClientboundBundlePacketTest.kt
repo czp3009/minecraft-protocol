@@ -8,19 +8,22 @@ import kotlin.test.assertSame
 class ClientboundBundlePacketTest {
     @Test
     fun bundleRetainsSubPacketsWithoutApplyingSessionPolicy() {
-        val source = mutableListOf<ClientboundPacket>(ChunkBatchStartPacket)
+        val source = mutableListOf<ClientboundPacket>(ClientboundChunkBatchStartPacket)
         val clientboundBundlePacket = ClientboundBundlePacket(source)
-        source += ChunkBatchFinishedPacket(1)
+        source += ClientboundChunkBatchFinishedPacket(1)
 
         assertSame(source, clientboundBundlePacket.subPackets)
         assertEquals(source, clientboundBundlePacket.subPackets)
-        assertEquals(BundleDelimiterPacket, ClientboundBundlePacket(listOf(BundleDelimiterPacket)).single())
+        assertEquals(
+            ClientboundBundleDelimiterPacket,
+            ClientboundBundlePacket(listOf(ClientboundBundleDelimiterPacket)).single()
+        )
         assertSame(clientboundBundlePacket, ClientboundBundlePacket(listOf(clientboundBundlePacket)).single())
     }
 
     @Test
     fun bundleRetainsMoreThanTheSessionSubPacketLimit() {
-        val packets = List(ClientboundBundlePacket.MAX_SUB_PACKET_COUNT + 1) { ChunkBatchStartPacket }
+        val packets = List(ClientboundBundlePacket.MAX_SUB_PACKET_COUNT + 1) { ClientboundChunkBatchStartPacket }
 
         assertSame(packets, ClientboundBundlePacket(packets).subPackets)
     }

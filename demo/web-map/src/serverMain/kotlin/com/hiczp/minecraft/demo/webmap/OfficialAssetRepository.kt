@@ -2,7 +2,7 @@ package com.hiczp.minecraft.demo.webmap
 
 import com.hiczp.minecraft.distribution.metadata.MinecraftDistributionMetadataApiClient
 import com.hiczp.minecraft.distribution.metadata.download
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaRegistryData
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaRegistryData
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import io.github.oshai.kotlinlogging.KLogger
 import io.ktor.client.*

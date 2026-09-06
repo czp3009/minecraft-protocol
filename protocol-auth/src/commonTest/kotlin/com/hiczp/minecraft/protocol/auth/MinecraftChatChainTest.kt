@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.protocol.auth
 
-import com.hiczp.minecraft.protocol.model.packet.SignedChatCommandPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundChatCommandSignedPacket
 import com.hiczp.minecraft.protocol.model.type.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -146,16 +146,16 @@ class MinecraftChatChainTest {
             salt = 42,
             lastSeen = lastSeen,
         )
-        val signedChatCommandPacket = SignedChatCommandPacket(
+        val serverboundChatCommandSignedPacket = ServerboundChatCommandSignedPacket(
             command = "msg Player hello",
-            timestampEpochMillis = 2_000,
+            timeStamp = 2_000,
             salt = 42,
-            arguments = signedCommandArguments,
+            argumentSignatures = signedCommandArguments,
             lastSeenMessages = emptyLastSeenUpdate(),
         )
 
         val valid = assertIs<MinecraftChatBatchVerificationResult.Valid>(
-            minecraftServerboundChatChainVerifier.verify(signedChatCommandPacket, arguments, lastSeen),
+            minecraftServerboundChatChainVerifier.verify(serverboundChatCommandSignedPacket, arguments, lastSeen),
         )
         assertEquals(listOf(0, 1), valid.messages.map { it.signedMessageLink.index })
         assertEquals(2, minecraftServerboundChatChainVerifier.nextLink()?.index)
@@ -166,7 +166,7 @@ class MinecraftChatChainTest {
                 session,
                 minecraftProfileKeyPair.minecraftProfilePublicKey
             ).verify(
-                signedChatCommandPacket,
+                serverboundChatCommandSignedPacket,
                 listOf(SignableCommandArgument("different", "Player")),
                 lastSeen,
             ),
@@ -217,7 +217,7 @@ class MinecraftChatChainTest {
         assertEquals(skipped, minecraftClientboundChatChainVerifier.lastMessage())
 
         val packedLastSeen = listOf(PackedMessageSignature.Cached(3))
-        val playerChatMessagePacket = skipped.toPlayerChatMessagePacket(
+        val clientboundPlayerChatPacket = skipped.toClientboundPlayerChatPacket(
             globalIndex = 9,
             boundChatType = BoundChatType(
                 chatType = ChatTypeHolder.Reference(0),
@@ -227,11 +227,11 @@ class MinecraftChatChainTest {
             packedLastSeen = packedLastSeen,
             filterMask = FilterMask.PassThrough,
         )
-        assertEquals(2, playerChatMessagePacket.index)
-        assertEquals(9, playerChatMessagePacket.globalIndex)
-        assertEquals(packedLastSeen, playerChatMessagePacket.body.lastSeen)
-        assertNull(playerChatMessagePacket.unsignedContent)
-        assertTrue(playerChatMessagePacket.signature == skipped.signature)
+        assertEquals(2, clientboundPlayerChatPacket.index)
+        assertEquals(9, clientboundPlayerChatPacket.globalIndex)
+        assertEquals(packedLastSeen, clientboundPlayerChatPacket.body.lastSeen)
+        assertNull(clientboundPlayerChatPacket.unsignedContent)
+        assertTrue(clientboundPlayerChatPacket.signature == skipped.signature)
     }
 }
 

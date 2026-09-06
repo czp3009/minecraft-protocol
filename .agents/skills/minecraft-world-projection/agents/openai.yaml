@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft World Projection"
+  short_description: "Audit world data and packet conversion boundaries"
+  default_prompt: "Use $minecraft-world-projection to audit world-to-packet conversion and user computation scenarios."

@@ -12,15 +12,15 @@ import kotlinx.serialization.Serializable
     PacketDirection.CLIENTBOUND,
     officialName = "damage_event",
 )
-data class DamageEventPacket(
+data class ClientboundDamageEventPacket(
     @VarInt
     val entityId: Int,
     @VarInt
-    val sourceTypeId: Int,
+    val sourceType: Int,
     @OptionalVarInt
-    val sourceCauseEntityId: Int?,
+    val sourceCauseId: Int?,
     @OptionalVarInt
-    val sourceDirectEntityId: Int?,
+    val sourceDirectId: Int?,
     val sourcePosition: Vector3d?,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -31,8 +31,8 @@ data class DamageEventPacket(
     PacketDirection.CLIENTBOUND,
     officialName = "debug/block_value",
 )
-data class DebugBlockValuePacket(
-    val location: BlockPosition,
+data class ClientboundDebugBlockValuePacket(
+    val blockPos: BlockPosition,
     val update: DebugSubscriptionUpdate,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -47,9 +47,8 @@ data class DebugBlockValuePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "debug/chunk_value",
 )
-data class DebugChunkValuePacket(
-    val chunkZ: Int,
-    val chunkX: Int,
+data class ClientboundDebugChunkValuePacket(
+    val chunkPos: ChunkPos,
     val update: DebugSubscriptionUpdate,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -60,7 +59,7 @@ data class DebugChunkValuePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "debug/entity_value",
 )
-data class DebugEntityValuePacket(
+data class ClientboundDebugEntityValuePacket(
     @VarInt
     val entityId: Int,
     val update: DebugSubscriptionUpdate,
@@ -73,7 +72,7 @@ data class DebugEntityValuePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "debug/event",
 )
-data class DebugEventPacket(
+data class ClientboundDebugEventPacket(
     val event: DebugSubscriptionEvent,
 ) : PlayStatePacket, ClientboundPacket
 
@@ -89,9 +88,9 @@ enum class DebugSampleType {
     PacketDirection.CLIENTBOUND,
     officialName = "debug_sample",
 )
-data class DebugSamplePacket(
+data class ClientboundDebugSamplePacket(
     val sample: List<Long>,
-    val type: DebugSampleType,
+    val debugSampleType: DebugSampleType,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
@@ -101,17 +100,6 @@ data class DebugSamplePacket(
     PacketDirection.CLIENTBOUND,
     officialName = "delete_chat",
 )
-data class DeleteMessagePacket(
+data class ClientboundDeleteChatPacket(
     val messageSignature: PackedMessageSignature,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
-@PacketInfo(
-    0x20,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "disconnect",
-)
-data class PlayDisconnectPacket(
-    val reason: TextComponent,
 ) : PlayStatePacket, ClientboundPacket

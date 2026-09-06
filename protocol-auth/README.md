@@ -24,12 +24,14 @@ chain links, and Brigadier-derived signable arguments remain `protocol-auth` val
 
 `MinecraftIdentity` is a sealed interface so downstream connection code can exhaustively distinguish offline and online
 identities. The online values `profileId`, `profileName`, and `minecraftAccessToken` are supplied by the launcher or
-account-login layer before the game connection starts:
+account-login layer before the game connection starts. Take `name` and `id` from the
+[`MinecraftProfileResponse`](../account-auth/README.md#5-retrieve-entitlements-and-the-java-profile-when-needed);
+parse its compact ID with `Uuid.parseHex(...)` to obtain `profileId`. The access token comes from the Services login:
 
 ```kotlin
-val offline: MinecraftIdentity = MinecraftOfflineIdentity("Player")
+val offline = MinecraftOfflineIdentity("Player")
 
-val online: MinecraftIdentity = MinecraftOnlineIdentity(
+val online = MinecraftOnlineIdentity(
     id = profileId,
     name = profileName,
     accessToken = minecraftAccessToken,
@@ -45,13 +47,52 @@ val id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player")
 Identity types are ordinary data classes. Credential logging and storage are caller responsibilities.
 `MinecraftOfflineIdentity.toGameProfile()` adapts the identity to a `protocol-model` profile.
 
+## Login key exchange
+
+This is the custom-flow path; high-level client/server `negotiate()` already performs it. Create a caller-configured
+Ktor `HttpClient`, then `MinecraftSessionApi(httpClient)` before the exchange. The online identity comes from the
+preceding example. A custom Login packet loop passes the `ClientboundHelloPacket` received on `incoming`:
+
+```kotlin
+suspend fun respondToChallenge(
+    clientboundHelloPacket: ClientboundHelloPacket,
+    minecraftOnlineIdentity: MinecraftOnlineIdentity,
+    minecraftSessionApi: MinecraftSessionApi,
+): MinecraftClientKeyExchangeResult {
+    val result = MinecraftClientKeyExchange.respond(clientboundHelloPacket)
+    if (clientboundHelloPacket.shouldAuthenticate) {
+        minecraftSessionApi.join(minecraftOnlineIdentity, result.minecraftServerHash)
+    }
+    return result
+}
+```
+
+`MinecraftClientKeyExchangeResult.toServerboundKeyPacket()` supplies the reply and `sharedSecret` supplies the
+cipher key. The maintained [client negotiation](../protocol-client/README.md#online-login) orders the reply, encryption
+activation and key cleanup. Custom endpoints must preserve that same wire boundary; enqueueing a reply alone is not
+proof that it has been written.
+
+For servers, generate a shareable `MinecraftServerKeyPair`, call `createChallenge` per connection and send its
+`toClientboundHelloPacket()` result. `MinecraftServerChallenge.accept` consumes the received `ServerboundKeyPacket`
+and returns `MinecraftServerKeyExchangeResult`. [Server negotiation](../protocol-server/README.md#online-authentication)
+owns
+activation and the subsequent `/hasJoined` call.
+
+Instead of generating a key pair, callers may construct `MinecraftServerKeyPair` from DER-encoded public and private
+keys. The server key-pair object is intentionally opaque because it owns private-key material; response and result
+models are data classes. Backend cryptography failures use `MinecraftCryptographyException`; coroutine cancellation
+propagates as `CancellationException` instead of being wrapped as a cryptography failure.
+
 ## Minecraft Session Server
 
 `MinecraftSessionApi` is stateless apart from its reference to a caller-owned `HttpClient`. It does not install an
 engine, alter client configuration, close the client, retry, or refresh credentials. Here `applicationHttpClient` is
-that configured client; `minecraftServerHash` comes from the current Login key exchange; `playerName` and
-`observedClientAddress` come from the accepted connection. The access token and profile ID were introduced in the
-identity example:
+that configured client. For a client, `minecraftServerHash` is `respondToChallenge(...).minecraftServerHash`; for a
+server it is the hash from `MinecraftServerChallenge.accept(...)`. `playerName` is from `ServerboundHelloPacket.name`,
+and `observedClientAddress` is the accepted connection's optional peer IP. The access token and profile ID were
+introduced in the
+identity example. The two calls below illustrate the client and server sides separately; a custom client which uses
+`respondToChallenge` already performed its join and must not call it again:
 
 ```kotlin
 val minecraftSessionApi = MinecraftSessionApi(applicationHttpClient)
@@ -73,7 +114,7 @@ val minecraftSessionHasJoinedResponse = minecraftSessionApi.hasJoined(
 )
 ```
 
-An extension connects the online identity model to the low-level endpoint:
+As an alternative to constructing `MinecraftSessionJoinRequest`, the identity overload performs the same join:
 
 ```kotlin
 minecraftSessionApi.join(online, minecraftServerHash)
@@ -105,8 +146,8 @@ caller-owned polling and cache policy. None of these APIs starts a poller or ret
 
 ## Profile keys
 
-`MinecraftProfileKeyApi` uses the same caller-owned `HttpClient` pattern. It does not decide when the game requests or
-refreshes a key, cache Mojang service keys, retry, or persist private material:
+`MinecraftProfileKeyApi` uses the same caller-owned HTTP client. Key refresh, caching and persistence are application
+decisions:
 
 ```kotlin
 val minecraftProfileKeyApi = MinecraftProfileKeyApi(applicationHttpClient)
@@ -129,8 +170,12 @@ take an explicit epoch millisecond value and never read the clock implicitly.
 `MinecraftChatSignatures` is the stateless payload/sign/verify layer. `MinecraftChatChainSigner` adds only a locked
 sender/session index. A batch—especially a signed command's arguments—is allocated contiguously and committed only when
 every signature succeeds. The `online` identity and `minecraftProfileKeyPair` come from the preceding examples.
-`chatSessionId` is the announced chat session ID; `text`, `timestamp`, `salt`, `expandedLastSeenSignatures`, and
-`lastSeenUpdate` are the message and acknowledgement state supplied by the caller's chat loop:
+Choose `chatSessionId` with `Uuid.random()` and announce the corresponding
+`ChatSessionData(chatSessionId, minecraftProfileKeyPair.profilePublicKeyData)` through the application's chat-session
+flow. `text`, epoch-millisecond `timestamp` and `salt` are scalar message inputs. The application's acknowledgement
+tracker supplies `expandedLastSeenSignatures: List<ByteString>` (actual signature bytes, with `emptyList()` valid for
+an empty history) and `LastSeenMessagesUpdate(offset, acknowledged, checksum)` as `lastSeenUpdate`. These two forms must
+describe the same history:
 
 ```kotlin
 val minecraftChatChainSigner = MinecraftChatChainSigner(
@@ -139,7 +184,7 @@ val minecraftChatChainSigner = MinecraftChatChainSigner(
     minecraftProfileKeyPair = minecraftProfileKeyPair,
 )
 
-val chatMessagePacket = minecraftChatChainSigner.signChatMessagePacket(
+val serverboundChatPacket = minecraftChatChainSigner.signServerboundChatPacket(
     message = text,
     timestampEpochMillis = timestamp,
     salt = salt,
@@ -150,85 +195,30 @@ val chatMessagePacket = minecraftChatChainSigner.signChatMessagePacket(
 
 The serverbound chat and signed-command packets do not carry their chain index. The server therefore keeps one
 `MinecraftServerboundChatChainVerifier` per accepted player chat session; each valid message or signed command argument
-advances its implicit index. Here `playerId`, `sessionId`, and `minecraftProfilePublicKey` come from that player's
-accepted chat session; `packet` and `expandedLastSeenSignatures` come from the server's packet/acknowledgement loop.
-`handle` and `handleInvalid` are the application's callbacks for accepting the verified message or applying its
-invalid-chat policy:
+advances its implicit index. To illustrate the other side of the same message, use the sender/session announced above
+and the public key from the previously fetched key pair. A real server gets those values from the accepted player's
+`ChatSessionData` and constructs `MinecraftProfilePublicKey(chatSessionData.profilePublicKey)` after credential checks.
+Pass the received `ServerboundChatPacket` and the signatures expanded by that server's acknowledgement tracker:
 
 ```kotlin
 val minecraftServerboundChatChainVerifier = MinecraftServerboundChatChainVerifier(
-    sender = playerId,
-    sessionId = sessionId,
-    minecraftProfilePublicKey = minecraftProfilePublicKey,
+    sender = online.id,
+    sessionId = chatSessionId,
+    minecraftProfilePublicKey = minecraftProfileKeyPair.minecraftProfilePublicKey,
 )
-
-when (
-    val minecraftChatVerificationResult =
-        minecraftServerboundChatChainVerifier.verify(packet, expandedLastSeenSignatures)
-) {
-    is MinecraftChatVerificationResult.Valid -> handle(minecraftChatVerificationResult.minecraftSignedMessage)
-    is MinecraftChatVerificationResult.Invalid ->
-        handleInvalid(minecraftChatVerificationResult.minecraftChatChainFailure)
-}
+val minecraftChatVerificationResult =
+    minecraftServerboundChatChainVerifier.verify(serverboundChatPacket, expandedLastSeenSignatures)
 ```
+
+Inspect `MinecraftChatVerificationResult.Valid.minecraftSignedMessage` or
+`MinecraftChatVerificationResult.Invalid.minecraftChatChainFailure` and apply the application's acceptance policy.
 
 Invalid input does not mutate the verifier. A caller that wants the official server's permanently-broken-chain policy
 can discard that verifier after a failure. `MinecraftClientboundChatChainVerifier` instead consumes the explicit packet
 index, accepts gaps because a recipient may not receive every sender message, and accepts an exact duplicate.
 
 Packet helpers convert chat packets to unpacked signed bodies, sign command argument lists, and build recipient-specific
-`PlayerChatMessagePacket` values after the caller supplies the global index and packed last-seen signatures. The module
+`ClientboundPlayerChatPacket` values after the caller supplies the global index and packed last-seen signatures. The
+module
 does not reconstruct acknowledgement updates, manage signature caches/global indices, announce sessions, enforce server
 configuration, disconnect players, order separately returned sends, or broadcast.
-
-## Login key exchange
-
-Client-side response creation is explicit. In the example, `encryptionRequestPacket` was received by the Login loop,
-`minecraftSessionApi` and `online` were created above, `send` is the caller's ordered packet-send operation, and
-`session` is the connection/session whose encryption boundary the caller controls:
-
-```kotlin
-val minecraftClientKeyExchangeResult = MinecraftClientKeyExchange.respond(encryptionRequestPacket)
-
-if (encryptionRequestPacket.shouldAuthenticate) {
-    minecraftSessionApi.join(online, minecraftClientKeyExchangeResult.minecraftServerHash)
-}
-
-send(minecraftClientKeyExchangeResult.toEncryptionResponsePacket())
-val sharedSecret = minecraftClientKeyExchangeResult.sharedSecret
-try {
-    session.enableEncryption(sharedSecret)
-} finally {
-    sharedSecret.fill(0)
-}
-```
-
-Server-side key-pair and per-connection challenge creation are separate operations. Here `send` and
-`receiveEncryptionResponse` are the server Login loop's ordered packet operations; `session` is that connection,
-`minecraftSessionApi` is its caller-owned Session Server API, and `loginName` plus `observedClientAddress` come from the
-accepted Login Start and socket:
-
-```kotlin
-val minecraftServerKeyPair = MinecraftServerKeyPair.generate()
-val minecraftServerChallenge = minecraftServerKeyPair.createChallenge(shouldAuthenticate = true)
-
-send(minecraftServerChallenge.toEncryptionRequestPacket())
-val minecraftServerKeyExchangeResult = minecraftServerChallenge.accept(receiveEncryptionResponse())
-
-val sharedSecret = minecraftServerKeyExchangeResult.sharedSecret
-try {
-    session.enableEncryption(sharedSecret)
-    val gameProfile = minecraftSessionApi.hasJoined(
-        username = loginName,
-        serverId = minecraftServerKeyExchangeResult.minecraftServerHash,
-        ip = observedClientAddress,
-    )?.toGameProfile(loginName)
-} finally {
-    sharedSecret.fill(0)
-}
-```
-
-Instead of generating a key pair, callers may construct `MinecraftServerKeyPair` from DER-encoded public and private
-keys. The server key-pair object is intentionally opaque because it owns private-key material; response and result
-models are data classes. Backend cryptography failures use `MinecraftCryptographyException`; coroutine cancellation
-propagates as `CancellationException` instead of being wrapped as a cryptography failure.

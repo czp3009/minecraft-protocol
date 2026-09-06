@@ -8,12 +8,13 @@ import com.squareup.kotlinpoet.AnnotationSpec.UseSiteTarget.FILE
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.ksp.toClassName
 import com.squareup.kotlinpoet.ksp.writeTo
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class ProtocolModelProcessorProvider : SymbolProcessorProvider {
     override fun create(
@@ -31,22 +32,31 @@ private class ProtocolModelProcessor(
     private val options: Map<String, String>,
 ) : SymbolProcessor {
     private var generated = false
+    private val packetNames = linkedSetOf<String>()
+    private val componentNames = linkedSetOf<String>()
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
         if (generated) return emptyList()
 
-        val packetDeclarations = resolver
-            .getSymbolsWithAnnotation(PACKET_INFO)
-            .filterIsInstance<KSClassDeclaration>()
-            .mapNotNull { ksClassDeclaration ->
-                ksClassDeclaration.annotation(PACKET_INFO)?.let { ksAnnotation ->
+        // Subsequent KSP rounds expose new/deferred symbols, not all previously valid annotated declarations.
+        // Retain names and resolve fresh symbols each round so one deferred packet does not erase the component set.
+        fun declarations(annotationName: String, names: MutableSet<String>): List<KSClassDeclaration> {
+            resolver.getSymbolsWithAnnotation(annotationName)
+                .filterIsInstance<KSClassDeclaration>()
+                .mapNotNullTo(names) { it.qualifiedName?.asString() }
+            return names.mapNotNull { resolver.getClassDeclarationByName(resolver.getKSNameFromString(it)) }
+        }
+
+        val packetDeclarations = declarations(PACKET_INFO, packetNames)
+            .flatMap { ksClassDeclaration ->
+                ksClassDeclaration.annotations.filter {
+                    it.annotationType.resolve().declaration.qualifiedName?.asString() == PACKET_INFO
+                }.map { ksAnnotation ->
                     ksClassDeclaration to ksAnnotation
                 }
             }
             .toList()
-        val componentDeclarations = resolver
-            .getSymbolsWithAnnotation(DATA_COMPONENT_INFO)
-            .filterIsInstance<KSClassDeclaration>()
+        val componentDeclarations = declarations(DATA_COMPONENT_INFO, componentNames)
             .mapNotNull { ksClassDeclaration ->
                 ksClassDeclaration.annotation(DATA_COMPONENT_INFO)?.let {
                     ksClassDeclaration to it
@@ -105,28 +115,35 @@ private class ProtocolModelProcessor(
     }
 
     private fun loadOfficialPackets(): List<OfficialPacket> {
-        val report = options[PACKETS_REPORT_OPTION]
+        val report = options[PACKET_CLASSES_OPTION]
             ?: error(
-                "KSP option '$PACKETS_REPORT_OPTION' was not configured",
+                "KSP option '$PACKET_CLASSES_OPTION' was not configured",
             )
         val path = Path.of(report)
         check(Files.isRegularFile(path)) {
             "Official packets report is missing: $path"
         }
         val root = Json.parseToJsonElement(Files.readString(path)).jsonObject
-        return root.entries.flatMap { (state, stateElement) ->
-            stateElement.jsonObject.entries.flatMap { (direction, directionElement) ->
-                directionElement.jsonObject.entries.map { (name, packetElement) ->
+        check(root.getValue("schema_version").jsonPrimitive.int == 1) { "Unsupported official packet class evidence" }
+        val classes = root.getValue("classes").jsonObject
+        fun fields(className: String): List<String> {
+            val value = classes[className]?.jsonObject ?: return emptyList()
+            val parent = value.getValue("superclass").jsonPrimitive.content
+            return fields(parent) + value.getValue("fields").jsonArray.map { it.jsonObject.getValue("name").jsonPrimitive.content }
+        }
+        return root.getValue("packets").jsonArray.map { element ->
+            val packetElement = element.jsonObject
+            val className = packetElement.getValue("class_name").jsonPrimitive.content
                     OfficialPacket(
                         packetKey = PacketKey(
-                            state = state.uppercase(),
-                            direction = direction.uppercase(),
-                            id = packetElement.jsonObject.getValue("protocol_id").jsonPrimitive.int,
+                            state = packetElement.getValue("state").jsonPrimitive.content.uppercase(),
+                            direction = packetElement.getValue("direction").jsonPrimitive.content.uppercase(),
+                            id = packetElement.getValue("protocol_id").jsonPrimitive.int,
                         ),
-                        name = name.removePrefix("minecraft:"),
+                        name = packetElement.getValue("name").jsonPrimitive.content.removePrefix("minecraft:"),
+                        className = className.substringAfterLast('.').replace('$', '.'),
+                        fields = fields(className),
                     )
-                }
-            }
         }
     }
 
@@ -185,6 +202,21 @@ private class ProtocolModelProcessor(
                 )
                 valid = false
             }
+            val className = localPacket.typeName.simpleNames.joinToString(".")
+            if (className != officialPacket.className && localPacket.nameException.isBlank()) {
+                kspLogger.error(
+                    "$className must use official name ${officialPacket.className} or document a specific nameException",
+                    localPacket.ksDeclaration
+                )
+                valid = false
+            }
+            if (localPacket.fields != officialPacket.fields && localPacket.shapeException.isBlank()) {
+                kspLogger.error(
+                    "$className declares ${localPacket.fields}; official ${officialPacket.className} declares ${officialPacket.fields}; align the shape or document a specific shapeException",
+                    localPacket.ksDeclaration
+                )
+                valid = false
+            }
         }
         val legacy = uniqueLocal[LEGACY_PACKET_KEY]
         if (legacy?.officialName != LEGACY_PACKET_NAME) {
@@ -233,7 +265,11 @@ private class ProtocolModelProcessor(
                         },
                     )
                     add("packetClass = %T::class,\n", definition.typeName)
-                    add("kSerializer = %T.serializer(),\n", definition.typeName)
+                    if (definition.serializerType == null) {
+                        add("kSerializer = %T.serializer(),\n", definition.typeName)
+                    } else {
+                        add("kSerializer = %T,\n", definition.serializerType)
+                    }
                     unindent()
                     add("),\n")
                 }
@@ -432,6 +468,13 @@ private class ProtocolModelProcessor(
             className = ksClassDeclaration.simpleName.asString(),
             typeName = ksClassDeclaration.toClassName(),
             officialName = arguments.getValue("officialName").value as String,
+            nameException = arguments.getValue("nameException").value as String,
+            shapeException = arguments.getValue("shapeException").value as String,
+            fields = ksClassDeclaration.primaryConstructor?.parameters?.filter { it.isVal || it.isVar }
+                ?.map { checkNotNull(it.name).asString() } ?: emptyList(),
+            serializerType = (arguments.getValue("serializer").value as KSType).declaration
+                .takeUnless { it.qualifiedName?.asString() == "kotlin.Nothing" }
+                ?.let { (it as KSClassDeclaration).toClassName() },
             ksDeclaration = ksClassDeclaration,
         )
     }
@@ -482,12 +525,18 @@ private class ProtocolModelProcessor(
         val className: String,
         val typeName: ClassName,
         val officialName: String,
+        val nameException: String,
+        val shapeException: String,
+        val fields: List<String>,
+        val serializerType: ClassName?,
         val ksDeclaration: KSDeclaration,
     )
 
     private data class OfficialPacket(
         val packetKey: PacketKey,
         val name: String,
+        val className: String,
+        val fields: List<String>,
     )
 
     private data class LocalDataComponent(
@@ -501,7 +550,7 @@ private class ProtocolModelProcessor(
         const val PACKET_INFO = "$PACKET_PACKAGE.PacketInfo"
         const val PACKET_INFO_SIMPLE_NAME = "PacketInfo"
         const val REGISTRY_FILE = "GeneratedPacketDefinitions"
-        const val PACKETS_REPORT_OPTION = "minecraft.packetsReport"
+        const val PACKET_CLASSES_OPTION = "minecraft.packetClasses"
         const val LEGACY_PACKET_NAME = "legacy_server_list_ping"
         const val DATA_COMPONENT_PACKAGE = "com.hiczp.minecraft.protocol.model.type"
         const val DATA_COMPONENT_INFO = "$DATA_COMPONENT_PACKAGE.DataComponentInfo"

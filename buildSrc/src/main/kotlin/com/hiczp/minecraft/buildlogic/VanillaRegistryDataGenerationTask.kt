@@ -3,14 +3,14 @@ package com.hiczp.minecraft.buildlogic
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.KModifier.INTERNAL
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
-import kotlinx.serialization.json.*
-import org.gradle.api.DefaultTask
-import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.tasks.*
 import java.nio.charset.StandardCharsets
 import java.util.*
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.readText
+import kotlinx.serialization.json.*
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.*
 
 /**
  * Produces the multiplatform vanilla registry catalogue from the matching data-generator reports.
@@ -41,8 +41,8 @@ abstract class GenerateVanillaRegistryDataSourceTask :
         }
 
         val vanillaRegistryDataPayload = buildVanillaRegistryDataPayload(
-            protocolJson.decodeFromString<JsonObject>(registryReportPath.readText()),
-            protocolJson.decodeFromString<JsonObject>(blockReportPath.readText()),
+            buildLogicJson.decodeFromString<JsonObject>(registryReportPath.readText()),
+            buildLogicJson.decodeFromString<JsonObject>(blockReportPath.readText()),
         )
         val sourceFile = renderSource(vanillaRegistryDataPayload).toString()
         val outputFilePath = outputFile.asFile.get().toPath()
@@ -143,7 +143,7 @@ abstract class GenerateVanillaRegistryDataSourceTask :
             .add(")")
             .build()
         return FileSpec.builder(
-            "com.hiczp.minecraft.protocol.datapack.vanilla",
+            "com.hiczp.minecraft.protocol.configuration.vanilla",
             "VanillaRegistryDataPayloads",
         ).addType(
             TypeSpec.objectBuilder("VanillaRegistryDataPayloads")

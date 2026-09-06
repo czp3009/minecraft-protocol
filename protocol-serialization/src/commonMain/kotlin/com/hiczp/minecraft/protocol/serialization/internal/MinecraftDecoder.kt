@@ -7,13 +7,12 @@ import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.nbt.NbtTagDecoder
 import com.hiczp.minecraft.nbt.NbtTagSerializer
 import com.hiczp.minecraft.protocol.model.wire.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormatConfiguration
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.*
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
@@ -24,7 +23,7 @@ import kotlin.uuid.Uuid
 
 internal class MinecraftDecoder(
     private val minecraftReader: MinecraftReader,
-    private val minecraftProtocolFormatConfiguration: MinecraftProtocolFormatConfiguration,
+    private val minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,
     override val serializersModule: SerializersModule,
 ) : Decoder, CompositeDecoder, NbtTagDecoder {
     private val nbtBinaryCodec: NbtBinaryCodec = NbtBinaryCodec
@@ -89,7 +88,7 @@ internal class MinecraftDecoder(
 
     override fun decodeBoolean(): Boolean {
         val value = minecraftReader.readUnsignedByte()
-        if (minecraftProtocolFormatConfiguration.strictBooleans && value !in 0..1) {
+        if (minecraftPacketPayloadFormatConfiguration.strictBooleans && value !in 0..1) {
             throw MinecraftSerializationException("Invalid boolean byte: $value")
         }
         return value != 0
@@ -103,7 +102,7 @@ internal class MinecraftDecoder(
         val hints = takePendingHints()
         return when {
             hints.any { it is VarInt || it is VarIntElements } ->
-                minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+                minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
 
             hints.any { it is UnsignedByte } -> minecraftReader.readUnsignedByte()
             hints.any { it is UnsignedShort } -> minecraftReader.readUnsignedShort()
@@ -113,7 +112,7 @@ internal class MinecraftDecoder(
 
     override fun decodeLong(): Long =
         if (takePendingHints().any { it is VarLong || it is VarLongElements }) {
-            minecraftReader.readVarLong(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+            minecraftReader.readVarLong(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
         } else {
             minecraftReader.readLong()
         }
@@ -127,7 +126,8 @@ internal class MinecraftDecoder(
     override fun decodeString(): String {
         val maximum = takePendingHints().filterIsInstance<MaxLength>()
             .singleOrNull()?.characters ?: DEFAULT_STRING_MAXIMUM
-        val byteLength = minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+        val byteLength =
+            minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
         if (byteLength < 0 || byteLength > maximum * 3L) {
             throw MinecraftSerializationException(
                 "Invalid string byte length $byteLength for limit $maximum",
@@ -150,7 +150,7 @@ internal class MinecraftDecoder(
         ) {
             EnumEncodingKind.BYTE -> minecraftReader.readByte().toInt()
             EnumEncodingKind.UNSIGNED_BYTE -> minecraftReader.readUnsignedByte()
-            EnumEncodingKind.VAR_INT -> minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+            EnumEncodingKind.VAR_INT -> minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
             EnumEncodingKind.INT -> minecraftReader.readInt()
         }
         return when {
@@ -277,7 +277,7 @@ internal class MinecraftDecoder(
                     )
                 }
                 @Suppress("UNCHECKED_CAST")
-                (LowPrecisionVectorCodec.read(minecraftReader, minecraftProtocolFormatConfiguration) as T)
+                (LowPrecisionVectorCodec.read(minecraftReader, minecraftPacketPayloadFormatConfiguration) as T)
             }
 
             pendingHints.any { it is Paletted } -> {
@@ -292,7 +292,7 @@ internal class MinecraftDecoder(
                         PalettedContainerCodec.read(
                             minecraftReader,
                             paletted.kind,
-                            minecraftProtocolFormatConfiguration,
+                            minecraftPacketPayloadFormatConfiguration,
                         ) as T
                         )
             }
@@ -367,7 +367,7 @@ internal class MinecraftDecoder(
                 }
             } else if (hints.any { it is OptionalVarInt }) {
                 val encoded = minecraftReader.readVarInt(
-                    minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers,
+                    minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers,
                 )
                 if (encoded == 0) {
                     null
@@ -411,7 +411,7 @@ internal class MinecraftDecoder(
                 "ByteLengthPrefixed maxBytes must be non-negative",
             )
         }
-        val size = minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+        val size = minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
         if (size !in 0..byteLengthPrefixed.maxBytes) {
             throw MinecraftSerializationException(
                 "Invalid length-prefixed value size $size; maximum is ${byteLengthPrefixed.maxBytes}",
@@ -419,7 +419,7 @@ internal class MinecraftDecoder(
         }
         val nested = MinecraftDecoder(
             minecraftReader.readBounded(size),
-            minecraftProtocolFormatConfiguration,
+            minecraftPacketPayloadFormatConfiguration,
             serializersModule,
         )
         val value = decode(nested)
@@ -440,18 +440,12 @@ internal class MinecraftDecoder(
             hints.any { it is FixedLength } ->
                 hints.filterIsInstance<FixedLength>().single().bytes
 
-            hints.any { it is ChunkSectionCount } ->
-                minecraftProtocolFormatConfiguration.chunkSectionCount
-                    ?: throw MinecraftSerializationException(
-                        "Decoding chunk sections requires chunkSectionCount in MinecraftProtocolFormatConfiguration",
-                    )
-
             hints.any { it is Unprefixed } ->
                 throw MinecraftSerializationException(
                     "An unprefixed collection requires a containing custom serializer",
                 )
 
-            else -> minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+            else -> minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
         }
         if (size < 0) {
             throw MinecraftSerializationException("Invalid collection size: $size")
@@ -506,7 +500,7 @@ internal class MinecraftDecoder(
                 requireArrayBytes(size, Byte.SIZE_BYTES)
                 BooleanArray(size) {
                     val byte = minecraftReader.readUnsignedByte()
-                    if (minecraftProtocolFormatConfiguration.strictBooleans && byte !in 0..1) {
+                    if (minecraftPacketPayloadFormatConfiguration.strictBooleans && byte !in 0..1) {
                         throw MinecraftSerializationException("Invalid boolean byte: $byte")
                     }
                     byte != 0
@@ -523,7 +517,7 @@ internal class MinecraftDecoder(
                 requireArrayBytes(size, if (variable) 1 else Int.SIZE_BYTES)
                 IntArray(size) {
                     if (variable) {
-                        minecraftReader.readVarInt(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+                        minecraftReader.readVarInt(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
                     } else {
                         minecraftReader.readInt()
                     }
@@ -535,7 +529,7 @@ internal class MinecraftDecoder(
                 requireArrayBytes(size, if (variable) 1 else Long.SIZE_BYTES)
                 LongArray(size) {
                     if (variable) {
-                        minecraftReader.readVarLong(minecraftProtocolFormatConfiguration.rejectNonMinimalVarNumbers)
+                        minecraftReader.readVarLong(minecraftPacketPayloadFormatConfiguration.rejectNonMinimalVarNumbers)
                     } else {
                         minecraftReader.readLong()
                     }

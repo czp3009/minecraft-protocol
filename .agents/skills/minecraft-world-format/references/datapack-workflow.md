@@ -34,8 +34,10 @@ Filesystem-independent stream formats use `kotlinx.io`. Complete archive and par
 file content, but do not create an additional complete byte copy or intermediate text/tree solely to cross an API
 boundary. Keep lazy NBT decoding detached from the original container.
 
-Use `world-io` for directory/ZIP inspection and borrowed Okio sources. Use `protocol-datapack` for Configuration
-projection and `protocol-datapack-vanilla` for release-matched bundled inputs.
+Use `world-io` for directory/ZIP inspection and borrowed Okio sources, `datapack-vanilla` for bundled data packs and
+stack
+completion, and `protocol-configuration` for Configuration projection. Release-matched registry and Configuration
+defaults belong to `protocol-configuration-vanilla`.
 
 ## Verify
 

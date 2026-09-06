@@ -2,8 +2,6 @@
 
 package com.hiczp.minecraft.protocol.model.type
 
-import com.hiczp.minecraft.protocol.model.wire.MaxByteLength
-import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.UnsignedByte
 import com.hiczp.minecraft.protocol.model.wire.VarInt
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -26,21 +24,6 @@ data class StatisticEntry(
     val value: Int,
 )
 
-@Serializable
-data class ChunkBiomeData(
-    /** Deliberately first: the packed ChunkPos writes Z in the upper 32 bits. */
-    val chunkZ: Int,
-    val chunkX: Int,
-    @MaxByteLength(2_097_152)
-    val data: ByteString,
-)
-
-@Serializable
-data class CommandSuggestionMatch(
-    @MaxLength(32_767)
-    val match: String,
-    val tooltip: TextComponent?,
-)
 
 @Serializable
 enum class Difficulty {

@@ -71,20 +71,20 @@ data class PacketCodec<T : Packet>(
     }
 
     internal fun encodeToSink(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         packet: Packet,
         sink: Sink,
     ) {
         @Suppress("UNCHECKED_CAST")
-        packetBodyCodec.encode(minecraftProtocolFormat, packet as T, sink)
+        packetBodyCodec.encode(minecraftPacketPayloadFormat, packet as T, sink)
     }
 
     internal fun decodeFromSource(
-        minecraftProtocolFormat: MinecraftProtocolFormat,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat,
         source: Source,
         byteCount: Int,
     ): Packet = packetBodyCodec.decode(
-        minecraftProtocolFormat,
+        minecraftPacketPayloadFormat,
         PacketRoute.TopLevel(
             packetKey.connectionState,
             packetKey.packetDirection,
@@ -194,10 +194,10 @@ class PacketRegistry(
 
     fun encodePayload(
         packet: Packet,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ): EncodedPacketPayload {
         val buffer = Buffer()
-        val packetPayloadEncoding = encodePayloadToSink(packet, buffer, minecraftProtocolFormat)
+        val packetPayloadEncoding = encodePayloadToSink(packet, buffer, minecraftPacketPayloadFormat)
         return EncodedPacketPayload(
             packetPayloadEncoding.packetKey,
             packetPayloadEncoding.packetFraming,
@@ -209,7 +209,7 @@ class PacketRegistry(
         packet: Packet,
         connectionState: ConnectionState,
         packetDirection: PacketDirection,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ): EncodedPacketPayload {
         val buffer = Buffer()
         val packetPayloadEncoding = encodePayloadToSink(
@@ -217,7 +217,7 @@ class PacketRegistry(
             connectionState,
             packetDirection,
             buffer,
-            minecraftProtocolFormat,
+            minecraftPacketPayloadFormat,
         )
         return EncodedPacketPayload(
             packetPayloadEncoding.packetKey,
@@ -229,13 +229,13 @@ class PacketRegistry(
     fun encodePayloadToSink(
         packet: Packet,
         sink: Sink,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ): PacketPayloadEncoding {
         val packetCodec = codec(packet)
             ?: throw MinecraftSerializationException(
                 "No packet codec is registered for ${packet::class.simpleName}",
             )
-        packetCodec.encodeToSink(minecraftProtocolFormat, packet, sink)
+        packetCodec.encodeToSink(minecraftPacketPayloadFormat, packet, sink)
         return PacketPayloadEncoding(packetCodec.packetKey, packetCodec.packetFraming)
     }
 
@@ -244,13 +244,13 @@ class PacketRegistry(
         connectionState: ConnectionState,
         packetDirection: PacketDirection,
         sink: Sink,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ): PacketPayloadEncoding {
         val packetCodec = codec(packet, connectionState, packetDirection)
             ?: throw MinecraftSerializationException(
                 "No packet codec is registered for ${packet::class.simpleName} in $connectionState $packetDirection",
             )
-        packetCodec.encodeToSink(minecraftProtocolFormat, packet, sink)
+        packetCodec.encodeToSink(minecraftPacketPayloadFormat, packet, sink)
         return PacketPayloadEncoding(packetCodec.packetKey, packetCodec.packetFraming)
     }
 
@@ -259,7 +259,7 @@ class PacketRegistry(
         packetDirection: PacketDirection,
         id: Int,
         payload: ByteArray,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ): Packet {
         val buffer = Buffer()
         buffer.write(payload)
@@ -269,7 +269,7 @@ class PacketRegistry(
             id,
             buffer,
             payload.size,
-            minecraftProtocolFormat,
+            minecraftPacketPayloadFormat,
         )
     }
 
@@ -279,7 +279,7 @@ class PacketRegistry(
         id: Int,
         source: Source,
         byteCount: Int,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ): Packet {
         val packetKey = PacketKey(connectionState, packetDirection, id)
         val packetCodec = byKey[packetKey]
@@ -287,13 +287,13 @@ class PacketRegistry(
                 "No packet codec is registered for $packetKey",
             )
         if (packetCodec.extensionRoute == null) {
-            return packetCodec.decodeFromSource(minecraftProtocolFormat, source, byteCount)
+            return packetCodec.decodeFromSource(minecraftPacketPayloadFormat, source, byteCount)
         }
         val topLevel = PacketRoute.TopLevel(connectionState, packetDirection, id)
         val body = readBoundedPayload(source, byteCount)
         val decodedBody = body.copy()
         val packet = try {
-            packetCodec.decodeFromSource(minecraftProtocolFormat, decodedBody, byteCount)
+            packetCodec.decodeFromSource(minecraftPacketPayloadFormat, decodedBody, byteCount)
         } catch (_: UnknownExtensionPacketException) {
             return unknownPacket(topLevel, body.readByteArray())
         }
@@ -304,13 +304,13 @@ class PacketRegistry(
     fun encodeExtensionPayloadToSink(
         packet: Packet,
         sink: Sink,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ) {
         val packetCodecRegistration = registration(packet)
             ?: throw MinecraftSerializationException(
                 "No extension codec is registered for ${packet::class.simpleName}",
             )
-        packetCodecRegistration.encodeBody(minecraftProtocolFormat, packet, sink)
+        packetCodecRegistration.encodeBody(minecraftPacketPayloadFormat, packet, sink)
     }
 
     fun encodeExtensionPayloadToSink(
@@ -318,20 +318,20 @@ class PacketRegistry(
         connectionState: ConnectionState,
         packetDirection: PacketDirection,
         sink: Sink,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ) {
         val packetCodecRegistration = registration(packet, connectionState, packetDirection)
             ?: throw MinecraftSerializationException(
                 "No extension codec is registered for ${packet::class.simpleName} in $connectionState $packetDirection",
             )
-        packetCodecRegistration.encodeBody(minecraftProtocolFormat, packet, sink)
+        packetCodecRegistration.encodeBody(minecraftPacketPayloadFormat, packet, sink)
     }
 
     fun decodeExtensionPayloadFromSource(
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-        minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+        minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     ): Packet {
         val packetCodecRegistration = registration(packetRoute.packetRouteKey)
             ?: throw MinecraftSerializationException(
@@ -341,7 +341,7 @@ class PacketRegistry(
         val decodedBody = body.copy()
         val packet = try {
             packetCodecRegistration.decodeBody(
-                minecraftProtocolFormat,
+                minecraftPacketPayloadFormat,
                 packetRoute,
                 decodedBody,
                 byteCount,

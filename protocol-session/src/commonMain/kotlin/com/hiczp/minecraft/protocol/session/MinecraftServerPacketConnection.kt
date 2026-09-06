@@ -1,8 +1,6 @@
 package com.hiczp.minecraft.protocol.session
 
-import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.EncryptionResponsePacket
-import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
+import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -17,13 +15,13 @@ interface MinecraftServerPacketConnection : MinecraftPacketConnection<Serverboun
 
     /**
      * Starts a fresh server-managed KeepAlive run, replacing any active run.
-     * Use [enableConfigurationKeepAlive] or [enablePlayKeepAlive] for the official protocol.
+     * The default mapping handles official Configuration and Play packets. Restart the run at each phase boundary.
      * [extractChallenge] returns null for packets outside this mapping; [createRequest] places the generated challenge
      * in its clientbound request.
      */
     fun enableKeepAlive(
-        extractChallenge: (ServerboundPacket) -> Long?,
-        createRequest: (Long) -> ClientboundPacket,
+        extractChallenge: (ServerboundPacket) -> Long? = { (it as? ServerboundKeepAlivePacket)?.id },
+        createRequest: (Long) -> ClientboundPacket = ::ClientboundKeepAlivePacket,
         interval: Duration = DEFAULT_KEEP_ALIVE_INTERVAL,
     )
 
@@ -47,7 +45,7 @@ fun createMinecraftServerPacketConnection(
     val minecraftServerPacketSession = MinecraftServerPacketSession(
         minecraftFrameStream = minecraftFrameStream,
         packetRegistry = minecraftConnectionDefinition.packetRegistry,
-        minecraftProtocolFormat = minecraftConnectionDefinition.minecraftProtocolFormat,
+        minecraftPacketPayloadFormat = minecraftConnectionDefinition.minecraftPacketPayloadFormat,
     )
     val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
         minecraftPacketSession = minecraftServerPacketSession,
@@ -78,7 +76,7 @@ private class MinecraftServerPacketConnectionImplementation(
     private suspend fun handleIncoming(serverboundPacket: ServerboundPacket) {
         if (minecraftServerKeepAliveController.handle(serverboundPacket)) return
         minecraftPacketConnectionCore.publishIncoming(serverboundPacket)
-        if (serverboundPacket is EncryptionResponsePacket) inboundEncryptionActivation.await()
+        if (serverboundPacket is ServerboundKeyPacket) inboundEncryptionActivation.await()
     }
 
     override fun enableKeepAlive(

@@ -9,7 +9,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class SurfaceProjectionPolicyTest {
-    private val blockStateRegistry = DescriptorBlockStateRegistry()
 
     @Test
     fun everyDimensionChoosesTheFirstNonAirBlockAfterAir() {
@@ -20,9 +19,9 @@ class SurfaceProjectionPolicyTest {
         ).forEach { dimensionTypeLayout ->
             val chunk = emptyChunk(dimensionTypeLayout.chunkLayout)
             val maximumLogicalBlockY = dimensionTypeLayout.logicalBlockYRange.last
-            chunk.setBlock(3, maximumLogicalBlockY, 4, STONE)
-            chunk.setBlock(3, maximumLogicalBlockY - 2, 4, OAK_LOG)
-            chunk.setBlock(3, dimensionTypeLayout.logicalBlockYRange.first, 4, DIRT)
+            chunk.setBlockState(ChunkBlockPosition(3, maximumLogicalBlockY, 4), STONE)
+            chunk.setBlockState(ChunkBlockPosition(3, maximumLogicalBlockY - 2, 4), OAK_LOG)
+            chunk.setBlockState(ChunkBlockPosition(3, dimensionTypeLayout.logicalBlockYRange.first, 4), DIRT)
 
             val surface = project(chunk, blockYRange = dimensionTypeLayout.logicalBlockYRange)
 
@@ -35,9 +34,9 @@ class SurfaceProjectionPolicyTest {
     fun aShorterLogicalHeightStartsInsideThePhysicalCeiling() {
         val dimensionTypeLayout = DimensionTypeLayout(0, 32, 16, hasSkyLight = false, hasCeiling = true)
         val chunk = emptyChunk(dimensionTypeLayout.chunkLayout)
-        chunk.setBlock(4, 15, 7, BEDROCK)
-        chunk.setBlock(4, 14, 7, BEDROCK)
-        chunk.setBlock(4, 12, 7, NETHERRACK)
+        chunk.setBlockState(ChunkBlockPosition(4, 15, 7), BEDROCK)
+        chunk.setBlockState(ChunkBlockPosition(4, 14, 7), BEDROCK)
+        chunk.setBlockState(ChunkBlockPosition(4, 12, 7), NETHERRACK)
 
         val surface = project(chunk, blockYRange = dimensionTypeLayout.logicalBlockYRange)
 
@@ -48,8 +47,14 @@ class SurfaceProjectionPolicyTest {
     fun aColumnWithoutAirFallsBackToItsFirstNonAirBlockFromTheSamePass() {
         val dimensionTypeLayout = DimensionTypeLayout(0, 16, 16, hasSkyLight = false, hasCeiling = true)
         val chunk = emptyChunk(dimensionTypeLayout.chunkLayout)
-        for (blockY in dimensionTypeLayout.chunkLayout.blockYRange) chunk.setBlock(2, blockY, 1, NETHERRACK)
-        chunk.setBlock(2, dimensionTypeLayout.chunkLayout.blockYRange.last, 1, STONE)
+        for (blockY in dimensionTypeLayout.chunkLayout.blockYRange) chunk.setBlockState(
+            ChunkBlockPosition(
+                2,
+                blockY,
+                1
+            ), NETHERRACK
+        )
+        chunk.setBlockState(ChunkBlockPosition(2, dimensionTypeLayout.chunkLayout.blockYRange.last, 1), STONE)
 
         assertEquals(column(STONE), project(chunk)[2, 1])
     }
@@ -57,10 +62,10 @@ class SurfaceProjectionPolicyTest {
     @Test
     fun transparentBlocksRetainEveryVisibleLayerThroughTheFirstOpaqueBlock() {
         val chunk = emptyChunk(ChunkLayout(0, 2))
-        chunk.setBlock(5, 30, 6, OAK_LEAVES)
-        chunk.setBlock(5, 28, 6, SHORT_GRASS)
-        chunk.setBlock(5, 27, 6, DIRT)
-        chunk.setBlock(5, 26, 6, STONE)
+        chunk.setBlockState(ChunkBlockPosition(5, 30, 6), OAK_LEAVES)
+        chunk.setBlockState(ChunkBlockPosition(5, 28, 6), SHORT_GRASS)
+        chunk.setBlockState(ChunkBlockPosition(5, 27, 6), DIRT)
+        chunk.setBlockState(ChunkBlockPosition(5, 26, 6), STONE)
 
         val surface = project(chunk, transparent = setOf(OAK_LEAVES, SHORT_GRASS))
 
@@ -70,8 +75,8 @@ class SurfaceProjectionPolicyTest {
     @Test
     fun anUnclosedTransparentStackIsStillReturned() {
         val chunk = emptyChunk(ChunkLayout(0, 1))
-        chunk.setBlock(0, 14, 0, OAK_LEAVES)
-        chunk.setBlock(0, 3, 0, SHORT_GRASS)
+        chunk.setBlockState(ChunkBlockPosition(0, 14, 0), OAK_LEAVES)
+        chunk.setBlockState(ChunkBlockPosition(0, 3, 0), SHORT_GRASS)
 
         assertEquals(
             column(OAK_LEAVES, SHORT_GRASS),
@@ -83,20 +88,19 @@ class SurfaceProjectionPolicyTest {
     fun allThreeAirStatesProduceEmptyColumns() {
         listOf(AIR, CAVE_AIR, VOID_AIR).forEachIndexed { localX, air ->
             val chunk = emptyChunk(ChunkLayout(0, 1))
-            chunk.setBlock(localX, 15, 0, air)
+            chunk.setBlockState(ChunkBlockPosition(localX, 15, 0), air)
 
             assertNull(project(chunk)[localX, 0])
         }
     }
 
     private fun project(
-        chunk: Chunk<BlockStateDescriptor, String>,
-        transparent: Set<BlockStateDescriptor> = emptySet(),
-        blockYRange: IntRange = chunk.chunkLayout.blockYRange,
+        chunk: Chunk,
+        transparent: Set<BlockState> = emptySet(),
+        blockYRange: IntRange = chunk.chunkContext.dimensionTypeLayout.chunkLayout.blockYRange,
     ): ChunkSurface = SurfaceProjectionPolicy.project(
         chunk = chunk,
         blockYRange = blockYRange,
-        blockStateRegistry = blockStateRegistry,
         surfaceBlockTransparency = { surfaceBlockState ->
             transparent.any { blockStateDescriptor ->
                 surfaceBlockState == blockStateDescriptor.toSurfaceBlockState()
@@ -104,30 +108,32 @@ class SurfaceProjectionPolicyTest {
         },
     )
 
-    private fun emptyChunk(chunkLayout: ChunkLayout): Chunk<BlockStateDescriptor, String> = Chunk(
-        chunkPosition = ChunkPosition(0, 0),
-        chunkMetadata = ChunkMetadata(),
-        chunkLayout = chunkLayout,
-        defaultBlockState = AIR,
-        defaultBiome = MinecraftBiomeIds.PLAINS.value,
+    private fun emptyChunk(chunkLayout: ChunkLayout): Chunk = Chunk(
+        ChunkPosition(0, 0),
+        ChunkContext(
+            DimensionId.Overworld,
+            DimensionTypeLayout(chunkLayout.minBlockY, chunkLayout.height, chunkLayout.height, true, false),
+            AIR, BiomeId(MinecraftBiomeIds.PLAINS.value),
+        ),
     )
 
-    private fun column(vararg blockStateDescriptors: BlockStateDescriptor): SurfaceColumn =
+    private fun column(vararg blockStateDescriptors: BlockState): SurfaceColumn =
         SurfaceColumn(blockStateDescriptors.map { blockStateDescriptor -> blockStateDescriptor.toSurfaceBlockState() })
 
-    private fun BlockStateDescriptor.toSurfaceBlockState(): SurfaceBlockState =
-        SurfaceBlockState(Identifier(name), properties)
+    private fun BlockState.toSurfaceBlockState(): SurfaceBlockState =
+        SurfaceBlockState(Identifier(blockId.value), properties.toMap())
 
     companion object {
-        private val AIR = BlockStateDescriptor(MinecraftBlockIds.AIR.value)
-        private val CAVE_AIR = BlockStateDescriptor(Identifier("cave_air").value)
-        private val VOID_AIR = BlockStateDescriptor(Identifier("void_air").value)
-        private val STONE = BlockStateDescriptor(Identifier("stone").value)
-        private val DIRT = BlockStateDescriptor(Identifier("dirt").value)
-        private val BEDROCK = BlockStateDescriptor(Identifier("bedrock").value)
-        private val NETHERRACK = BlockStateDescriptor(Identifier("netherrack").value)
-        private val OAK_LEAVES = BlockStateDescriptor(Identifier("oak_leaves").value, mapOf("persistent" to "true"))
-        private val SHORT_GRASS = BlockStateDescriptor(Identifier("short_grass").value)
-        private val OAK_LOG = BlockStateDescriptor(Identifier("oak_log").value, mapOf("axis" to "y"))
+        private val AIR = BlockState(BlockId(MinecraftBlockIds.AIR.value))
+        private val CAVE_AIR = BlockState(BlockId(Identifier("cave_air").value))
+        private val VOID_AIR = BlockState(BlockId(Identifier("void_air").value))
+        private val STONE = BlockState(BlockId(Identifier("stone").value))
+        private val DIRT = BlockState(BlockId(Identifier("dirt").value))
+        private val BEDROCK = BlockState(BlockId(Identifier("bedrock").value))
+        private val NETHERRACK = BlockState(BlockId(Identifier("netherrack").value))
+        private val OAK_LEAVES =
+            BlockState(BlockId(Identifier("oak_leaves").value), StateProperties(mapOf("persistent" to "true")))
+        private val SHORT_GRASS = BlockState(BlockId(Identifier("short_grass").value))
+        private val OAK_LOG = BlockState(BlockId(Identifier("oak_log").value), StateProperties(mapOf("axis" to "y")))
     }
 }

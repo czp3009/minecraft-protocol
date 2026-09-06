@@ -1,21 +1,21 @@
 package com.hiczp.minecraft.protocol.serialization
 
-import com.hiczp.minecraft.protocol.model.packet.ChatMessagePacket
-import com.hiczp.minecraft.protocol.model.packet.PlayerSessionPacket
-import com.hiczp.minecraft.protocol.model.packet.SignedChatCommandPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundChatCommandSignedPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundChatPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundChatSessionUpdatePacket
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.uuid.Uuid
+import kotlinx.serialization.KSerializer
 
 class PlayServerboundChatPacketTest {
     @Test
     fun `last-seen acknowledgement width belongs to the physical codec`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.encodeToByteArray(
+            MinecraftPacketPayloadFormat.encodeToByteArray(
                 LastSeenMessagesUpdate.serializer(),
                 LastSeenMessagesUpdate(0, ByteString(ByteArray(2)), 0),
             )
@@ -25,9 +25,9 @@ class PlayServerboundChatPacketTest {
     @Test
     fun `chat message retains instant signature optional and fixed bitset`() {
         assertPacketBytes(
-            ChatMessagePacket(
+            ServerboundChatPacket(
                 message = "x",
-                timestampEpochMillis = 1,
+                timeStamp = 1,
                 salt = 2,
                 signature = null,
                 lastSeenMessages = LastSeenMessagesUpdate(
@@ -38,7 +38,7 @@ class PlayServerboundChatPacketTest {
                     checksum = -1,
                 ),
             ),
-            ChatMessagePacket.serializer(),
+            ServerboundChatPacket.serializer(),
             "01780000000000000001000000000000000200ac02010203ff",
         )
     }
@@ -46,18 +46,18 @@ class PlayServerboundChatPacketTest {
     @Test
     fun `signed command uses bounded argument list and last-seen update`() {
         assertPacketBytes(
-            SignedChatCommandPacket(
+            ServerboundChatCommandSignedPacket(
                 command = "x",
-                timestampEpochMillis = 1,
+                timeStamp = 1,
                 salt = 2,
-                arguments = SignedCommandArguments(emptyList()),
+                argumentSignatures = SignedCommandArguments(emptyList()),
                 lastSeenMessages = LastSeenMessagesUpdate(
                     offset = 0,
                     acknowledged = ByteString(ByteArray(3)),
                     checksum = 0,
                 ),
             ),
-            SignedChatCommandPacket.serializer(),
+            ServerboundChatCommandSignedPacket.serializer(),
             "017800000000000000010000000000000002000000000000",
         )
     }
@@ -65,7 +65,7 @@ class PlayServerboundChatPacketTest {
     @Test
     fun `session update uses UUID instant and bounded key arrays`() {
         assertPacketBytes(
-            PlayerSessionPacket(
+            ServerboundChatSessionUpdatePacket(
                 ChatSessionData(
                     sessionId = Uuid.fromLongs(1, 2),
                     profilePublicKey = ProfilePublicKeyData(
@@ -79,7 +79,7 @@ class PlayServerboundChatPacketTest {
                     ),
                 ),
             ),
-            PlayerSessionPacket.serializer(),
+            ServerboundChatSessionUpdatePacket.serializer(),
             "00000000000000010000000000000002000000000000000301aa02bbcc",
         )
     }
@@ -92,11 +92,11 @@ class PlayServerboundChatPacketTest {
         val expected = expectedHex.hexToByteArray()
         assertContentEquals(
             expected,
-            MinecraftProtocolFormat.encodeToByteArray(kSerializer, packet),
+            MinecraftPacketPayloadFormat.encodeToByteArray(kSerializer, packet),
         )
         assertEquals(
             packet,
-            MinecraftProtocolFormat.decodeFromByteArray(kSerializer, expected),
+            MinecraftPacketPayloadFormat.decodeFromByteArray(kSerializer, expected),
         )
     }
 }

@@ -123,32 +123,7 @@ data class RecipeDisplayEntry(
     }
 }
 
-@Serializable
-data class RecipeBookEntry(
-    val contents: RecipeDisplayEntry,
-    val flags: Byte,
-) {
-    val notification: Boolean
-        get() = flags.toInt() and NOTIFICATION != 0
 
-    val highlight: Boolean
-        get() = flags.toInt() and HIGHLIGHT != 0
-
-    companion object {
-        const val NOTIFICATION: Int = 0x01
-        const val HIGHLIGHT: Int = 0x02
-
-        fun of(
-            contents: RecipeDisplayEntry,
-            notification: Boolean,
-            highlight: Boolean,
-        ): RecipeBookEntry = RecipeBookEntry(
-            contents,
-            ((if (notification) NOTIFICATION else 0) or
-                    (if (highlight) HIGHLIGHT else 0)).toByte(),
-        )
-    }
-}
 
 @Serializable
 data class RecipePropertySet(

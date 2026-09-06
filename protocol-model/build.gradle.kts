@@ -1,7 +1,6 @@
 import com.google.devtools.ksp.gradle.KspAATask
 import com.hiczp.minecraft.buildlogic.BuildVersions
 import com.hiczp.minecraft.buildlogic.GenerateMinecraftProtocolSourceTask
-import com.hiczp.minecraft.buildlogic.officialMinecraftArtifactDirectory
 import com.hiczp.minecraft.buildlogic.officialMinecraftArtifactFile
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
@@ -15,7 +14,7 @@ plugins {
 }
 
 val officialTargetFile = officialMinecraftArtifactFile("officialMinecraftTarget")
-val officialReportsDirectory = officialMinecraftArtifactDirectory("officialMinecraftReports")
+val packetClasses = officialMinecraftArtifactFile("officialMinecraftPackets")
 
 val generatedProtocolSourceDirectory = layout.buildDirectory.dir(
     "generated/sources/minecraftProtocol/commonMain/kotlin",
@@ -39,17 +38,13 @@ val generateMinecraftProtocolSource =
             }
     }
 
-val packetsReport = officialReportsDirectory.map {
-    it.file("reports/packets.json")
-}
-
 ksp {
     // This output is re-exposed to commonMain for downstream compilations. Do not let later KSP tasks observe it as
     // source input again: that would create a producer/consumer feedback edge with kspCommonMainKotlinMetadata.
     excludedSources.from(generatedPacketDefinitionsDirectory)
     arg(
-        "minecraft.packetsReport",
-        packetsReport.map { it.asFile.absolutePath },
+        "minecraft.packetClasses",
+        packetClasses.map { it.asFile.absolutePath },
     )
 }
 
@@ -142,5 +137,5 @@ tasks.withType<Jar>()
 // The KSP option alone is a plain string; track the report's content so the
 // processor reruns when the official analysis data changes.
 generatePacketDefinitions.configureEach {
-    inputs.file(packetsReport).withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(packetClasses).withPathSensitivity(PathSensitivity.NONE)
 }

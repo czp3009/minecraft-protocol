@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.server
 
-import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.configuration.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
+import com.hiczp.minecraft.protocol.model.packet.ClientboundLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.PlayLoginPacket
 import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
 import com.hiczp.minecraft.protocol.model.packet.UnknownPacket
 import com.hiczp.minecraft.protocol.model.type.*
@@ -29,13 +29,13 @@ interface MinecraftServerNegotiationPolicy {
         minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
     ): JsonTextComponent? = null
 
-    suspend fun createPlayLoginPacket(
+    suspend fun createClientboundLoginPacket(
         gameProfile: GameProfile,
         clientInformation: ClientInformation,
         transferred: Boolean,
         onlineMode: Boolean,
         minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
-    ): PlayLoginPacket = DefaultMinecraftServerNegotiationPolicy.createPlayLoginPacket(
+    ): ClientboundLoginPacket = DefaultMinecraftServerNegotiationPolicy.createClientboundLoginPacket(
         minecraftServerNegotiationOptions = minecraftServerNegotiationOptions,
         gameProfile = gameProfile,
         onlineMode = onlineMode,
@@ -71,11 +71,12 @@ data object DefaultMinecraftServerNegotiationPolicy : MinecraftServerNegotiation
     ): ServerStatus = minecraftServerNegotiationOptions.createDefaultServerStatus(onlinePlayers, onlineMode)
 
     /** Builds the default Play Login selected by [minecraftServerNegotiationOptions]. */
-    fun createPlayLoginPacket(
+    fun createClientboundLoginPacket(
         minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
         gameProfile: GameProfile,
         onlineMode: Boolean,
-    ): PlayLoginPacket = minecraftServerNegotiationOptions.createDefaultPlayLoginPacket(gameProfile, onlineMode)
+    ): ClientboundLoginPacket =
+        minecraftServerNegotiationOptions.createDefaultClientboundLoginPacket(gameProfile, onlineMode)
 }
 
 sealed interface ServerNegotiationQueryResult {
@@ -115,16 +116,16 @@ private fun MinecraftServerNegotiationOptions.createDefaultServerStatus(
         enforcesSecureChat = effectiveSecureChatEnforcement(onlineMode),
     )
 
-private fun MinecraftServerNegotiationOptions.createDefaultPlayLoginPacket(
+private fun MinecraftServerNegotiationOptions.createDefaultClientboundLoginPacket(
     gameProfile: GameProfile,
     onlineMode: Boolean,
-): PlayLoginPacket {
+): ClientboundLoginPacket {
     val dimensionId = Identifier.parse(initialDimensionId.toString())
     val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-        protocolData,
-        dimensionId,
+        configurationData,
+        initialDimensionTypeId,
     )
-    return PlayLoginPacket(
+    return ClientboundLoginPacket(
         playerId = gameProfile.id.hashCode(),
         hardcore = hardcore,
         levels = dimensionIds.mapTo(linkedSetOf()) { advertisedDimensionId ->
@@ -135,8 +136,8 @@ private fun MinecraftServerNegotiationOptions.createDefaultPlayLoginPacket(
         simulationDistance = simulationDistance,
         reducedDebugInfo = false,
         showDeathScreen = true,
-        limitedCrafting = false,
-        spawnInfo = CommonPlayerSpawnInfo(
+        doLimitedCrafting = false,
+        commonPlayerSpawnInfo = CommonPlayerSpawnInfo(
             dimensionTypeId = minecraftDimensionLayout.dimensionTypeRawId,
             dimension = dimensionId,
             seed = 0,

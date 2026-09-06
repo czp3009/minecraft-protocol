@@ -177,16 +177,16 @@ data class ForgeMismatchDataMessage(
     val missing: Set<Identifier>,
 ) : ForgeClientboundHandshakeMessage
 
-data class ForgeClientboundHandshakePacket(
+data class ForgeClientboundClientIntentionPacket(
     val forgeClientboundHandshakeMessage: ForgeClientboundHandshakeMessage,
 ) : ClientboundPacket.Extension
 
-data class ForgeServerboundHandshakePacket(
+data class ForgeServerboundClientIntentionPacket(
     val forgeServerboundHandshakeMessage: ForgeServerboundHandshakeMessage,
 ) : ServerboundPacket.Extension
 
 /** Raw selected-revision Forge messages 7+ carried by forge:handshake in Play. */
-data class ForgeClientboundPlayHandshakePacket(
+data class ForgeClientboundPlayClientIntentionPacket(
     val discriminator: Int,
     val data: ByteString,
 ) : ClientboundPacket.Extension {

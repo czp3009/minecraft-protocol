@@ -22,8 +22,7 @@ Java client.
 - `InstallationService` reads metadata through the shared HTTP client's distribution API and writes the typed asset
   index atomically. `ResourceDownloader` consumes the distribution API's download streams, verifies their declared size
   and SHA-1, and publishes with an atomic move. Cancellation stops retries and incomplete downloads never become
-  installed
-  state.
+  installed state.
 - `GameProcessService` validates the available Java major, removes its temporary argument file, drains both output
   streams, normalizes terminal text, and redacts the online access token. The token must never enter the Java argument
   file or an error shown by the TUI.

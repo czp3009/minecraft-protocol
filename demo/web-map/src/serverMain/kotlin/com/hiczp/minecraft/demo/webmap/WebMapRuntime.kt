@@ -1,13 +1,18 @@
 package com.hiczp.minecraft.demo.webmap
 
-import com.hiczp.minecraft.protocol.datapack.resolveMinecraftChunkContexts
-import com.hiczp.minecraft.protocol.datapack.vanilla.toVanillaProtocolData
+import com.hiczp.minecraft.nbt.serialization.NbtFormat
+import com.hiczp.minecraft.protocol.configuration.resolveWorldChunkContexts
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaConfigurationData
+import com.hiczp.minecraft.protocol.configuration.vanilla.toVanillaConfigurationData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
+import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.RegionPosition
 import com.hiczp.minecraft.world.format.SavedDataId
 import com.hiczp.minecraft.world.format.data.SavedDataFile
 import com.hiczp.minecraft.world.format.data.WorldGenSettingsData
+import com.hiczp.minecraft.world.format.datapack.vanilla.toVanillaDataPackStack
 import com.hiczp.minecraft.world.io.LiveMinecraftWorldAccess
 import io.github.oshai.kotlinlogging.KLogger
 import kotlinx.coroutines.*
@@ -40,19 +45,29 @@ class WebMapRuntime(
             ) {
                 "World has no root world_gen_settings saved data"
             }.data
-            val resolvedProtocolData = worldDataPackLoadResult.toVanillaProtocolData()
-            val minecraftChunkContexts = resolvedProtocolData.resolveMinecraftChunkContexts(worldGenSettingsData)
+            val dataPackStack = worldDataPackLoadResult.toVanillaDataPackStack()
+            val resolvedConfigurationData = dataPackStack.toVanillaConfigurationData(
+                enabledFeatureFlags = VanillaConfigurationData.enabledFeatureFlags +
+                        worldDataPackLoadResult.enabledFeatureFlags.map { Identifier(it) },
+            )
+            val worldChunkContexts = resolvedConfigurationData.resolveWorldChunkContexts(
+                worldGenSettingsData, BlockState(BlockId("minecraft:air")), BiomeId("minecraft:plains"),
+            )
+            // Surface projection does not execute saved ticks; all map reads use the same explicit origin.
+            val chunkNbtDecoders = worldChunkContexts.dimensions.mapValues { (_, chunkContext) ->
+                ChunkNbtDecoder(ChunkNbtDecoderContext(chunkContext, NbtFormat(), NbtPropertyReadMappings(), 0L))
+            }
             val surfaceRegionReader = LiveSurfaceRegionReader(
                 liveMinecraftWorldAccess = liveMinecraftWorldAccess,
-                minecraftChunkContexts = minecraftChunkContexts,
+                chunkNbtDecoders = chunkNbtDecoders,
                 surfaceChunkCache = SurfaceChunkCache(),
             ) { regionPosition: RegionPosition, chunkPosition, failure ->
                 val location = chunkPosition?.let { value -> "Chunk $value in Region $regionPosition" }
                     ?: "Region $regionPosition"
                 logger.warn(failure) { "$location could not be read from the live world" }
             }
-            val surfaceChunkProjectors = minecraftChunkContexts.mapValues { (_, minecraftChunkContext) ->
-                ProtocolSurfaceChunkProjector(minecraftChunkContext)
+            val surfaceChunkProjectors = worldChunkContexts.dimensions.mapValues { (_, chunkContext) ->
+                WorldSurfaceChunkProjector(chunkContext)
             }
             val surfaceQueryEngine = SurfaceQueryEngine(
                 surfaceChunkProjectors = surfaceChunkProjectors,

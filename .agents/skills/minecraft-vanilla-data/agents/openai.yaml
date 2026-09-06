@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minecraft Vanilla Data"
+  short_description: "Maintain official packs, registries and Configuration defaults"
+  default_prompt: "Use $minecraft-vanilla-data to update or audit official pack extraction, registry generation and Configuration defaults."

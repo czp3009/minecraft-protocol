@@ -1,7 +1,9 @@
 package com.hiczp.minecraft.protocol.model.type
 
-import com.hiczp.minecraft.nbt.NbtCompound
-import com.hiczp.minecraft.protocol.model.wire.*
+import com.hiczp.minecraft.protocol.model.wire.PaletteKind
+import com.hiczp.minecraft.protocol.model.wire.Paletted
+import com.hiczp.minecraft.protocol.model.wire.UnsignedShort
+import com.hiczp.minecraft.protocol.model.wire.VarInt
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.LongArraySerializer
@@ -21,74 +23,27 @@ enum class HeightmapType {
 }
 
 @Serializable
-data class BlockEntityInfo(
-    val packedXZ: Byte,
-    val y: Short,
-    @VarInt
-    val typeId: Int,
-    @NbtEndOptional
-    @NetworkNbt
-    val tag: NbtCompound?,
-) {
-    init {
-        require(typeId >= 0) { "A block-entity type ID must be non-negative" }
-    }
-
-    /** Block-entity X inside its packet Chunk. */
-    val localX: Int
-        get() = packedXZ.toInt().ushr(LOCAL_COORDINATE_BITS) and LOCAL_COORDINATE_MASK
-
-    /** Block-entity Z inside its packet Chunk. */
-    val localZ: Int
-        get() = packedXZ.toInt() and LOCAL_COORDINATE_MASK
-
-    companion object {
-        /** Packs the logical local coordinates into the packet representation. */
-        fun fromLocalCoordinates(
-            localX: Int,
-            y: Int,
-            localZ: Int,
-            typeId: Int,
-            tag: NbtCompound?,
-        ): BlockEntityInfo {
-            require(localX in 0..LOCAL_COORDINATE_MASK) { "Local block-entity X must be in 0..15" }
-            require(y in Short.MIN_VALUE..Short.MAX_VALUE) { "Block-entity Y $y does not fit a Short" }
-            require(localZ in 0..LOCAL_COORDINATE_MASK) { "Local block-entity Z must be in 0..15" }
-            return BlockEntityInfo(
-                packedXZ = ((localX shl LOCAL_COORDINATE_BITS) or localZ).toByte(),
-                y = y.toShort(),
-                typeId = typeId,
-                tag = tag,
-            )
-        }
-
-        private const val LOCAL_COORDINATE_BITS: Int = 4
-        private const val LOCAL_COORDINATE_MASK: Int = 0x0F
-    }
-}
-
-@Serializable
-data class ChunkSection(
+data class LevelChunkSectionData(
     @UnsignedShort
-    val nonAirBlockCount: Int,
+    val nonEmptyBlockCount: Int,
     @UnsignedShort
     val fluidCount: Int,
     @Paletted(PaletteKind.BLOCK_STATES)
-    val blockStates: PalettedContainer,
+    val states: PalettedContainer,
     @Paletted(PaletteKind.BIOMES)
     val biomes: PalettedContainer,
 ) {
     /** Whether the packet-reported Section contains only air block states. */
     val hasOnlyAir: Boolean
-        get() = nonAirBlockCount == 0
+        get() = nonEmptyBlockCount == 0
 
     /** Whether the packet-reported Section contains at least one non-empty fluid state. */
     val hasFluid: Boolean
         get() = fluidCount > 0
 
     init {
-        require(nonAirBlockCount in 0..BLOCK_COUNT) {
-            "A chunk section contains $nonAirBlockCount non-air blocks"
+        require(nonEmptyBlockCount in 0..BLOCK_COUNT) {
+            "A chunk section contains $nonEmptyBlockCount non-air blocks"
         }
         require(fluidCount in 0..BLOCK_COUNT) {
             "A chunk section contains $fluidCount fluid blocks"
@@ -169,36 +124,6 @@ internal object PackedLongArraySerializer : KSerializer<PackedLongArray> {
 
     override fun deserialize(decoder: Decoder): PackedLongArray =
         PackedLongArray(decoder.decodeSerializableValue(delegate))
-}
-
-@Serializable
-data class ChunkData(
-    val heightmaps: Map<HeightmapType, LongArray>,
-    @ByteLengthPrefixed(MAX_SECTION_BYTES)
-    @ChunkSectionCount
-    val sections: List<ChunkSection>,
-    val blockEntities: List<BlockEntityInfo>,
-) {
-    override fun equals(other: Any?): Boolean =
-        other is ChunkData &&
-                heightmaps.size == other.heightmaps.size &&
-                heightmaps.all { (heightmapType, values) ->
-                    other.heightmaps[heightmapType]?.contentEquals(values) == true
-                } &&
-                sections == other.sections &&
-                blockEntities == other.blockEntities
-
-    override fun hashCode(): Int {
-        var result = heightmaps.entries.sumOf { (heightmapType, values) ->
-            heightmapType.hashCode() xor values.contentHashCode()
-        }
-        result = 31 * result + sections.hashCode()
-        return 31 * result + blockEntities.hashCode()
-    }
-
-    companion object {
-        const val MAX_SECTION_BYTES: Int = 2_097_152
-    }
 }
 
 internal object HeightmapTypeSerializer : KSerializer<HeightmapType> {

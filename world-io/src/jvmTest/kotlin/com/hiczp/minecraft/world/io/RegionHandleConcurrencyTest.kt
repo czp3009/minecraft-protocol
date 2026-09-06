@@ -1,6 +1,5 @@
 package com.hiczp.minecraft.world.io
 
-import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.world.format.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
@@ -1586,18 +1585,27 @@ class RegionHandleConcurrencyTest {
             regionStorageConfiguration = concurrencyConfiguration(),
         )
         val entityRegionHandle = EntityRegionHandle(regionStorage.openRegion(RegionPosition(0, 0)))
-        val entityChunkNbtCodec = EntityChunkNbtCodec(NbtEntityDataRegistry())
-        val entity = Entity(
-            type = "minecraft:pig",
-            uuid = Uuid.NIL,
-            data = NbtCompound(emptyMap()),
-            position = EntityVector3d(0.5, 64.0, 0.5),
+        val entityChunkContext = EntityChunkContext(DimensionId.Overworld)
+        val entityChunkNbtEncoder = EntityChunkNbtEncoder(
+            EntityChunkNbtEncoderContext(
+                regionStorage.chunkNbtFormat.nbtFormat,
+                NbtPropertyWriteMappings(),
+                EntityChunkNbtMetadata(1)
+            ),
         )
-        val entityChunk = EntityChunk(ChunkPosition(0, 0), 1, listOf(entity))
+        val entity = Entity(
+            entityTypeId = EntityTypeId("minecraft:pig"),
+            uuid = Uuid.NIL,
+            position = EntityVector3d(0.5, 64.0, 0.5),
+            deltaMovement = EntityVector3d.ZERO,
+            entityRotation = EntityRotation.ZERO,
+            passengers = mutableListOf(),
+        )
+        val entityChunk = EntityChunk(ChunkPosition(0, 0), entityChunkContext, mutableListOf(entity), DataProperties())
         val jobs = mutableListOf<Deferred<*>>()
         try {
             val writing = async(Dispatchers.Default) {
-                entityRegionHandle.writeChunk(entityChunk, entityChunkNbtCodec, Compression.NONE)
+                entityRegionHandle.writeChunk(entityChunk, entityChunkNbtEncoder, Compression.NONE)
             }
             jobs += writing
             encodeGate.awaitEntered()

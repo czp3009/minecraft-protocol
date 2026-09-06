@@ -1,8 +1,8 @@
 package com.hiczp.minecraft.protocol.session
 
 import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
-import com.hiczp.minecraft.protocol.serialization.MinecraftProtocolFormat
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 
@@ -10,13 +10,13 @@ import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 class MinecraftServerPacketSession(
     minecraftFrameStream: MinecraftFrameStream,
     packetRegistry: PacketRegistry = MinecraftPacketRegistry,
-    minecraftProtocolFormat: MinecraftProtocolFormat = MinecraftProtocolFormat.Default,
+    minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
 ) : MinecraftPacketSession<ServerboundPacket, ClientboundPacket>(
     minecraftFrameStream = minecraftFrameStream,
     inboundDirection = PacketDirection.SERVERBOUND,
     outboundDirection = PacketDirection.CLIENTBOUND,
     packetRegistry = packetRegistry,
-    minecraftProtocolFormat = minecraftProtocolFormat,
+    minecraftPacketPayloadFormat = minecraftPacketPayloadFormat,
 ) {
     override suspend fun send(packet: ClientboundPacket) {
         ClientboundBundleCodec.rejectStandaloneDelimiter(packet)

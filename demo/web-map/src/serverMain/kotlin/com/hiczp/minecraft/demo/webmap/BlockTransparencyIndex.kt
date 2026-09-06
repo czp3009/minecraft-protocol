@@ -1,6 +1,6 @@
 package com.hiczp.minecraft.demo.webmap
 
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaBlockState
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaBlockState
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

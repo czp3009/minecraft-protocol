@@ -26,8 +26,8 @@ class PrimitiveArraySerializationTest {
             varLongs = longArrayOf(-1, 0, 128),
         )
 
-        val encoded = MinecraftProtocolFormat.encodeToByteArray(primitiveArrays)
-        val decoded = MinecraftProtocolFormat.decodeFromByteArray<PrimitiveArrays>(encoded)
+        val encoded = MinecraftPacketPayloadFormat.encodeToByteArray(primitiveArrays)
+        val decoded = MinecraftPacketPayloadFormat.decodeFromByteArray<PrimitiveArrays>(encoded)
 
         assertEquals(primitiveArrays, decoded)
         assertContentEquals(primitiveArrays.booleans, decoded.booleans)
@@ -46,10 +46,10 @@ class PrimitiveArraySerializationTest {
     fun `boolean arrays follow the official nonzero truth rule by default`() {
         assertContentEquals(
             booleanArrayOf(true),
-            MinecraftProtocolFormat.decodeFromByteArray<BooleanArray>(byteArrayOf(1, 2)),
+            MinecraftPacketPayloadFormat.decodeFromByteArray<BooleanArray>(byteArrayOf(1, 2)),
         )
 
-        val strict = MinecraftProtocolFormat(MinecraftProtocolFormatConfiguration(strictBooleans = true))
+        val strict = MinecraftPacketPayloadFormat(MinecraftPacketPayloadFormatConfiguration(strictBooleans = true))
         assertFailsWith<MinecraftSerializationException> {
             strict.decodeFromByteArray<BooleanArray>(byteArrayOf(1, 2))
         }
@@ -58,7 +58,7 @@ class PrimitiveArraySerializationTest {
     @Test
     fun `fixed-width primitive arrays reject impossible payload lengths before allocation`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftProtocolFormat.decodeFromByteArray<IntArray>(
+            MinecraftPacketPayloadFormat.decodeFromByteArray<IntArray>(
                 "ffffffff07".hexToByteArray(),
             )
         }

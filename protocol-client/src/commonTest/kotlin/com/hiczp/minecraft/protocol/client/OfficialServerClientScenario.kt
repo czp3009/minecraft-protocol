@@ -1,17 +1,14 @@
 package com.hiczp.minecraft.protocol.client
 
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
-import com.hiczp.minecraft.protocol.datapack.DataPackConfigurationSnapshot
-import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionContext
-import com.hiczp.minecraft.protocol.datapack.MinecraftDimensionLayout
-import com.hiczp.minecraft.protocol.datapack.resolveSynchronizedRegistryContext
-import com.hiczp.minecraft.protocol.datapack.vanilla.VanillaProtocolData
+import com.hiczp.minecraft.protocol.configuration.DataPackConfigurationSnapshot
+import com.hiczp.minecraft.protocol.configuration.MinecraftDimensionContext
+import com.hiczp.minecraft.protocol.configuration.MinecraftDimensionLayout
+import com.hiczp.minecraft.protocol.configuration.resolveSynchronizedRegistryContext
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaConfigurationData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
-import com.hiczp.minecraft.protocol.model.type.ByteString
-import com.hiczp.minecraft.protocol.model.type.CustomPayload
-import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.RegistryTags
+import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.session.VanillaClient
 import com.hiczp.minecraft.world.format.DimensionId
 import io.ktor.network.selector.*
@@ -37,7 +34,7 @@ internal object OfficialServerClientScenario {
                     0x0102_0304_0506_0708,
                 )
                 check(
-                    minecraftStatusExchange.statusResponsePacket.status.version?.protocol ==
+                    minecraftStatusExchange.clientboundStatusResponsePacket.status.version?.protocol ==
                             MinecraftProtocol.PROTOCOL_VERSION,
                 ) {
                     "Official status did not advertise protocol ${MinecraftProtocol.PROTOCOL_VERSION}"
@@ -81,7 +78,7 @@ internal object OfficialServerClientScenario {
                 check(loginClient.connectionState == ConnectionState.PLAY) {
                     "Official-server client did not reach Play"
                 }
-                check(loginClient.protocolRegistryContext.chunkSectionCount != null) {
+                check(login.chunkLayout.sectionCount > 0) {
                     "Official-server client did not install the active dimension"
                 }
                 verifyVanillaConfiguration(login)
@@ -99,56 +96,56 @@ internal object OfficialServerClientScenario {
         profile.begin(minecraftClientConnection)
         minecraftClientConnection.outgoing.send(
             profile.prepareHandshake(
-                HandshakePacket(
+                ClientIntentionPacket(
                     protocolVersion = MinecraftProtocol.PROTOCOL_VERSION,
-                    serverAddress = minecraftClientConnection.serverAddress,
-                    serverPort = minecraftClientConnection.serverPort,
-                    nextState = HandshakeNextState.LOGIN,
+                    hostName = minecraftClientConnection.serverAddress,
+                    port = minecraftClientConnection.serverPort,
+                    intention = ClientIntent.LOGIN,
                 ),
             ),
         )
         minecraftClientConnection.outgoing.send(
-            LoginStartPacket(
+            ServerboundHelloPacket(
                 minecraftOfflineIdentity.name,
                 minecraftOfflineIdentity.id
             )
         )
         minecraftClientConnection.requestFlush()
 
-        var loginSuccessPacket: LoginSuccessPacket? = null
+        var clientboundLoginFinishedPacket: ClientboundLoginFinishedPacket? = null
         var loginPackets = 0
-        while (loginSuccessPacket == null) {
+        while (clientboundLoginFinishedPacket == null) {
             check(++loginPackets <= MAXIMUM_PACKETS_PER_STAGE) {
                 "Login packet limit exceeded"
             }
             when (val clientboundPacket = minecraftClientConnection.incoming.receive()) {
-                is SetCompressionPacket -> Unit
-                is LoginCookieRequestPacket -> minecraftClientConnection.outgoing.send(
-                    LoginCookieResponsePacket(
+                is ClientboundLoginCompressionPacket -> Unit
+                is ClientboundCookieRequestPacket -> minecraftClientConnection.outgoing.send(
+                    ServerboundCookieResponsePacket(
                         clientboundPacket.key,
                         minecraftClientNegotiationOptions.loginCookies[clientboundPacket.key]
                     ),
                 )
 
-                is LoginSuccessPacket -> {
-                    loginSuccessPacket = clientboundPacket
-                    minecraftClientConnection.outgoing.send(LoginAcknowledgedPacket)
+                is ClientboundLoginFinishedPacket -> {
+                    clientboundLoginFinishedPacket = clientboundPacket
+                    minecraftClientConnection.outgoing.send(ServerboundLoginAcknowledgedPacket)
                     minecraftClientConnection.awaitState(ConnectionState.CONFIGURATION)
                 }
 
-                is LoginDisconnectPacket -> error("Official server rejected Login: ${clientboundPacket.reason.json}")
+                is ClientboundLoginDisconnectPacket -> error("Official server rejected Login: ${clientboundPacket.reason.json}")
                 else -> error("Unexpected Login packet ${clientboundPacket::class.simpleName}")
             }
             minecraftClientConnection.requestFlush()
         }
-        val actualLogin = checkNotNull(loginSuccessPacket)
+        val actualLogin = checkNotNull(clientboundLoginFinishedPacket)
 
-        minecraftClientConnection.outgoing.send(ConfigurationClientInformationPacket(minecraftClientNegotiationOptions.clientInformation))
+        minecraftClientConnection.outgoing.send(ServerboundClientInformationPacket(minecraftClientNegotiationOptions.clientInformation))
         minecraftClientConnection.requestFlush()
-        var configurationClientboundKnownPacksPacket: ConfigurationClientboundKnownPacksPacket? = null
-        var featureFlagsPacket: FeatureFlagsPacket? = null
-        var configurationUpdateTagsPacket: ConfigurationUpdateTagsPacket? = null
-        val synchronizedRegistryPackets = mutableListOf<RegistryDataPacket>()
+        var clientboundSelectKnownPacks: ClientboundSelectKnownPacks? = null
+        var clientboundUpdateEnabledFeaturesPacket: ClientboundUpdateEnabledFeaturesPacket? = null
+        var clientboundUpdateTagsPacket: ClientboundUpdateTagsPacket? = null
+        val synchronizedRegistryPackets = mutableListOf<ClientboundRegistryDataPacket>()
         val storedConfigurationCookies = linkedMapOf<Identifier, ByteString>()
         var configurationFinished = false
         var configurationPackets = 0
@@ -157,89 +154,89 @@ internal object OfficialServerClientScenario {
                 "Configuration packet limit exceeded"
             }
             when (val clientboundPacket = minecraftClientConnection.incoming.receive()) {
-                is ConfigurationClientboundKnownPacksPacket -> {
-                    configurationClientboundKnownPacksPacket = clientboundPacket
+                is ClientboundSelectKnownPacks -> {
+                    clientboundSelectKnownPacks = clientboundPacket
                     minecraftClientConnection.outgoing.send(
-                        ConfigurationServerboundKnownPacksPacket(
+                        ServerboundSelectKnownPacks(
                             clientboundPacket.knownPacks.filter(minecraftClientNegotiationOptions.acceptedKnownPacks::contains),
                         ),
                     )
                 }
 
-                is FeatureFlagsPacket -> featureFlagsPacket = clientboundPacket
-                is RegistryDataPacket -> {
-                    check(synchronizedRegistryPackets.none { it.registryId == clientboundPacket.registryId }) {
-                        "Official server sent duplicate registry ${clientboundPacket.registryId}"
+                is ClientboundUpdateEnabledFeaturesPacket -> clientboundUpdateEnabledFeaturesPacket = clientboundPacket
+                is ClientboundRegistryDataPacket -> {
+                    check(synchronizedRegistryPackets.none { it.registry == clientboundPacket.registry }) {
+                        "Official server sent duplicate registry ${clientboundPacket.registry}"
                     }
                     synchronizedRegistryPackets += clientboundPacket
                 }
 
-                is ConfigurationUpdateTagsPacket -> configurationUpdateTagsPacket = clientboundPacket
-                is ConfigurationCookieRequestPacket -> minecraftClientConnection.outgoing.send(
-                    ConfigurationCookieResponsePacket(
+                is ClientboundUpdateTagsPacket -> clientboundUpdateTagsPacket = clientboundPacket
+                is ClientboundCookieRequestPacket -> minecraftClientConnection.outgoing.send(
+                    ServerboundCookieResponsePacket(
                         clientboundPacket.key,
                         minecraftClientNegotiationOptions.configurationCookies[clientboundPacket.key],
                     ),
                 )
 
-                is ConfigurationStoreCookiePacket -> storedConfigurationCookies[clientboundPacket.key] =
+                is ClientboundStoreCookiePacket -> storedConfigurationCookies[clientboundPacket.key] =
                     clientboundPacket.payload
 
-                is ConfigurationPingPacket -> minecraftClientConnection.outgoing.send(
-                    ConfigurationPongPacket(
+                is ClientboundPingPacket -> minecraftClientConnection.outgoing.send(
+                    ServerboundPongPacket(
                         clientboundPacket.id
                     )
                 )
 
-                is ConfigurationAddResourcePackPacket -> minecraftClientConnection.outgoing.send(
-                    ConfigurationResourcePackResponsePacket(
-                        clientboundPacket.uuid,
+                is ClientboundResourcePackPushPacket -> minecraftClientConnection.outgoing.send(
+                    ServerboundResourcePackPacket(
+                        clientboundPacket.id,
                         minecraftClientNegotiationOptions.resourcePackResult
                     ),
                 )
 
-                is CodeOfConductPacket -> {
+                is ClientboundCodeOfConductPacket -> {
                     check(minecraftClientNegotiationOptions.acceptCodeOfConduct) {
                         "Official server required an unaccepted Code of Conduct"
                     }
-                    minecraftClientConnection.outgoing.send(AcceptCodeOfConductPacket)
+                    minecraftClientConnection.outgoing.send(ServerboundAcceptCodeOfConductPacket)
                 }
 
-                is FinishConfigurationPacket -> {
-                    val resolvedProtocolRegistryContext =
-                        minecraftClientNegotiationOptions.protocolData.resolveSynchronizedRegistryContext(
+                is ClientboundFinishConfigurationPacket -> {
+                    val resolvedPacketCodecContext =
+                        minecraftClientNegotiationOptions.configurationData.resolveSynchronizedRegistryContext(
                             synchronizedRegistryPackets = synchronizedRegistryPackets,
                             staticRegistrySchema = minecraftClientNegotiationOptions.staticRegistrySchema,
                         )
-                    val profileProtocolRegistryContext =
-                        profile.resolveProtocolRegistryContext(resolvedProtocolRegistryContext)
-                    minecraftClientConnection.installProtocolRegistryContext(profileProtocolRegistryContext)
+                    val profilePacketCodecContext =
+                        profile.resolvePacketCodecContext(resolvedPacketCodecContext)
+                    minecraftClientConnection.installPacketCodecContext(profilePacketCodecContext)
                     profile.preparePlay(minecraftClientConnection)
-                    minecraftClientConnection.outgoing.send(AcknowledgeFinishConfigurationPacket)
+                    minecraftClientConnection.outgoing.send(ServerboundFinishConfigurationPacket)
                     minecraftClientConnection.requestFlush()
                     minecraftClientConnection.awaitState(ConnectionState.PLAY)
                     configurationFinished = true
                 }
 
-                is ConfigurationClientboundPluginMessagePacket -> check(
+                is ClientboundCustomPayloadPacket -> check(
                     clientboundPacket.payload is CustomPayload.Brand,
                 ) {
                     "Unexpected official Configuration payload ${clientboundPacket.payload}"
                 }
 
-                is ConfigurationRemoveResourcePackPacket,
-                is ConfigurationCustomReportDetailsPacket,
-                is ConfigurationServerLinksPacket,
-                ConfigurationClearDialogPacket,
-                is ConfigurationShowDialogPacket,
-                ResetChatPacket,
+                is ClientboundResourcePackPopPacket,
+                is ClientboundCustomReportDetailsPacket,
+                is ClientboundServerLinksPacket,
+                ClientboundClearDialogPacket,
+                is ClientboundShowDialogPacket,
+                ClientboundResetChatPacket,
                     -> Unit
 
-                is ConfigurationDisconnectPacket -> error(
+                is ClientboundDisconnectPacket -> error(
                     "Official server rejected Configuration: ${clientboundPacket.reason}",
                 )
 
-                is ConfigurationTransferPacket -> error(
+                is ClientboundTransferPacket -> error(
                     "Official server unexpectedly transferred the client to ${clientboundPacket.host}:${clientboundPacket.port}",
                 )
 
@@ -248,32 +245,32 @@ internal object OfficialServerClientScenario {
             minecraftClientConnection.requestFlush()
         }
 
-        val playLoginPacket = minecraftClientConnection.incoming.receive() as? PlayLoginPacket
+        val clientboundLoginPacket = minecraftClientConnection.incoming.receive() as? ClientboundLoginPacket
             ?: error("Official server did not send Play Login first")
         val minecraftDimensionLayout = MinecraftDimensionLayout.from(
-            dimensionTypeRawId = playLoginPacket.spawnInfo.dimensionTypeId,
+            dimensionTypeRawId = clientboundLoginPacket.commonPlayerSpawnInfo.dimensionTypeId,
             synchronizedRegistryPackets = synchronizedRegistryPackets,
-            protocolData = minecraftClientNegotiationOptions.protocolData,
+            configurationData = minecraftClientNegotiationOptions.configurationData,
         )
-        val minecraftDimensionContext = MinecraftDimensionContext.create(
-            dimensionId = DimensionId.parse(playLoginPacket.spawnInfo.dimension.toString()),
+        val minecraftDimensionContext = MinecraftDimensionContext(
+            dimensionId = DimensionId.parse(clientboundLoginPacket.commonPlayerSpawnInfo.dimension.toString()),
             minecraftDimensionLayout = minecraftDimensionLayout,
-            protocolRegistryContext = minecraftClientConnection.protocolRegistryContext,
+            packetCodecContext = minecraftClientConnection.packetCodecContext,
         )
-        minecraftClientConnection.installProtocolRegistryContext(
-            minecraftDimensionContext.protocolRegistryContext,
+        minecraftClientConnection.installPacketCodecContext(
+            minecraftDimensionContext.packetCodecContext,
         )
         val negotiationProfileResult = profile.complete(minecraftClientConnection)
         return MinecraftClientNegotiationResult(
-            loginSuccessPacket = actualLogin,
+            clientboundLoginFinishedPacket = actualLogin,
             dataPackConfigurationSnapshot = DataPackConfigurationSnapshot(
-                offeredKnownPacks = configurationClientboundKnownPacksPacket?.knownPacks.orEmpty(),
-                enabledFeatureFlags = featureFlagsPacket?.featureFlags.orEmpty(),
+                offeredKnownPacks = clientboundSelectKnownPacks?.knownPacks.orEmpty(),
+                enabledFeatureFlags = clientboundUpdateEnabledFeaturesPacket?.features.orEmpty(),
                 synchronizedRegistryPackets = synchronizedRegistryPackets,
-                registryTags = configurationUpdateTagsPacket?.tags.orEmpty(),
+                registryTags = clientboundUpdateTagsPacket?.tags.orEmpty(),
             ),
             storedConfigurationCookies = storedConfigurationCookies.toMap(),
-            playLoginPacket = playLoginPacket,
+            clientboundLoginPacket = clientboundLoginPacket,
             minecraftDimensionContext = minecraftDimensionContext,
             negotiationProfileResult = negotiationProfileResult,
         )
@@ -284,28 +281,28 @@ internal object OfficialServerClientScenario {
     ) {
         val dataPackConfigurationSnapshot = minecraftClientNegotiationResult.dataPackConfigurationSnapshot
         check(
-            dataPackConfigurationSnapshot.offeredKnownPacks == VanillaProtocolData.offeredKnownPacks,
+            dataPackConfigurationSnapshot.offeredKnownPacks == VanillaConfigurationData.offeredKnownPacks,
         ) {
-            "Official Known Packs differ from protocol-datapack-vanilla"
+            "Official Known Packs differ from protocol-configuration-vanilla"
         }
-        check(dataPackConfigurationSnapshot.enabledFeatureFlags == VanillaProtocolData.enabledFeatureFlags) {
-            "Official Feature Flags differ from protocol-datapack-vanilla"
+        check(dataPackConfigurationSnapshot.enabledFeatureFlags == VanillaConfigurationData.enabledFeatureFlags) {
+            "Official Feature Flags differ from protocol-configuration-vanilla"
         }
         check(
             dataPackConfigurationSnapshot.synchronizedRegistryPackets ==
-                    VanillaProtocolData.synchronizedRegistryPackets(
-                        VanillaProtocolData.offeredKnownPacks,
+                    VanillaConfigurationData.synchronizedRegistryPackets(
+                        VanillaConfigurationData.offeredKnownPacks,
                     ),
         ) {
-            "Official compact registries differ from protocol-datapack-vanilla"
+            "Official compact registries differ from protocol-configuration-vanilla"
         }
         check(
             tagsSemanticallyEqual(
                 dataPackConfigurationSnapshot.registryTags,
-                VanillaProtocolData.registryTags,
+                VanillaConfigurationData.registryTags,
             ),
         ) {
-            "Official tags differ from protocol-datapack-vanilla"
+            "Official tags differ from protocol-configuration-vanilla"
         }
     }
 

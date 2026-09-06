@@ -4,19 +4,21 @@ import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.Serializable
 
-@Serializable
+@Serializable(with = ServerboundSetCommandBlockPacketSerializer::class)
 @PacketInfo(
     0x36,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_command_block",
 )
-data class ProgramCommandBlockPacket(
-    val location: BlockPosition,
+data class ServerboundSetCommandBlockPacket(
+    val pos: BlockPosition,
     @MaxLength(32_767)
     val command: String,
+    val trackOutput: Boolean,
+    val conditional: Boolean,
+    val automatic: Boolean,
     val mode: CommandBlockMode,
-    val flags: CommandBlockFlags,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -26,20 +28,14 @@ data class ProgramCommandBlockPacket(
     PacketDirection.SERVERBOUND,
     officialName = "set_command_minecart",
 )
-data class ProgramCommandBlockMinecartPacket(
+data class ServerboundSetCommandMinecartPacket(
     @VarInt
-    val entityId: Int,
+    val entity: Int,
     @MaxLength(32_767)
     val command: String,
     val trackOutput: Boolean,
 ) : PlayStatePacket, ServerboundPacket
 
-@Serializable
-data class GameRuleChange(
-    val name: Identifier,
-    @MaxLength(32_767)
-    val value: String,
-)
 
 @Serializable
 @PacketInfo(
@@ -48,9 +44,16 @@ data class GameRuleChange(
     PacketDirection.SERVERBOUND,
     officialName = "set_game_rule",
 )
-data class SetGameRulesPacket(
-    val rules: List<GameRuleChange>,
-) : PlayStatePacket, ServerboundPacket
+data class ServerboundSetGameRulePacket(
+    val entries: List<Entry>,
+) : PlayStatePacket, ServerboundPacket {
+    @Serializable
+    data class Entry(
+        val gameRuleKey: Identifier,
+        @MaxLength(32_767)
+        val value: String,
+    )
+}
 
 @Serializable
 @PacketInfo(
@@ -59,8 +62,8 @@ data class SetGameRulesPacket(
     PacketDirection.SERVERBOUND,
     officialName = "set_jigsaw_block",
 )
-data class ProgramJigsawBlockPacket(
-    val location: BlockPosition,
+data class ServerboundSetJigsawBlockPacket(
+    val pos: BlockPosition,
     val name: Identifier,
     val target: Identifier,
     val pool: Identifier,
@@ -73,16 +76,16 @@ data class ProgramJigsawBlockPacket(
     val placementPriority: Int,
 ) : PlayStatePacket, ServerboundPacket
 
-@Serializable
+@Serializable(with = ServerboundSetStructureBlockPacketSerializer::class)
 @PacketInfo(
     0x3B,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_structure_block",
 )
-data class ProgramStructureBlockPacket(
-    val location: BlockPosition,
-    val action: StructureUpdateAction,
+data class ServerboundSetStructureBlockPacket(
+    val pos: BlockPosition,
+    val updateType: StructureUpdateAction,
     val mode: StructureMode,
     @MaxLength(32_767)
     val name: String,
@@ -91,11 +94,14 @@ data class ProgramStructureBlockPacket(
     val mirror: StructureMirror,
     val rotation: StructureRotation,
     @MaxLength(128)
-    val metadata: String,
+    val data: String,
+    val ignoreEntities: Boolean,
+    val strict: Boolean,
+    val showAir: Boolean,
+    val showBoundingBox: Boolean,
     val integrity: StructureIntegrity,
     @VarLong
     val seed: Long,
-    val flags: StructureBlockFlags,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -105,7 +111,7 @@ data class ProgramStructureBlockPacket(
     PacketDirection.SERVERBOUND,
     officialName = "set_test_block",
 )
-data class SetTestBlockPacket(
+data class ServerboundSetTestBlockPacket(
     val position: BlockPosition,
     @ZeroFallbackEnum
     val mode: TestBlockMode,
@@ -113,17 +119,17 @@ data class SetTestBlockPacket(
     val message: String,
 ) : PlayStatePacket, ServerboundPacket
 
-@Serializable
+@Serializable(with = ServerboundSignUpdatePacketSerializer::class)
 @PacketInfo(
     0x3D,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "sign_update",
 )
-data class UpdateSignPacket(
-    val location: BlockPosition,
-    val frontText: Boolean,
+data class ServerboundSignUpdatePacket(
+    val pos: BlockPosition,
     @FixedLength(4)
     @MaxLength(384)
     val lines: List<String>,
+    val isFrontText: Boolean,
 ) : PlayStatePacket, ServerboundPacket

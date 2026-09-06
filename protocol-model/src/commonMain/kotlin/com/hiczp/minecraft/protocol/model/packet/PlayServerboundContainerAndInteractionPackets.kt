@@ -1,7 +1,13 @@
 package com.hiczp.minecraft.protocol.model.packet
 
-import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.model.wire.*
+import com.hiczp.minecraft.protocol.model.type.BlockPosition
+import com.hiczp.minecraft.protocol.model.type.DebugSubscriptionType
+import com.hiczp.minecraft.protocol.model.type.InteractionHand
+import com.hiczp.minecraft.protocol.model.type.Vector3d
+import com.hiczp.minecraft.protocol.model.wire.LowPrecisionVector
+import com.hiczp.minecraft.protocol.model.wire.MaxCollectionSize
+import com.hiczp.minecraft.protocol.model.wire.MaxLength
+import com.hiczp.minecraft.protocol.model.wire.VarInt
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -11,7 +17,7 @@ import kotlinx.serialization.Serializable
     PacketDirection.SERVERBOUND,
     officialName = "container_button_click",
 )
-data class ClickContainerButtonPacket(
+data class ServerboundContainerButtonClickPacket(
     @VarInt
     val containerId: Int,
     @VarInt
@@ -25,7 +31,7 @@ data class ClickContainerButtonPacket(
     PacketDirection.SERVERBOUND,
     officialName = "container_close",
 )
-data class ServerboundCloseContainerPacket(
+data class ServerboundContainerClosePacket(
     @VarInt
     val containerId: Int,
 ) : PlayStatePacket, ServerboundPacket
@@ -37,37 +43,12 @@ data class ServerboundCloseContainerPacket(
     PacketDirection.SERVERBOUND,
     officialName = "container_slot_state_changed",
 )
-data class ChangeContainerSlotStatePacket(
+data class ServerboundContainerSlotStateChangedPacket(
     @VarInt
     val slotId: Int,
     @VarInt
     val containerId: Int,
-    val enabled: Boolean,
-) : PlayStatePacket, ServerboundPacket
-
-@Serializable
-@PacketInfo(
-    0x15,
-    ConnectionState.PLAY,
-    PacketDirection.SERVERBOUND,
-    officialName = "cookie_response",
-)
-data class PlayCookieResponsePacket(
-    val key: Identifier,
-    @MaxByteLength(5_120)
-    val payload: ByteString?,
-) : PlayStatePacket, ServerboundPacket
-
-@Serializable
-@PacketInfo(
-    0x16,
-    ConnectionState.PLAY,
-    PacketDirection.SERVERBOUND,
-    officialName = "custom_payload",
-)
-data class PlayServerboundPluginMessagePacket(
-    @Serializable(with = ServerboundCustomPayloadSerializer::class)
-    val payload: CustomPayload,
+    val newState: Boolean,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -77,7 +58,7 @@ data class PlayServerboundPluginMessagePacket(
     PacketDirection.SERVERBOUND,
     officialName = "debug_subscription_request",
 )
-data class DebugSubscriptionRequestPacket(
+data class ServerboundDebugSubscriptionRequestPacket(
     @MaxCollectionSize(32)
     val subscriptions: Set<DebugSubscriptionType>,
 ) : PlayStatePacket, ServerboundPacket
@@ -89,7 +70,7 @@ data class DebugSubscriptionRequestPacket(
     PacketDirection.SERVERBOUND,
     officialName = "edit_book",
 )
-data class EditBookPacket(
+data class ServerboundEditBookPacket(
     @VarInt
     val slot: Int,
     @MaxCollectionSize(100)
@@ -106,7 +87,7 @@ data class EditBookPacket(
     PacketDirection.SERVERBOUND,
     officialName = "entity_tag_query",
 )
-data class QueryEntityTagPacket(
+data class ServerboundEntityTagQueryPacket(
     @VarInt
     val transactionId: Int,
     @VarInt
@@ -120,12 +101,12 @@ data class QueryEntityTagPacket(
     PacketDirection.SERVERBOUND,
     officialName = "interact",
 )
-data class InteractPacket(
+data class ServerboundInteractPacket(
     @VarInt
     val entityId: Int,
     val hand: InteractionHand,
     @LowPrecisionVector
-    val targetOffset: Vector3d,
+    val location: Vector3d,
     val usingSecondaryAction: Boolean,
 ) : PlayStatePacket, ServerboundPacket
 
@@ -136,22 +117,11 @@ data class InteractPacket(
     PacketDirection.SERVERBOUND,
     officialName = "jigsaw_generate",
 )
-data class JigsawGeneratePacket(
-    val location: BlockPosition,
+data class ServerboundJigsawGeneratePacket(
+    val pos: BlockPosition,
     @VarInt
     val levels: Int,
     val keepJigsaws: Boolean,
-) : PlayStatePacket, ServerboundPacket
-
-@Serializable
-@PacketInfo(
-    0x1C,
-    ConnectionState.PLAY,
-    PacketDirection.SERVERBOUND,
-    officialName = "keep_alive",
-)
-data class PlayServerboundKeepAlivePacket(
-    val id: Long,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable
@@ -161,6 +131,6 @@ data class PlayServerboundKeepAlivePacket(
     PacketDirection.SERVERBOUND,
     officialName = "lock_difficulty",
 )
-data class LockDifficultyPacket(
+data class ServerboundLockDifficultyPacket(
     val locked: Boolean,
 ) : PlayStatePacket, ServerboundPacket

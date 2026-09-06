@@ -8,7 +8,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialInfo
 
 /**
- * Physical wire hints consumed by MinecraftProtocolFormat. Other formats may honor or
+ * Physical wire hints consumed by MinecraftPacketPayloadFormat. Other formats may honor or
  * ignore them according to their own contracts. Logical field presence is
  * expressed by the model serializer instead.
  */
@@ -82,14 +82,6 @@ annotation class ByteLengthPrefixed(val maxBytes: Int = Int.MAX_VALUE)
 @SerialInfo
 @Target(AnnotationTarget.PROPERTY)
 annotation class RemainingBytes
-
-/**
- * A chunk-section collection whose element count comes from the active
- * dimension rather than from the packet bytes.
- */
-@SerialInfo
-@Target(AnnotationTarget.PROPERTY)
-annotation class ChunkSectionCount
 
 /**
  * A collection with no length prefix. Its element count must be known by the
