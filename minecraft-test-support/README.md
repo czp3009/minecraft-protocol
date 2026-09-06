@@ -116,8 +116,8 @@ Fixture entries run on configured standard tasks with usable TCP support: JVM, A
 and WasmJS Node. Browser and D8 tasks filter fixture entries. The private Wasm/WASI target is a compile scaffold, not
 runtime fixture support.
 
-Place an annotated official-peer entry in a package containing `fixturetest`. Portable scenario code remains in the
-owning module's shared test source set. The `world-io` same-filesystem scenario is the sole exception and lives in its
-`hostFilesystemTest` capability source set.
+Official-peer entries use packages containing `fixturetest` so unsupported tasks can exclude them. Portable scenarios
+live in each module's shared test source set; the `world-io` same-filesystem scenarios use its `hostFilesystemTest`
+source set.
 
 The host implementation is documented in [`minecraft-test-fixture-host`](../minecraft-test-fixture-host/README.md).

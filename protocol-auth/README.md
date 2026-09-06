@@ -38,7 +38,7 @@ val online = MinecraftOnlineIdentity(
 )
 ```
 
-The vanilla offline UUID helper is public through the offline identity type rather than as a global function:
+To compute a vanilla offline UUID without constructing an identity:
 
 ```kotlin
 val id = MinecraftOfflineIdentity.minecraftOfflineUuid("Player")

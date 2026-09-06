@@ -374,9 +374,7 @@ fun statusPolicy(
 ```
 
 `DefaultMinecraftServerNegotiationPolicy.createServerStatus(...)` and `createClientboundLoginPacket(...)` expose the
-default
-builders for a policy that wants to construct either response directly. Keeping them on the existing default-policy
-object avoids unscoped builder names and leaves the options class as negotiation data only.
+default builders for a policy that wants to construct either response directly.
 
 ## Online authentication
 

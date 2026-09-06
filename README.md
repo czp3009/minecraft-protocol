@@ -146,5 +146,5 @@ also require the Android SDK. Initial builds and official-peer tests may downloa
 ./gradlew allTests
 ```
 
-On Windows use `.\gradlew.bat`. [buildSrc](buildSrc/README.md) documents artifact preparation and test infrastructure;
-[AGENTS.md](AGENTS.md) contains contributor rules. Runtime consumers do not need the private generators or fixtures.
+On Windows use `.\gradlew.bat`. [buildSrc](buildSrc/README.md) documents artifact preparation and test infrastructure.
+Runtime consumers do not need the private generators or fixtures.

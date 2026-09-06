@@ -36,8 +36,8 @@ val serverboundStatusRequestPacket: ServerboundPacket = ServerboundStatusRequest
 `ClientboundStatusResponsePacket.status` is the shared `ServerStatus` value produced by a server and consumed by a
 client. Its
 description, optional player sample, version, favicon bytes, and secure-chat claim remain typed here; the JSON protocol
-string is only their physical representation in `protocol-serialization`. The nested status records avoid exposing a
-second set of server-only models:
+string is only their physical representation in `protocol-serialization`. Both endpoints use the same nested status
+records:
 
 ```kotlin
 val serverStatus = ServerStatus(

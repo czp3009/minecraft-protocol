@@ -44,12 +44,10 @@ stopped template. Normal module tests request only the fixture inputs they actua
 ## Generated and prepared output
 
 All derived output stays below Gradle `build/` directories. Generated Kotlin is attached to the source set owned by the
-runtime module; prepared runtimes and templates remain private test inputs. Do not edit or commit these outputs. Change
-the selector, producer, generator, or handwritten semantic source instead, then let Gradle rebuild the affected output.
+runtime module; prepared runtimes and templates remain private test inputs. Gradle rebuilds affected outputs when
+their inputs change.
 
-For build-logic ownership, cacheability, generation, and Fixture Host invariants, read [AGENTS.md](AGENTS.md). After a
-build-logic change, run the narrowest affected consumer task and repeat it unchanged to check cache reuse. The focused
-unit suite for this build is:
+The focused unit suite for this build is:
 
 ```shell
 ./gradlew -p buildSrc test

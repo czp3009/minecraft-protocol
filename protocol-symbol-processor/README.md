@@ -23,7 +23,7 @@ The legacy server-list ping (serverbound handshake `0xFE`) is the only packet wi
 with legacy unframed framing.
 
 These checks validate declaration coverage, names and order. They do not prove nested types, nullability, conditional
-payload semantics or physical bytes; those require source review and codec tests against both official peers.
+payload semantics or physical bytes.
 
 ## Generated output
 

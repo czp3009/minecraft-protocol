@@ -34,4 +34,3 @@ A four-slot pool bounds resources that are starting, running, stopped with retai
 deletion. Task completion releases resources owned by that test task, and Build Service shutdown is the final fallback.
 
 For the public test-facing operations and examples, use [`minecraft-test-support`](../minecraft-test-support/README.md).
-Contributors changing host lifecycle or workspace behavior should also read [AGENTS.md](AGENTS.md).
