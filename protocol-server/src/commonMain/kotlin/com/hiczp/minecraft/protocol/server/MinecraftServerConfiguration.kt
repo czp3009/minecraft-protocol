@@ -1,9 +1,13 @@
 package com.hiczp.minecraft.protocol.server
 
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtString
 import com.hiczp.minecraft.protocol.configuration.ConfigurationData
 import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaConfigurationData
+import com.hiczp.minecraft.protocol.model.packet.ClientboundResourcePackPushPacket
 import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.protocol.model.type.Identifier
+import com.hiczp.minecraft.protocol.model.type.TextComponent
 import com.hiczp.minecraft.world.format.DimensionId
 import kotlin.random.Random
 import kotlin.uuid.Uuid
@@ -11,6 +15,12 @@ import kotlin.uuid.Uuid
 /** Values consumed while serving Status or moving one connection from Handshake through its first Play Login. */
 data class MinecraftServerNegotiationOptions(
     val configurationData: ConfigurationData = VanillaConfigurationData,
+    /** The optional server pack offered during Configuration, matching the official dedicated server's single pack. */
+    val resourcePack: ClientboundResourcePackPushPacket? = null,
+    /** Disconnect text for a declined required pack; [ClientboundResourcePackPushPacket.prompt] is the acceptance prompt. */
+    val resourcePackRejectionReason: TextComponent = TextComponent(
+        NbtCompound(mapOf("translate" to NbtString("multiplayer.requiredTexturePrompt.disconnect"))),
+    ),
     /** World dimension entered in Play; it need not have the same identifier as its dimension type. */
     val initialDimensionId: DimensionId = DimensionId.Overworld,
     /** Dimension-type registry entry resolved from [configurationData] by the default Play Login builder. */

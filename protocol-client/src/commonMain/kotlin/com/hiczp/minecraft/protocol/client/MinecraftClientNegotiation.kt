@@ -12,6 +12,12 @@ import com.hiczp.minecraft.protocol.session.VanillaClient
 import com.hiczp.minecraft.world.format.ChunkLayout
 import com.hiczp.minecraft.world.format.DimensionId
 import io.ktor.client.*
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
+import kotlin.uuid.Uuid
 
 /** The Status response and following Pong received by [queryStatus] on one connection. */
 data class MinecraftStatusExchange(
@@ -78,7 +84,18 @@ data class MinecraftClientNegotiationOptions(
     val configurationCookies: Map<Identifier, ByteString> = emptyMap(),
     val acceptedKnownPacks: Set<KnownPack> = configurationData.offeredKnownPacks.toSet(),
     val acceptCodeOfConduct: Boolean = true,
-    val resourcePackResult: ServerboundResourcePackPacket.Action = ServerboundResourcePackPacket.Action.DECLINED,
+    /**
+     * Downloads/applies an offered pack using application code and returns its terminal response. The second argument
+     * reports ACCEPTED or DOWNLOADED immediately. The default declines; the library never downloads or applies a pack.
+     * Each request runs in a child coroutine while negotiation keeps receiving packets. Exceptions fail negotiation;
+     * cancellation, replacement of this ID, or a Pop cancels the callback. Do not access connection channels here.
+     */
+    val onResourcePack: suspend (
+        ClientboundResourcePackPushPacket,
+        suspend (ServerboundResourcePackPacket.Action) -> Unit,
+    ) -> ServerboundResourcePackPacket.Action = { _, _ -> ServerboundResourcePackPacket.Action.DECLINED },
+    /** Removes an applied pack, or all server packs for a null ID, after pending callbacks have been cancelled. */
+    val onResourcePackPop: suspend (ClientboundResourcePackPopPacket) -> Unit = {},
     val staticRegistrySchema: StaticRegistrySchema = configurationData.staticRegistrySchema,
     val onUnhandledQuery: (suspend (UnknownPacket.Clientbound) -> ClientNegotiationQueryResult)? = null,
 )
@@ -119,10 +136,10 @@ suspend fun MinecraftClientConnection.queryStatus(
  * Runs the preset negotiation while exclusively borrowing [incoming] and
  * [outgoing]. Callers must guarantee that no other coroutine receives or sends
  * until this method returns; violating that precondition is a programming
- * error. This method runs sequentially in the calling coroutine, does not
- * launch a negotiation scope or select a dispatcher, and uses no lock to
- * arbitrate competing channel users. The implementation uses only this
- * connection's public API.
+ * error. The receive loop runs in the calling coroutine; resource-pack callbacks run in structured child coroutines
+ * so downloads do not block Configuration traffic. This method selects no dispatcher and uses only this connection's
+ * public API. Outstanding resource-pack callbacks finish before acknowledging Finish Configuration and are cancelled
+ * when negotiation fails or is cancelled.
  *
  * Returns after consuming the first [ClientboundLoginPacket], before initial-world reception. Online identities
  * require the caller-owned [sessionHttpClient] for the Session Server join; this method never closes that client.
@@ -217,7 +234,7 @@ private suspend fun MinecraftClientConnection.negotiateLogin(
 private suspend fun MinecraftClientConnection.negotiateConfiguration(
     clientNegotiationProfile: ClientNegotiationProfile,
     minecraftClientNegotiationOptions: MinecraftClientNegotiationOptions,
-): MinecraftClientConfigurationResult {
+): MinecraftClientConfigurationResult = coroutineScope {
     outgoing.send(ServerboundClientInformationPacket(minecraftClientNegotiationOptions.clientInformation))
     requestFlush()
     var clientboundSelectKnownPacks: ClientboundSelectKnownPacks? = null
@@ -225,8 +242,27 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
     var clientboundUpdateTagsPacket: ClientboundUpdateTagsPacket? = null
     val synchronizedRegistryPackets = mutableListOf<ClientboundRegistryDataPacket>()
     val storedConfigurationCookies = linkedMapOf<Identifier, ByteString>()
-    while (true) {
-        when (val clientboundPacket = incoming.receive()) {
+    val resourcePackTasks = mutableMapOf<Uuid, Deferred<ServerboundResourcePackPacket.Action>>()
+    suspend fun discardResourcePack(id: Uuid) {
+        val task = resourcePackTasks.remove(id) ?: return
+        task.cancelAndJoin()
+        outgoing.send(ServerboundResourcePackPacket(id, ServerboundResourcePackPacket.Action.DISCARDED))
+    }
+
+    var configurationResult: MinecraftClientConfigurationResult? = null
+    while (configurationResult == null) {
+        val clientboundPacket = select<ClientboundPacket?> {
+            incoming.onReceive { it }
+            resourcePackTasks.forEach { (id, task) ->
+                task.onAwait { action ->
+                    resourcePackTasks.remove(id)
+                    outgoing.send(ServerboundResourcePackPacket(id, action))
+                    requestFlush()
+                    null
+                }
+            }
+        } ?: continue
+        when (clientboundPacket) {
             is ClientboundDisconnectPacket ->
                 throw MinecraftClientException(
                     "Server rejected Configuration: ${clientboundPacket.reason}",
@@ -260,12 +296,24 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
             is ClientboundStoreCookiePacket ->
                 storedConfigurationCookies[clientboundPacket.key] = clientboundPacket.payload
 
-            is ClientboundResourcePackPushPacket -> outgoing.send(
-                ServerboundResourcePackPacket(
-                    clientboundPacket.id,
-                    minecraftClientNegotiationOptions.resourcePackResult,
-                ),
-            )
+            is ClientboundResourcePackPushPacket -> {
+                discardResourcePack(clientboundPacket.id)
+                resourcePackTasks[clientboundPacket.id] = async {
+                    val action = minecraftClientNegotiationOptions.onResourcePack(clientboundPacket) { progress ->
+                        require(!progress.isTerminal()) { "Resource-pack progress must be ACCEPTED or DOWNLOADED" }
+                        outgoing.send(ServerboundResourcePackPacket(clientboundPacket.id, progress))
+                        requestFlush()
+                    }
+                    require(action.isTerminal()) { "A resource-pack handler must return a terminal response" }
+                    action
+                }
+            }
+
+            is ClientboundResourcePackPopPacket -> {
+                val ids = clientboundPacket.id?.let(::listOf) ?: resourcePackTasks.keys.toList()
+                ids.forEach { discardResourcePack(it) }
+                minecraftClientNegotiationOptions.onResourcePackPop(clientboundPacket)
+            }
 
             is ClientboundCodeOfConductPacket -> {
                 if (!minecraftClientNegotiationOptions.acceptCodeOfConduct) {
@@ -280,6 +328,10 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 throw MinecraftClientTransferException(clientboundPacket.host, clientboundPacket.port)
 
             is ClientboundFinishConfigurationPacket -> {
+                resourcePackTasks.forEach { (id, task) ->
+                    outgoing.send(ServerboundResourcePackPacket(id, task.await()))
+                }
+                resourcePackTasks.clear()
                 val basePacketCodecContext = registryContextOrClientFailure {
                     minecraftClientNegotiationOptions.configurationData.resolveSynchronizedRegistryContext(
                         synchronizedRegistryPackets = synchronizedRegistryPackets,
@@ -289,11 +341,11 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 val packetCodecContext =
                     clientNegotiationProfile.resolvePacketCodecContext(basePacketCodecContext)
                 installPacketCodecContext(packetCodecContext)
-                clientNegotiationProfile.preparePlay(this)
+                clientNegotiationProfile.preparePlay(this@negotiateConfiguration)
                 outgoing.send(ServerboundFinishConfigurationPacket)
                 requestFlush()
                 awaitState(ConnectionState.PLAY)
-                return MinecraftClientConfigurationResult(
+                configurationResult = MinecraftClientConfigurationResult(
                     dataPackConfigurationSnapshot = DataPackConfigurationSnapshot(
                         offeredKnownPacks = clientboundSelectKnownPacks?.knownPacks.orEmpty(),
                         enabledFeatureFlags = clientboundUpdateEnabledFeaturesPacket?.features.orEmpty(),
@@ -304,7 +356,6 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
                 )
             }
 
-            is ClientboundResourcePackPopPacket,
             is ClientboundCustomReportDetailsPacket,
             is ClientboundServerLinksPacket,
             ClientboundClearDialogPacket,
@@ -320,6 +371,7 @@ private suspend fun MinecraftClientConnection.negotiateConfiguration(
         }
         requestFlush()
     }
+    configurationResult
 }
 
 private suspend fun MinecraftClientConnection.awaitPlayLogin(

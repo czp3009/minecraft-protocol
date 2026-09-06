@@ -48,14 +48,23 @@ internal object OfficialServerClientScenario {
                 port = port,
             ).use { loginClient ->
                 val defaults = MinecraftClientNegotiationOptions()
+                var receivedResourcePack = false
                 val login = loginClient.negotiate(
                     MinecraftOfflineIdentity("KmpClientProbe"),
                     minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
                         clientInformation = defaults.clientInformation.copy(
                             viewDistance = 2,
                         ),
+                        onResourcePack = { request, reportProgress ->
+                            check(request.required) { "Official server did not mark its resource pack required" }
+                            receivedResourcePack = true
+                            reportProgress(ServerboundResourcePackPacket.Action.ACCEPTED)
+                            reportProgress(ServerboundResourcePackPacket.Action.DOWNLOADED)
+                            ServerboundResourcePackPacket.Action.SUCCESSFULLY_LOADED
+                        },
                     ),
                 )
+                check(receivedResourcePack) { "Official server did not offer its resource pack during preset negotiation" }
                 phaseChanged("configuration verification")
                 verifyVanillaConfiguration(login)
                 login
@@ -68,13 +77,21 @@ internal object OfficialServerClientScenario {
                 port = port,
             ).use { loginClient ->
                 val defaults = MinecraftClientNegotiationOptions()
+                var receivedResourcePack = false
                 val login = negotiateOffline(
                     minecraftClientConnection = loginClient,
                     minecraftOfflineIdentity = MinecraftOfflineIdentity("KmpProtocolProbe"),
                     minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
                         clientInformation = defaults.clientInformation.copy(viewDistance = 2),
+                        onResourcePack = { request, reportProgress ->
+                            check(request.required) { "Official server did not mark its resource pack required" }
+                            receivedResourcePack = true
+                            reportProgress(ServerboundResourcePackPacket.Action.ACCEPTED)
+                            ServerboundResourcePackPacket.Action.FAILED_DOWNLOAD
+                        },
                     ),
                 )
+                check(receivedResourcePack) { "Official server did not offer its resource pack during manual negotiation" }
                 check(loginClient.connectionState == ConnectionState.PLAY) {
                     "Official-server client did not reach Play"
                 }
@@ -188,12 +205,18 @@ internal object OfficialServerClientScenario {
                     )
                 )
 
-                is ClientboundResourcePackPushPacket -> minecraftClientConnection.outgoing.send(
-                    ServerboundResourcePackPacket(
-                        clientboundPacket.id,
-                        minecraftClientNegotiationOptions.resourcePackResult
-                    ),
-                )
+                is ClientboundResourcePackPushPacket -> {
+                    val action = minecraftClientNegotiationOptions.onResourcePack(clientboundPacket) { progress ->
+                        minecraftClientConnection.outgoing.send(
+                            ServerboundResourcePackPacket(
+                                clientboundPacket.id,
+                                progress
+                            )
+                        )
+                        minecraftClientConnection.requestFlush()
+                    }
+                    minecraftClientConnection.outgoing.send(ServerboundResourcePackPacket(clientboundPacket.id, action))
+                }
 
                 is ClientboundCodeOfConductPacket -> {
                     check(minecraftClientNegotiationOptions.acceptCodeOfConduct) {

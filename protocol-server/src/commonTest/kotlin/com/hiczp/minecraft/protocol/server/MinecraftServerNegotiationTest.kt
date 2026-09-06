@@ -5,6 +5,9 @@ import com.hiczp.minecraft.protocol.auth.MinecraftClientKeyExchange
 import com.hiczp.minecraft.protocol.auth.MinecraftOfflineIdentity
 import com.hiczp.minecraft.protocol.auth.respond
 import com.hiczp.minecraft.protocol.auth.toServerboundKeyPacket
+import com.hiczp.minecraft.protocol.client.MinecraftClientConnection
+import com.hiczp.minecraft.protocol.client.MinecraftClientNegotiationOptions
+import com.hiczp.minecraft.protocol.client.negotiate
 import com.hiczp.minecraft.protocol.configuration.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.configuration.resolveMinecraftDimensions
 import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaConfigurationData
@@ -12,10 +15,7 @@ import com.hiczp.minecraft.protocol.configuration.vanilla.toVanillaConfiguration
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi
-import com.hiczp.minecraft.protocol.session.MinecraftClientPacketSession
-import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
-import com.hiczp.minecraft.protocol.session.createMinecraftServerPacketConnection
+import com.hiczp.minecraft.protocol.session.*
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.DimensionTypeId
@@ -28,6 +28,7 @@ import io.ktor.client.engine.mock.*
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.*
 import kotlin.test.*
@@ -376,6 +377,204 @@ class MinecraftServerNegotiationTest {
     }
 
     @Test
+    fun bothEndpointPresetsContinueAfterUserLoadingOrDefaultOptionalDecline() = runTest {
+        for (action in listOf(
+            null,
+            ServerboundResourcePackPacket.Action.SUCCESSFULLY_LOADED,
+            ServerboundResourcePackPacket.Action.FAILED_RELOAD
+        )) {
+            val clientToServer = ByteChannel(autoFlush = true)
+            val serverToClient = ByteChannel(autoFlush = true)
+            val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
+            val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val server = MinecraftServerConnection(
+                createMinecraftServerPacketConnection(
+                    serverFrames, { serverFrames.cancel() }, MinecraftConnectionDefinition(), dispatcher,
+                ),
+                MinecraftServerAuthentication.Offline,
+                "127.0.0.1",
+            )
+            val client = MinecraftClientConnection(
+                createMinecraftClientPacketConnection(
+                    clientFrames, { clientFrames.cancel() }, MinecraftConnectionDefinition(), dispatcher,
+                ),
+                "localhost",
+                25_565,
+            )
+            val resourcePack = ClientboundResourcePackPushPacket(
+                Uuid.fromLongs(67, 71), "https://example.invalid/pack.zip", "", action != null, null,
+            )
+            var handled = false
+            val clientOptions = if (action == null) {
+                MinecraftClientNegotiationOptions()
+            } else {
+                MinecraftClientNegotiationOptions(
+                    onResourcePack = { request, reportProgress ->
+                        assertEquals(resourcePack, request)
+                        handled = true
+                        reportProgress(ServerboundResourcePackPacket.Action.ACCEPTED)
+                        reportProgress(ServerboundResourcePackPacket.Action.DOWNLOADED)
+                        action
+                    },
+                )
+            }
+            try {
+                val negotiation = async {
+                    server.negotiate(minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(resourcePack = resourcePack))
+                }
+                val clientResult = client.negotiate(
+                    MinecraftOfflineIdentity("PackFlow"), minecraftClientNegotiationOptions = clientOptions,
+                )
+                val serverResult = assertNotNull(negotiation.await())
+                assertEquals(serverResult.clientboundLoginPacket, clientResult.clientboundLoginPacket)
+                assertEquals(action != null, handled)
+                assertEquals(ConnectionState.PLAY, server.connectionState)
+                assertEquals(ConnectionState.PLAY, client.connectionState)
+            } finally {
+                client.close()
+                server.close()
+            }
+        }
+    }
+
+    @Test
+    fun resourcePackProgressKeepsConfigurationOpenAndUnrelatedTrafficFlowing() = runTest {
+        val connectionPair = connectionPair()
+        val resourcePack = ClientboundResourcePackPushPacket(
+            id = Uuid.fromLongs(31, 41),
+            url = "https://example.invalid/pack.zip",
+            hash = "0123456789abcdef0123456789abcdef01234567",
+            required = true,
+            prompt = TextComponent.literal("This server uses custom textures."),
+        )
+        val options = MinecraftServerNegotiationOptions(compressionThreshold = null, resourcePack = resourcePack)
+        val policy = object : MinecraftServerNegotiationPolicy {
+            override suspend fun onUnhandledQuery(packet: UnknownPacket.Serverbound): ServerNegotiationQueryResult =
+                ServerNegotiationQueryResult.Respond(listOf(ClientboundPingPacket(29)))
+        }
+        try {
+            val negotiation = async {
+                connectionPair.server.negotiate(
+                    minecraftServerNegotiationOptions = options,
+                    minecraftServerNegotiationPolicy = policy,
+                )
+            }
+            val identity = MinecraftOfflineIdentity("PackProgress")
+            connectionPair.client.send(handshake(ClientIntent.LOGIN))
+            connectionPair.client.send(ServerboundHelloPacket(identity.name, identity.id))
+            finishClientNegotiation(connectionPair.client, options) { client ->
+                assertEquals(resourcePack, client.receive())
+                for (action in listOf(
+                    ServerboundResourcePackPacket.Action.ACCEPTED,
+                    ServerboundResourcePackPacket.Action.DOWNLOADED
+                )) {
+                    client.send(ServerboundResourcePackPacket(resourcePack.id, action))
+                    client.send(
+                        UnknownPacket.Serverbound(
+                            PacketRoute.TopLevel(ConnectionState.CONFIGURATION, PacketDirection.SERVERBOUND, 0x7E),
+                            ByteString(byteArrayOf()),
+                        ),
+                    )
+                    // The reply proves the server processed the preceding progress without sending Finish Configuration.
+                    assertEquals(ClientboundPingPacket(29), client.receive())
+                    assertFalse(negotiation.isCompleted)
+                }
+                client.send(
+                    ServerboundResourcePackPacket(
+                        resourcePack.id,
+                        ServerboundResourcePackPacket.Action.SUCCESSFULLY_LOADED
+                    )
+                )
+            }
+            assertNotNull(negotiation.await())
+        } finally {
+            connectionPair.close()
+        }
+    }
+
+    @Test
+    fun terminalResourcePackFailuresPermitPlayEvenWhenThePackIsRequired() = runTest {
+        val terminalActions = listOf(
+            ServerboundResourcePackPacket.Action.SUCCESSFULLY_LOADED,
+            ServerboundResourcePackPacket.Action.FAILED_DOWNLOAD,
+            ServerboundResourcePackPacket.Action.INVALID_URL,
+            ServerboundResourcePackPacket.Action.FAILED_RELOAD,
+            ServerboundResourcePackPacket.Action.DISCARDED,
+        )
+        for (required in listOf(false, true)) {
+            val actions =
+                if (required) terminalActions else terminalActions + ServerboundResourcePackPacket.Action.DECLINED
+            for (action in actions) {
+                val connectionPair = connectionPair()
+                val resourcePack = ClientboundResourcePackPushPacket(
+                    Uuid.fromLongs(31, 42), "https://example.invalid/pack.zip", "", required, null,
+                )
+                val options =
+                    MinecraftServerNegotiationOptions(compressionThreshold = null, resourcePack = resourcePack)
+                try {
+                    val negotiation = async {
+                        connectionPair.server.negotiate(minecraftServerNegotiationOptions = options)
+                    }
+                    val identity = MinecraftOfflineIdentity("PackTerminal")
+                    connectionPair.client.send(handshake(ClientIntent.LOGIN))
+                    connectionPair.client.send(ServerboundHelloPacket(identity.name, identity.id))
+                    finishClientNegotiation(connectionPair.client, options) { client ->
+                        assertEquals(resourcePack, client.receive())
+                        client.send(ServerboundResourcePackPacket(resourcePack.id, action))
+                    }
+                    assertNotNull(negotiation.await(), "Expected Play for required=$required and action=$action")
+                } finally {
+                    connectionPair.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun requiredPackDeclineExposesTheConfiguredDisconnectWithoutEnteringPlay() = runTest {
+        val connectionPair = connectionPair()
+        val reason = TextComponent.literal("Please enable this server's resource pack before joining.")
+        val resourcePack = ClientboundResourcePackPushPacket(
+            Uuid.fromLongs(31, 43),
+            "https://example.invalid/pack.zip",
+            "",
+            true,
+            TextComponent.literal("Required textures"),
+        )
+        val options = MinecraftServerNegotiationOptions(
+            compressionThreshold = null, resourcePack = resourcePack, resourcePackRejectionReason = reason,
+        )
+        try {
+            val negotiation = async {
+                assertFailsWith<MinecraftConfigurationRejectedException> {
+                    connectionPair.server.negotiate(minecraftServerNegotiationOptions = options)
+                }
+            }
+            val identity = MinecraftOfflineIdentity("PackDecline")
+            connectionPair.client.send(handshake(ClientIntent.LOGIN))
+            connectionPair.client.send(ServerboundHelloPacket(identity.name, identity.id))
+            configureClient(connectionPair.client, options)
+            assertEquals(resourcePack, connectionPair.client.receive())
+            connectionPair.client.send(
+                ServerboundResourcePackPacket(
+                    resourcePack.id,
+                    ServerboundResourcePackPacket.Action.DECLINED
+                )
+            )
+            val failure = negotiation.await()
+            assertSame(reason, failure.reason)
+            assertEquals(ConnectionState.CONFIGURATION, connectionPair.server.connectionState)
+            assertTrue(connectionPair.server.isOpen)
+            connectionPair.server.outgoing.send(failure.failurePacket)
+            connectionPair.server.requestFlush()
+            assertEquals(ClientboundDisconnectPacket(reason), connectionPair.client.receive())
+        } finally {
+            connectionPair.close()
+        }
+    }
+
+    @Test
     fun configurationPacketsAndTasksUseTheSamePublicChannels() = runTest {
         val connectionPair = connectionPair()
         val minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
@@ -403,7 +602,13 @@ class MinecraftServerNegotiationTest {
             ): List<MinecraftServerNegotiationTask> = listOf(
                 MinecraftServerNegotiationTask(
                     clientboundPackets = listOf(ClientboundPingPacket(91)),
-                ) { serverboundPacket -> serverboundPacket == ServerboundPongPacket(91) },
+                ) { serverboundPacket ->
+                    if (serverboundPacket == ServerboundPongPacket(91)) {
+                        ServerNegotiationTaskResult.COMPLETE
+                    } else {
+                        ServerNegotiationTaskResult.PASS
+                    }
+                },
             )
         }
         try {
@@ -544,6 +749,18 @@ class MinecraftServerNegotiationTest {
         minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
         afterVanillaConfiguration: suspend (MinecraftClientPacketSession) -> Unit = {},
     ): ClientNegotiationTranscript {
+        val login = configureClient(minecraftClientPacketSession, minecraftServerNegotiationOptions)
+        afterVanillaConfiguration(minecraftClientPacketSession)
+        assertEquals(ClientboundFinishConfigurationPacket, minecraftClientPacketSession.receive())
+        minecraftClientPacketSession.send(ServerboundFinishConfigurationPacket)
+        val clientboundLoginPacket = assertIs<ClientboundLoginPacket>(minecraftClientPacketSession.receive())
+        return ClientNegotiationTranscript(login, clientboundLoginPacket)
+    }
+
+    private suspend fun configureClient(
+        minecraftClientPacketSession: MinecraftClientPacketSession,
+        minecraftServerNegotiationOptions: MinecraftServerNegotiationOptions,
+    ): GameProfile {
         minecraftServerNegotiationOptions.compressionThreshold?.let { threshold ->
             assertEquals(ClientboundLoginCompressionPacket(threshold), minecraftClientPacketSession.receive())
         }
@@ -568,11 +785,7 @@ class MinecraftServerNegotiationTest {
             ClientboundUpdateTagsPacket(minecraftServerNegotiationOptions.configurationData.registryTags),
             minecraftClientPacketSession.receive()
         )
-        afterVanillaConfiguration(minecraftClientPacketSession)
-        assertEquals(ClientboundFinishConfigurationPacket, minecraftClientPacketSession.receive())
-        minecraftClientPacketSession.send(ServerboundFinishConfigurationPacket)
-        val clientboundLoginPacket = assertIs<ClientboundLoginPacket>(minecraftClientPacketSession.receive())
-        return ClientNegotiationTranscript(login, clientboundLoginPacket)
+        return login
     }
 
     private fun connectionPair(

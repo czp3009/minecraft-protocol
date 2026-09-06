@@ -91,12 +91,22 @@ sealed interface ServerNegotiationQueryResult {
     ) : ServerNegotiationQueryResult
 }
 
+/** One ordered Configuration exchange; progress packets can be consumed without completing the task. */
 data class MinecraftServerNegotiationTask(
     val clientboundPackets: List<ClientboundPacket>,
-    val completion: suspend (ServerboundPacket) -> Boolean,
-) {
-    suspend fun isComplete(serverboundPacket: ServerboundPacket): Boolean =
-        completion(serverboundPacket)
+    val handlePacket: suspend (ServerboundPacket) -> ServerNegotiationTaskResult,
+)
+
+/** Whether an ordered task recognized a packet and whether it can advance to the next task. */
+enum class ServerNegotiationTaskResult {
+    /** Let the negotiation profile or unhandled-packet policy process this packet. */
+    PASS,
+
+    /** This task consumed the packet and still awaits further responses. */
+    CONTINUE,
+
+    /** This task consumed the packet and finished. */
+    COMPLETE,
 }
 
 private fun MinecraftServerNegotiationOptions.createDefaultServerStatus(

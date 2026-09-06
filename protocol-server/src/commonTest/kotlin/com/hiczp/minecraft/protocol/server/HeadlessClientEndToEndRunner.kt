@@ -38,6 +38,14 @@ internal object HeadlessClientEndToEndRunner {
     )
     private val OPTIONS = MinecraftServerNegotiationOptions(
         configurationData = projectedVanillaConfigurationData(),
+        // INVALID_URL is a terminal response even for required packs; the official client needs no HTTP or prompt UI.
+        resourcePack = ClientboundResourcePackPushPacket(
+            Uuid.fromLongs(53, 59),
+            "invalid-resource-pack-url",
+            "",
+            true,
+            TextComponent.literal("Protocol fixture pack"),
+        ),
         compressionThreshold = 64,
         viewDistance = 2,
         simulationDistance = 5,

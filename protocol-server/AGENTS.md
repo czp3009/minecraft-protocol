@@ -8,7 +8,11 @@
   per-connection decisions. Difficulty, difficulty locking, abilities and semantic Chunk defaults belong to the
   initial-world input. Do not read `server.properties` here.
 - Fire-and-forget Configuration additions use `configurationPackets`; response-gated work uses ordered
-  `configurationTasks`. Do not rescan extension traffic as framework-owned traffic.
+  `configurationTasks`. Distinguish unhandled packets, consumed progress and completion; consumed progress must not fall
+  through to unexpected-packet handling. Do not rescan extension traffic as framework-owned traffic.
+- Resource-pack configuration follows the official dedicated server's single optional offer. ACCEPTED and DOWNLOADED
+  wait; a declined required pack raises a Configuration rejection, while other terminal responses continue. Do not
+  strengthen `required` into success-only admission. Acceptance prompts and disconnect reasons are distinct inputs.
 - Construct Configuration packets from `ConfigurationData` at this send boundary. A stored-world application supplies
   its projected Configuration data, resolved dimension IDs and selected dimension explicitly.
   The default Play Login resolves `initialDimensionTypeId` in that Configuration data independently of

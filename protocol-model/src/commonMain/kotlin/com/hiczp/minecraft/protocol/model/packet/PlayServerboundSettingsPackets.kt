@@ -6,7 +6,6 @@ import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.RecipeBookCategory
 import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
-import kotlin.uuid.Uuid
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -16,6 +15,7 @@ import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(
@@ -75,7 +75,10 @@ data class ServerboundResourcePackPacket(
         DOWNLOADED,
         INVALID_URL,
         FAILED_RELOAD,
-        DISCARDED,
+        DISCARDED;
+
+        /** Whether this response ends the server's wait for this resource pack, including rejection and failure. */
+        fun isTerminal(): Boolean = this != ACCEPTED && this != DOWNLOADED
     }
 }
 

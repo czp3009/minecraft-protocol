@@ -43,9 +43,12 @@ data class MinecraftServerNegotiationResult(
  * means the open connection reached Play, contains the exact Play Login in
  * [MinecraftServerNegotiationResult.clientboundLoginPacket], and has the negotiated registry context installed;
  * further traffic and closing then belong to the caller. Negotiation failures raised by this library,
- * such as [MinecraftLoginRejectedException], leave the connection open so the caller may send the
+ * such as [MinecraftLoginRejectedException] and [MinecraftConfigurationRejectedException], leave the connection open so the caller may send the
  * rejection's failure packet explicitly before closing. Wire and pump failures surface as their
  * original exception with the connection already terminated; only closing remains.
+ *
+ * A configured resource pack is awaited during Configuration. As in the official server, ACCEPTED and DOWNLOADED
+ * keep waiting, a declined required pack rejects negotiation, and every other terminal response permits continuation.
  */
 suspend fun MinecraftServerConnection.negotiate(
     serverNegotiationProfile: ServerNegotiationProfile = VanillaServer,
@@ -202,11 +205,33 @@ private suspend fun MinecraftServerConnection.handleLogin(
     )
     extensionPackets.forEach { outgoing.send(it) }
     extensionTasks.forEach { minecraftServerNegotiationTask ->
-        minecraftServerNegotiationTask.clientboundPackets.forEach { outgoing.send(it) }
-        awaitConfigurationTask(
+        runConfigurationTask(
             minecraftServerNegotiationTask,
             serverNegotiationProfile,
             minecraftServerNegotiationPolicy
+        )
+    }
+    minecraftServerNegotiationOptions.resourcePack?.let { resourcePack ->
+        runConfigurationTask(
+            MinecraftServerNegotiationTask(listOf(resourcePack)) { serverboundPacket ->
+                if (serverboundPacket !is ServerboundResourcePackPacket || serverboundPacket.id != resourcePack.id) {
+                    ServerNegotiationTaskResult.PASS
+                } else {
+                    if (resourcePack.required && serverboundPacket.action == ServerboundResourcePackPacket.Action.DECLINED) {
+                        throw MinecraftConfigurationRejectedException(
+                            reason = minecraftServerNegotiationOptions.resourcePackRejectionReason,
+                            message = "Required resource pack ${resourcePack.id} was declined",
+                        )
+                    }
+                    if (serverboundPacket.action.isTerminal()) {
+                        ServerNegotiationTaskResult.COMPLETE
+                    } else {
+                        ServerNegotiationTaskResult.CONTINUE
+                    }
+                }
+            },
+            serverNegotiationProfile,
+            minecraftServerNegotiationPolicy,
         )
     }
 
@@ -356,15 +381,20 @@ private suspend inline fun <reified T : ServerboundPacket>
     }
 }
 
-private suspend fun MinecraftServerConnection.awaitConfigurationTask(
+private suspend fun MinecraftServerConnection.runConfigurationTask(
     minecraftServerNegotiationTask: MinecraftServerNegotiationTask,
     serverNegotiationProfile: ServerNegotiationProfile,
     minecraftServerNegotiationPolicy: MinecraftServerNegotiationPolicy,
 ) {
+    minecraftServerNegotiationTask.clientboundPackets.forEach { outgoing.send(it) }
     while (true) {
         requestFlush()
         val serverboundPacket = incoming.receive()
-        if (minecraftServerNegotiationTask.isComplete(serverboundPacket)) return
+        when (minecraftServerNegotiationTask.handlePacket(serverboundPacket)) {
+            ServerNegotiationTaskResult.PASS -> Unit
+            ServerNegotiationTaskResult.CONTINUE -> continue
+            ServerNegotiationTaskResult.COMPLETE -> return
+        }
         if (serverNegotiationProfile.handleConfigurationPacket(this, serverboundPacket)) continue
         handleUnexpected(serverboundPacket, minecraftServerNegotiationPolicy)
     }
@@ -417,4 +447,12 @@ class MinecraftLoginRejectedException(
 ) : MinecraftServerException(message) {
     /** Ready-to-send default reply; the library never sends it automatically. */
     val failurePacket: ClientboundLoginDisconnectPacket = ClientboundLoginDisconnectPacket(reason)
+}
+
+/** A Configuration rejection. The caller may send [failurePacket] before closing the still-open connection. */
+class MinecraftConfigurationRejectedException(
+    val reason: TextComponent,
+    message: String,
+) : MinecraftServerException(message) {
+    val failurePacket: ClientboundDisconnectPacket = ClientboundDisconnectPacket(reason)
 }

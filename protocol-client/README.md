@@ -67,7 +67,7 @@ documents KeepAlive, bundle and flush semantics.
 ### Configure negotiation
 
 `MinecraftClientNegotiationOptions` contains only inputs used during Login, Configuration, and entry into Play: client
-information, protocol data, cookies, accepted Known Packs, the Code of Conduct decision, the resource-pack response,
+information, protocol data, cookies, accepted Known Packs, the Code of Conduct decision, resource-pack callbacks,
 local static registries, and handling of unrecognized negotiation queries. Here `minecraftClientConnection` is a fresh
 Handshake-state value returned by `MinecraftClientConnection.connect`:
 
@@ -84,7 +84,6 @@ val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
         allowServerListings = true,
         particleStatus = ParticleStatus.ALL,
     ),
-   resourcePackResult = ServerboundResourcePackPacket.Action.ACCEPTED,
 )
 
 val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(
@@ -98,6 +97,101 @@ Packs
 come from [`protocol-configuration-vanilla`](../protocol-configuration-vanilla/README.md). Pass options only to override
 client
 behavior or to connect with custom registry/data-pack definitions.
+
+## Handle resource packs
+
+The default client declines resource packs. To handle them, provide `onResourcePack`: it receives the entire
+`ClientboundResourcePackPushPacket` (ID, URL, hash, required flag and optional acceptance prompt), reports intermediate
+states through its second argument, and returns one terminal `ServerboundResourcePackPacket.Action`.
+The library supplies no HTTP client, downloader, archive cache, consent UI or resource loader.
+
+In this application helper, `downloadResourcePack` checks the request and downloads/verifies the archive using your
+own HTTP client, returning bytes or `null` on download failure. `applyResourcePack` installs those bytes under the pack
+ID and returns whether loading succeeded. `removeResourcePack` removes one applied pack, or all server packs for a null
+ID. These are application functions, not library APIs:
+
+```kotlin
+fun resourcePackOptions(
+   downloadResourcePack: suspend (ClientboundResourcePackPushPacket) -> ByteArray?,
+   applyResourcePack: suspend (Uuid, ByteArray) -> Boolean,
+   removeResourcePack: suspend (Uuid?) -> Unit,
+): MinecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
+   onResourcePack = { request, reportProgress ->
+      reportProgress(ServerboundResourcePackPacket.Action.ACCEPTED)
+      val bytes = downloadResourcePack(request)
+      if (bytes == null) {
+         ServerboundResourcePackPacket.Action.FAILED_DOWNLOAD
+      } else {
+         reportProgress(ServerboundResourcePackPacket.Action.DOWNLOADED)
+         if (applyResourcePack(request.id, bytes)) {
+            ServerboundResourcePackPacket.Action.SUCCESSFULLY_LOADED
+         } else {
+            ServerboundResourcePackPacket.Action.FAILED_RELOAD
+         }
+      }
+   },
+   onResourcePackPop = { removeResourcePack(it.id) },
+)
+```
+
+This example's application accepts offered packs. A consent-aware callback may instead return `DECLINED` before
+reporting `ACCEPTED`; invalid URLs can return `INVALID_URL`. Never report success before loading finishes.
+`Uuid` comes from `kotlin.uuid`; packet classes come from `com.hiczp.minecraft.protocol.model.packet`.
+
+### Convenience API: handle packs during negotiation
+
+With a fresh connection from `MinecraftClientConnection.connect(...)` and the three application functions described
+above, replace the earlier default negotiation call with:
+
+```kotlin
+val minecraftClientNegotiationOptions = resourcePackOptions(downloadResourcePack, applyResourcePack, removeResourcePack)
+val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(
+    minecraftIdentity = MinecraftOfflineIdentity("Player"),
+    minecraftClientNegotiationOptions = minecraftClientNegotiationOptions,
+)
+```
+
+Each offered pack runs in a child coroutine, so Configuration Ping, cookies, disconnects and additional pack requests
+continue to be processed. Progress and final replies are sent and flushed by negotiation; the callback must not access
+the connection's channels. The progress function is valid only during its callback and accepts `ACCEPTED` or
+`DOWNLOADED`; return the terminal action. Callback exceptions propagate, including cancellation, so application code
+must map expected download/application failures to their intended actions itself.
+
+A replacement ID or Pop cancels the pending callback and reports `DISCARDED`; Pop then calls `onResourcePackPop` to
+remove application-owned resources. Completed resources remain application-owned after negotiation. Outstanding
+callbacks finish before acknowledging Finish Configuration, and negotiation failure/cancellation cancels their work.
+Use suspending I/O and keep removal callbacks responsive. A successful negotiation result feeds the registry/world
+examples below, and initial-world packets remain on `incoming`.
+
+### Plain API: handle resource-pack packets yourself
+
+For a manual Configuration or Play packet loop, pass `minecraftClientNegotiationOptions.onResourcePack` from the
+options built above as the handler. The `request` parameter below is a `ClientboundResourcePackPushPacket` received
+from that connection's `incoming` channel:
+
+```kotlin
+suspend fun answerResourcePack(
+   minecraftClientConnection: MinecraftClientConnection,
+   request: ClientboundResourcePackPushPacket,
+   onResourcePack: suspend (
+      ClientboundResourcePackPushPacket,
+      suspend (ServerboundResourcePackPacket.Action) -> Unit,
+   ) -> ServerboundResourcePackPacket.Action,
+) {
+   val action = onResourcePack(request) { progress ->
+      minecraftClientConnection.outgoing.send(ServerboundResourcePackPacket(request.id, progress))
+      minecraftClientConnection.requestFlush()
+   }
+   minecraftClientConnection.outgoing.send(ServerboundResourcePackPacket(request.id, action))
+   minecraftClientConnection.requestFlush()
+}
+```
+
+Launch this helper in a child of your packet-loop scope so receiving can continue while it downloads. Your manual
+loop owns per-ID jobs, replacement/Pop cancellation, invoking `onResourcePackPop`, and the Configuration transition.
+Do not run that loop concurrently with
+`negotiate()`. [The server guide](../protocol-server/README.md#offer-a-resource-pack)
+shows the matching configuration and required-pack policy.
 
 ## Online Login
 

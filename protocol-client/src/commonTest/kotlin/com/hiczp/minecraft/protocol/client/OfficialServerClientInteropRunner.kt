@@ -12,6 +12,8 @@ internal object OfficialServerClientInteropRunner {
                 properties = mapOf(
                     "level-name" to "client-interop-world",
                     "motd" to "minecraft-protocol production client interop",
+                    "resource-pack" to "https://example.invalid/official-pack.zip",
+                    "require-resource-pack" to "true",
                 ),
             ),
         ).use { officialMinecraftServer ->

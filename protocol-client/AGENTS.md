@@ -4,6 +4,10 @@
   mutable session. Its constructor can wrap a caller-supplied packet connection; `connect` owns socket creation.
 - `negotiate` exclusively borrows both channels until the first Play Login has been received. Initial-world packets
   remain on `incoming` for the application's packet loop.
+- Resource-pack callbacks own consent, downloading and applying; negotiation owns status packets. Run callbacks as
+  structured children while the Configuration receive loop remains responsive. Replacement/Pop cancels pending work;
+  failures and cancellation must leave no callback running after negotiation. Do not create an HTTP client or infer
+  successful application from downloaded bytes.
 - The low-level client endpoint consumes and answers direct Configuration/Play KeepAlive requests. Do not duplicate
   those replies in negotiation or projection helpers.
 - Online Login owns the timing of the Session Server `/join` call; account acquisition stays outside the flow.

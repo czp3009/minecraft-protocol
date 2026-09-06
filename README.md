@@ -4,7 +4,8 @@ A Kotlin Multiplatform toolkit for Minecraft: Java Edition, from typed packets a
 world data and files. This is an experimental project, not yet ready for production use.
 
 - **Typed connections:** coroutine-based client/server negotiation through Play, with release-matched vanilla defaults
-  and explicit extension points for custom packets, registries and loader negotiation.
+  and explicit extension points for custom packets, registries and loader negotiation. Resource-pack offers and
+  application-owned loading fit into the same negotiation flow.
 - **World data you can compute on:** mutable `Chunk`, `EntityChunk`, `PoiChunk` and nested values, with shared dynamic
   properties that application code can read, wrap and modify directly.
 - **Disk, memory and network conversion:** directional codecs with explicit contexts, NBT/SNBT serialization, Anvil
