@@ -7,13 +7,13 @@ import kotlinx.serialization.serializer
 
 /** Decodes this generic NBT tree with a caller-selected serializer. */
 fun <T> NbtDocument.decodeNbt(
-    deserializationStrategy: DeserializationStrategy<T>,
     nbtFormat: NbtFormat = NbtFormat,
-): T = nbtFormat.decodeFromNbtTag(deserializationStrategy, root)
+    deserializationStrategy: DeserializationStrategy<T>,
+): T = nbtFormat.decodeFromNbtTag(root, deserializationStrategy)
 
 /** Decodes this generic NBT tree with the serializer selected from [nbtFormat]. */
 inline fun <reified T> NbtDocument.decodeNbt(nbtFormat: NbtFormat = NbtFormat): T =
-    decodeNbt(nbtFormat.serializersModule.serializer(), nbtFormat)
+    decodeNbt(nbtFormat, nbtFormat.serializersModule.serializer())
 
 /** Writes this complete unnamed-root binary NBT document without closing [sink]. */
 fun NbtDocument.writeTo(sink: Sink, nbtFormat: NbtFormat = NbtFormat) {

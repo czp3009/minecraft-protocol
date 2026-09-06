@@ -32,6 +32,9 @@ class MinecraftPacketPayloadFormatTest {
         )
         val streamed = sink.readByteArray()
 
+        MinecraftPacketPayloadFormat.encodeToSink(primitiveValue, sink, PrimitiveValue.serializer())
+        assertContentEquals(streamed, sink.readByteArray())
+
         assertContentEquals(
             MinecraftPacketPayloadFormat.encodeToByteArray(
                 primitiveValue,
@@ -48,6 +51,14 @@ class MinecraftPacketPayloadFormatTest {
                 source,
                 streamed.size,
             ),
+        )
+        assertContentEquals(byteArrayOf(99, 100), source.readByteArray())
+
+        source.write(streamed)
+        source.write(byteArrayOf(99, 100))
+        assertEquals(
+            primitiveValue,
+            MinecraftPacketPayloadFormat.decodeFromSource(source, streamed.size, PrimitiveValue.serializer()),
         )
         assertContentEquals(byteArrayOf(99, 100), source.readByteArray())
     }

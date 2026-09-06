@@ -35,8 +35,8 @@ data class ChunkBlockPosition(
     val z: Int,
 ) {
     init {
-        require(x in 0 until CHUNK_SIDE)
-        require(z in 0 until CHUNK_SIDE)
+        require(x in 0 until MinecraftCoordinates.CHUNK_SIDE)
+        require(z in 0 until MinecraftCoordinates.CHUNK_SIDE)
     }
 
     val sectionY: Int
@@ -53,9 +53,9 @@ data class LocalBlockPosition(
     val z: Int,
 ) {
     init {
-        require(x in 0 until SECTION_SIDE)
-        require(y in 0 until SECTION_SIDE)
-        require(z in 0 until SECTION_SIDE)
+        require(x in 0 until MinecraftCoordinates.SECTION_SIDE)
+        require(y in 0 until MinecraftCoordinates.SECTION_SIDE)
+        require(z in 0 until MinecraftCoordinates.SECTION_SIDE)
     }
 
     val index: Int
@@ -204,8 +204,8 @@ data class LocalChunkPosition(
     val z: Int,
 ) {
     init {
-        require(x in 0 until REGION_SIDE)
-        require(z in 0 until REGION_SIDE)
+        require(x in 0 until MinecraftCoordinates.REGION_SIDE)
+        require(z in 0 until MinecraftCoordinates.REGION_SIDE)
     }
 
     val index: Int
@@ -420,11 +420,3 @@ class EncodedAnvilRegion private constructor(
         ): EncodedAnvilRegion = EncodedAnvilRegion(bytes, externalChunks, takeOwnership = true)
     }
 }
-
-const val REGION_SIDE: Int = 32
-const val CHUNK_SIDE: Int = 16
-const val SECTION_SIDE: Int = 16
-const val SECTION_BLOCK_COUNT: Int = SECTION_SIDE * SECTION_SIDE * SECTION_SIDE
-const val REGION_CHUNK_COUNT: Int = REGION_SIDE * REGION_SIDE
-const val REGION_SECTOR_BYTES: Int = 4_096
-const val REGION_HEADER_BYTES: Int = REGION_SECTOR_BYTES * 2

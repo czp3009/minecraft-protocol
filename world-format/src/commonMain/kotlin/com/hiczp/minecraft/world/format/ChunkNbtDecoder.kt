@@ -26,6 +26,7 @@ data class ChunkNbtDecoderContext(
 /**
  * Reads the completed-Chunk schema from decompressed NBT using fixed layout and property mappings.
  * Non-full status is exposed for caller decisions; generation-only data is neither completed nor preserved.
+ * DUMMY Block Entity placeholders are omitted; creating their block-specific state belongs to the application.
  */
 class ChunkNbtDecoder(val chunkNbtDecoderContext: ChunkNbtDecoderContext) {
     private val nbtFormat = chunkNbtDecoderContext.nbtFormat.forWorldRecord()
@@ -33,12 +34,12 @@ class ChunkNbtDecoder(val chunkNbtDecoderContext: ChunkNbtDecoderContext) {
 
     /** Consumes one decompressed compound-root record without closing the caller-owned source. */
     fun decode(source: Source): ChunkNbtDecodeResult = chunkNbtOperation {
-        nbtFormat.decodeFromSource(reader, source)
+        nbtFormat.decodeFromSource(source, reader)
     }
 
     /** Decodes an already materialized document through the same semantic reader as [decode]. */
     fun decodeDocument(nbtDocument: NbtDocument): ChunkNbtDecodeResult = chunkNbtOperation {
-        chunkNbtDecoderContext.nbtFormat.decodeFromNbtTag(reader, nbtDocument.root)
+        chunkNbtDecoderContext.nbtFormat.decodeFromNbtTag(nbtDocument.root, reader)
     }
 }
 
@@ -81,7 +82,7 @@ private class ChunkReader(private val context: ChunkNbtDecoderContext) : WorldNb
                         decodeBlockEntity(blockEntity, mappings)
                     }))
                     blockEntities = linkedMapOf()
-                    values.forEach { (position, blockEntity) ->
+                    values.filterNotNull().forEach { (position, blockEntity) ->
                         require(
                             blockEntities.put(
                                 position,

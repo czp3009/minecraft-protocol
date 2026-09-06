@@ -182,4 +182,4 @@ private val UPGRADE_NBT_FIELDS = setOf("Sides", "Indices", "neighbor_block_ticks
 private val BLENDING_NBT_FIELDS = setOf("min_section", "max_section", "heights")
 
 // BlendingData: two L-shaped boundaries, with (2 * (quartWidth - 1) + 1) and (2 * quartWidth + 1) columns.
-internal const val BLENDING_COLUMN_COUNT: Int = 4 * BIOME_SECTION_SIDE
+internal const val BLENDING_COLUMN_COUNT: Int = 4 * MinecraftCoordinates.BIOME_SECTION_SIDE

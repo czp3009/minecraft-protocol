@@ -139,7 +139,7 @@ class MinecraftPacketConnectionTest {
         val input = ByteChannel()
         val output = CountingFlushByteWriteChannel(ByteChannel())
         val minecraftFrameStream = MinecraftFrameStream(input, output)
-        val minecraftClientPacketConnection = createMinecraftClientPacketConnection(
+        val minecraftClientPacketConnection = MinecraftClientPacketConnection.create(
             minecraftFrameStream = minecraftFrameStream,
             closeTransport = { minecraftFrameStream.cancel() },
             minecraftConnectionDefinition = MinecraftConnectionDefinition(),
@@ -182,7 +182,7 @@ class MinecraftPacketConnectionTest {
     fun transportCleanupFailureAlwaysCompletesTheConnection() = runTest {
         val failure = IllegalStateException("transport close failed")
         val minecraftFrameStream = MinecraftFrameStream(ByteChannel(), ByteChannel())
-        val minecraftClientPacketConnection = createMinecraftClientPacketConnection(
+        val minecraftClientPacketConnection = MinecraftClientPacketConnection.create(
             minecraftFrameStream = minecraftFrameStream,
             closeTransport = { throw failure },
             minecraftConnectionDefinition = MinecraftConnectionDefinition(),
@@ -233,12 +233,12 @@ class MinecraftPacketConnectionTest {
         val failingOutput = FailingFlushByteWriteChannel(clientToServer, failureAt = 2, failure)
         val clientFrames = MinecraftFrameStream(serverToClient, failingOutput)
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
-        val client = createMinecraftClientPacketConnection(
+        val client = MinecraftClientPacketConnection.create(
             minecraftFrameStream = clientFrames,
             closeTransport = { clientFrames.cancel() },
             minecraftConnectionDefinition = MinecraftConnectionDefinition(),
         )
-        val server = createMinecraftServerPacketConnection(
+        val server = MinecraftServerPacketConnection.create(
             minecraftFrameStream = serverFrames,
             closeTransport = { serverFrames.cancel() },
             minecraftConnectionDefinition = MinecraftConnectionDefinition(),
@@ -600,12 +600,12 @@ class MinecraftPacketConnectionTest {
         val serverToClient = ByteChannel()
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
-        val client = createMinecraftClientPacketConnection(
+        val client = MinecraftClientPacketConnection.create(
             minecraftFrameStream = clientFrames,
             closeTransport = { clientFrames.cancel() },
             minecraftConnectionDefinition = minecraftConnectionDefinition,
         )
-        val server = createMinecraftServerPacketConnection(
+        val server = MinecraftServerPacketConnection.create(
             minecraftFrameStream = serverFrames,
             closeTransport = { serverFrames.cancel() },
             minecraftConnectionDefinition = minecraftConnectionDefinition,
@@ -622,7 +622,7 @@ class MinecraftPacketConnectionTest {
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val gatedOutput = if (gateFlushes) GatedFlushByteWriteChannel(serverToClient) else null
         val serverFrames = MinecraftFrameStream(clientToServer, gatedOutput ?: serverToClient)
-        val minecraftServerPacketConnection = createMinecraftServerPacketConnection(
+        val minecraftServerPacketConnection = MinecraftServerPacketConnection.create(
             minecraftFrameStream = serverFrames,
             closeTransport = { serverFrames.cancel() },
             minecraftConnectionDefinition = MinecraftConnectionDefinition(),
@@ -640,7 +640,7 @@ class MinecraftPacketConnectionTest {
         val clientToServer = ByteChannel()
         val clientFrames = MinecraftFrameStream(ByteChannel(), clientToServer)
         val serverFrames = MinecraftFrameStream(clientToServer, ByteChannel())
-        val minecraftClientPacketConnection = createMinecraftClientPacketConnection(
+        val minecraftClientPacketConnection = MinecraftClientPacketConnection.create(
             minecraftFrameStream = clientFrames,
             closeTransport = {},
             minecraftConnectionDefinition = MinecraftConnectionDefinition(),

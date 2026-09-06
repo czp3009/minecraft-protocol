@@ -91,7 +91,7 @@ class SavedDataFileTest {
         assertSavedDataRoundTrip(SavedDataFile.serializer(EnderDragonFightData.serializer()), enderDragonFight)
 
         val ticketsTag = assertIs<NbtCompound>(
-            nbtFormat.encodeToNbtTag(SavedDataFile.serializer(ChunkTicketsData.serializer()), chunkTickets),
+            nbtFormat.encodeToNbtTag(chunkTickets, SavedDataFile.serializer(ChunkTicketsData.serializer())),
         )
         val ticket = assertIs<NbtCompound>(
             assertIs<NbtList>(
@@ -104,8 +104,8 @@ class SavedDataFileTest {
 
         val enderDragonFightTag = assertIs<NbtCompound>(
             nbtFormat.encodeToNbtTag(
-                SavedDataFile.serializer(EnderDragonFightData.serializer()),
                 enderDragonFight,
+                SavedDataFile.serializer(EnderDragonFightData.serializer()),
             ),
         )
         val respawnCrystals = assertIs<NbtList>(
@@ -121,13 +121,13 @@ class SavedDataFileTest {
         val duplicatedValues = NbtList(listOf(uuid.toNbtIntArray(), uuid.toNbtIntArray()))
 
         assertFailsWith<SerializationException> {
-            nbtFormat.decodeFromNbtTag(NbtUuidSetSerializer, duplicatedValues)
+            nbtFormat.decodeFromNbtTag(duplicatedValues, NbtUuidSetSerializer)
         }
     }
 
     private fun <T> assertSavedDataRoundTrip(serializer: KSerializer<SavedDataFile<T>>, value: SavedDataFile<T>) {
-        val root = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(serializer, value))
-        assertEquals(value, nbtFormat.decodeFromNbtTag(serializer, root))
+        val root = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(value, serializer))
+        assertEquals(value, nbtFormat.decodeFromNbtTag(root, serializer))
         assertTrue("DataVersion" in root.value)
         assertIs<NbtCompound>(root["data"])
     }

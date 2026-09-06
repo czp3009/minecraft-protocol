@@ -14,7 +14,7 @@ configured target without runtime filesystem access.
 | Complete default packet registry mappings | `VanillaConfigurationData.completePacketCodecContext`    |
 | Matching client capture                   | `VanillaConfigurationData.dataPackConfigurationSnapshot` |
 | Resolved client lookup                    | `VanillaConfigurationData.clientRegistryView`            |
-| Default synchronized-registry projectors  | `vanillaDataPackRegistryProjectors`                      |
+| Default synchronized-registry projectors  | `VanillaConfigurationData.dataPackRegistryProjectors`    |
 | Stack projection                          | `dataPackStack.toVanillaConfigurationData()`             |
 
 The high-level client and server already use these defaults. `VanillaConfigurationData` selects the compact registry
@@ -54,43 +54,42 @@ vanilla snapshot. These contexts feed the [NBT codecs](../world-format/README.md
 ## Add world packs
 
 Actual official archives, parsed packs and world-selection completion belong to
-[datapack-vanilla](../datapack-vanilla/README.md). Load file packs through world-io, complete their selection with
-datapack-vanilla, then pass the public stack into this module. Specifically,
-`minecraftWorldAccess.dataPacks.readEnabled()` returns `WorldDataPackLoadResult`; its `toVanillaDataPackStack()` returns
-the input stack, and `enabledFeatureFlags.mapTo(linkedSetOf(), Identifier::parse)` produces the flag set. Optional
-`DataPackRegistryProjector(...)` overrides contain application resource-to-NBT callbacks; the default empty list uses
-all matching official projectors. Neither vanilla provider depends on the other at runtime.
+[datapack-vanilla](../datapack-vanilla/README.md). Load file packs through world-io and complete their selection before
+projection. Inside the lifetime of a `minecraftWorldAccess` opened with `MinecraftWorldAccess.open(worldPath)`, prepare
+the shared inputs:
+
+```kotlin
+val worldDataPackLoadResult = minecraftWorldAccess.dataPacks.readEnabled()
+val dataPackStack = worldDataPackLoadResult.toVanillaDataPackStack()
+val enabledFeatureFlags = worldDataPackLoadResult.enabledFeatureFlags.mapTo(linkedSetOf(), Identifier::parse)
+```
 
 The plain path constructs the generic projector with explicit vanilla base, projectors, core-pack identity and world
-flags. This example uses the unchanged official projectors:
+flags:
 
 ```kotlin
-fun projectWorldPacksExplicitly(
-    dataPackStack: DataPackStack,
-    enabledFeatureFlags: Set<Identifier>,
-): ResolvedConfigurationData {
-    val dataPackConfigurationProjector = DataPackConfigurationProjector(
-        baseConfigurationData = VanillaConfigurationData,
-        dataPackRegistryProjectors = vanillaDataPackRegistryProjectors,
-        preprojectedDataPackIds = setOf(DataPackId("vanilla")),
-        enabledFeatureFlags = enabledFeatureFlags,
-    )
-    return dataPackConfigurationProjector.project(dataPackStack, VanillaConfigurationData.dataPackFormatVersion)
-}
-```
-
-The convenience path supplies those release-matched inputs and can merge per-registry overrides:
-
-```kotlin
-fun projectWorldPacks(
-    dataPackStack: DataPackStack,
-    enabledFeatureFlags: Set<Identifier>,
-    dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
-): ResolvedConfigurationData = dataPackStack.toVanillaConfigurationData(
-    dataPackRegistryProjectorOverrides = dataPackRegistryProjectorOverrides,
+val dataPackConfigurationProjector = DataPackConfigurationProjector(
+    baseConfigurationData = VanillaConfigurationData,
+    dataPackRegistryProjectors = VanillaConfigurationData.dataPackRegistryProjectors,
+    preprojectedDataPackIds = setOf(DataPackId("vanilla")),
     enabledFeatureFlags = enabledFeatureFlags,
 )
+val resolvedConfigurationData = dataPackConfigurationProjector.project(
+    dataPackStack, VanillaConfigurationData.dataPackFormatVersion,
+)
 ```
+
+The convenience path produces the same result from those inputs:
+
+```kotlin
+val resolvedConfigurationData = dataPackStack.toVanillaConfigurationData(enabledFeatureFlags = enabledFeatureFlags)
+```
+
+To reuse one projector for several stacks, construct it through
+`VanillaConfigurationData.dataPackConfigurationProjector(enabledFeatureFlags = enabledFeatureFlags)` and call its
+`project(...)` methods as on the plain path. Both conveniences accept `dataPackRegistryProjectorOverrides`:
+`DataPackRegistryProjector(...)` values containing application resource-to-NBT callbacks. The default empty list uses
+all matching official projectors. Neither vanilla provider depends on the other at runtime.
 
 The application's world selection supplies `enabledFeatureFlags`; the no-argument convenience uses generated vanilla
 flags. Core vanilla resources are already represented by the generated base. Default projectors cover every

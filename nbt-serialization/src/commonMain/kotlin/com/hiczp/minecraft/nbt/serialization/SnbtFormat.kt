@@ -37,16 +37,16 @@ sealed class SnbtFormat(
     final override fun <T> encodeToString(
         serializer: SerializationStrategy<T>,
         value: T,
-    ): String = encodeTagToString(encodeToNbtTag(serializer, value))
+    ): String = encodeTagToString(encodeToNbtTag(value, serializer))
 
     final override fun <T> decodeFromString(
         deserializer: DeserializationStrategy<T>,
         string: String,
-    ): T = decodeFromNbtTag(deserializer, decodeTagFromString(string))
+    ): T = decodeFromNbtTag(decodeTagFromString(string), deserializer)
 
     fun <T> encodeToNbtTag(
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
+        serializationStrategy: SerializationStrategy<T>,
     ): NbtTag = encodeSnbtOperation("${serializationStrategy.descriptor.serialName} tree") {
         var result: NbtTag? = null
         val nbtTreeEncoder = NbtTreeEncoder(treeNbtFormatConfiguration, "$") { nbtTag ->
@@ -64,8 +64,8 @@ sealed class SnbtFormat(
     }
 
     fun <T> decodeFromNbtTag(
-        deserializationStrategy: DeserializationStrategy<T>,
         nbtTag: NbtTag,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T = decodeSnbtOperation("${deserializationStrategy.descriptor.serialName} tree") {
         NbtTreeDecoder(nbtTag, treeNbtFormatConfiguration, "$")
             .decodeSerializableValue(deserializationStrategy)
@@ -73,18 +73,18 @@ sealed class SnbtFormat(
 
     /** Writes one generic value as SNBT without closing or flushing [sink]. */
     fun <T> encodeToSink(
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         sink: Sink,
+        serializationStrategy: SerializationStrategy<T>,
     ) {
-        encodeTagToSink(encodeToNbtTag(serializationStrategy, value), sink)
+        encodeTagToSink(encodeToNbtTag(value, serializationStrategy), sink)
     }
 
     /** Reads one complete UTF-8 SNBT value without closing [source]. */
     fun <T> decodeFromSource(
-        deserializationStrategy: DeserializationStrategy<T>,
         source: Source,
-    ): T = decodeFromNbtTag(deserializationStrategy, decodeTagFromSource(source))
+        deserializationStrategy: DeserializationStrategy<T>,
+    ): T = decodeFromNbtTag(decodeTagFromSource(source), deserializationStrategy)
 
     /** Writes [nbtTag] directly as SNBT without closing or flushing [sink]. */
     fun encodeTagToSink(nbtTag: NbtTag, sink: Sink) =
@@ -132,17 +132,17 @@ sealed class SnbtFormat(
 }
 
 inline fun <reified T> SnbtFormat.encodeToNbtTag(value: T): NbtTag =
-    encodeToNbtTag(serializersModule.serializer(), value)
+    encodeToNbtTag(value, serializersModule.serializer())
 
 inline fun <reified T> SnbtFormat.decodeFromNbtTag(nbtTag: NbtTag): T =
-    decodeFromNbtTag(serializersModule.serializer(), nbtTag)
+    decodeFromNbtTag(nbtTag, serializersModule.serializer())
 
 inline fun <reified T> SnbtFormat.encodeToSink(value: T, sink: Sink) {
-    encodeToSink(serializersModule.serializer(), value, sink)
+    encodeToSink(value, sink, serializersModule.serializer())
 }
 
 inline fun <reified T> SnbtFormat.decodeFromSource(source: Source): T =
-    decodeFromSource(serializersModule.serializer(), source)
+    decodeFromSource(source, serializersModule.serializer())
 
 private class ConfiguredSnbtFormat(
     snbtFormatConfiguration: SnbtFormatConfiguration,

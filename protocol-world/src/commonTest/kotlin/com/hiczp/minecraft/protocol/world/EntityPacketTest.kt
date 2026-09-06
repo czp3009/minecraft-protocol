@@ -2,20 +2,14 @@ package com.hiczp.minecraft.protocol.world
 
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.protocol.model.packet.*
-import com.hiczp.minecraft.protocol.model.type.BlockStateIdMapping
-import com.hiczp.minecraft.protocol.model.type.DataComponent
-import com.hiczp.minecraft.protocol.model.type.DataComponentType
-import com.hiczp.minecraft.protocol.model.type.EntityDataValue
-import com.hiczp.minecraft.protocol.model.type.EntityMetadata
-import com.hiczp.minecraft.protocol.model.type.EntityMetadataEntry
-import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
-import com.hiczp.minecraft.protocol.model.type.RegistryIdMap
-import com.hiczp.minecraft.protocol.model.type.RegistryIdMapping
+import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormatConfiguration
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
+import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.world.format.*
+import com.hiczp.minecraft.world.format.AttributeModifier
+import com.hiczp.minecraft.world.format.DataComponentPatch
+import com.hiczp.minecraft.world.format.ItemStack
 import kotlin.test.*
 import kotlin.uuid.Uuid
 
@@ -57,7 +51,7 @@ class EntityPacketTest {
         )
     )
     private val supplier = AttributeSupplier(mapOf(speed to AttributeInstance(0.2), health to AttributeInstance(20.0)))
-    private val writeMappings = entityPacketWriteMappings(
+    private val writeMappings = EntityPacketWriteMappings.fromProperties(
         spawnData = { entity, packetCodecContext ->
             val blockState = entity.properties.require(carriedState)
             requireNotNull(
@@ -76,7 +70,7 @@ class EntityPacketTest {
         attributeSupplier = { supplier },
         synchronizedAttribute = { _, _ -> true },
     )
-    private val readMappings = entityPacketReadMappings(
+    private val readMappings = EntityPacketReadMappings.fromProperties(
         spawnData = { entity, data, packetCodecContext ->
             val blockState = requireNotNull(packetCodecContext.blockState(data))
             entity.properties[carriedState] =
@@ -220,11 +214,11 @@ class EntityPacketTest {
             MinecraftPacketPayloadFormatConfiguration(packetCodecContext = registry),
         )
         val received = encoder.encode(current, EntityPairingData(41, emptyMap(), null, null)).map { packet ->
-            val encoded = MinecraftPacketRegistry.encodePayload(
+            val encoded = PacketRegistry.vanilla.encodePayload(
                 packet, ConnectionState.PLAY, PacketDirection.CLIENTBOUND, minecraftPacketPayloadFormat,
             )
             assertIs<ClientboundPacket>(
-                MinecraftPacketRegistry.decodePayload(
+                PacketRegistry.vanilla.decodePayload(
                     ConnectionState.PLAY, PacketDirection.CLIENTBOUND, encoded.packetKey.id, encoded.payload,
                     minecraftPacketPayloadFormat,
                 )

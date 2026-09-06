@@ -1,10 +1,10 @@
 package com.hiczp.minecraft.demo.webmap
 
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.world.format.CHUNK_SIDE
 import com.hiczp.minecraft.world.format.ChunkPosition
 import com.hiczp.minecraft.world.format.ChunkRange
 import com.hiczp.minecraft.world.format.DimensionId
+import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import kotlinx.coroutines.flow.Flow
 import kotlinx.rpc.annotations.Rpc
 import kotlinx.serialization.KSerializer
@@ -410,14 +410,14 @@ data class ChunkSurface(
     }
 
     operator fun get(localX: Int, localZ: Int): SurfaceColumn? {
-        require(localX in 0 until CHUNK_SIDE && localZ in 0 until CHUNK_SIDE) {
+        require(localX in 0 until MinecraftCoordinates.CHUNK_SIDE && localZ in 0 until MinecraftCoordinates.CHUNK_SIDE) {
             "Surface coordinates must be inside one Chunk"
         }
-        return cells[localZ * CHUNK_SIDE + localX]?.let(palette::get)
+        return cells[localZ * MinecraftCoordinates.CHUNK_SIDE + localX]?.let(palette::get)
     }
 }
 
-const val SURFACE_CELL_COUNT: Int = CHUNK_SIDE * CHUNK_SIDE
+const val SURFACE_CELL_COUNT: Int = MinecraftCoordinates.CHUNK_SIDE * MinecraftCoordinates.CHUNK_SIDE
 
 private fun requireAssetRevision(assetRevision: String) {
     require(assetRevision.isNotBlank() && assetRevision.length <= MAXIMUM_ASSET_REVISION_LENGTH) {

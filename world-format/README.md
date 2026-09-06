@@ -43,15 +43,16 @@ fun emptyChunkColumn(
 
 The terrain model addresses fully generated Chunks. A disk decoder reads that model regardless of persisted status and
 exposes the actual string through `status`; `isFullyGenerated` checks `status == "minecraft:full"`. Applications decide
-whether to use a non-full result. Generation-only fields are not retained or completed, and missing required structures
-can still cause a format error. Changing status does not generate terrain. Use the raw NBT path when unfinished
-generation data must survive losslessly.
+whether to use a non-full result. Generation-only fields and `DUMMY` Block Entity placeholders are omitted; the decoder
+does not create their block-specific state. Missing required structures can still cause a format error. Changing status
+does not generate terrain. Use the raw NBT path when unfinished generation data must survive losslessly.
 
 ## Read and modify terrain
 
-Section map keys are absolute Section Y. A terrain Section contains 4096 block cells and 64 biome samples. Block states
-hold canonical `BlockId` and immutable `StateProperties`; biome cells hold `BiomeId`. Palette indexes and synchronized
-registry raw IDs do not participate in their identity.
+Section map keys are absolute Section Y. Fixed geometry is available through `MinecraftCoordinates`, including
+`CHUNK_SIDE`, `SECTION_BLOCK_COUNT` and `SECTION_BIOME_COUNT`. A terrain Section contains 4096 block cells and 64 biome
+samples. Block states hold canonical `BlockId` and immutable `StateProperties`; biome cells hold `BiomeId`. Palette
+indexes and synchronized registry raw IDs do not participate in their identity.
 
 `getBlockState`/`setBlockState` and `getBiome`/`setBiome` accept absolute `BlockPosition` or `ChunkBlockPosition`.
 Inside the construction height, a missing Section or terrain reads as the context's defaults without materializing
@@ -395,6 +396,9 @@ fun writeCompressed(
 CUSTOM codecs.
 
 ## Inspect or create an Anvil container
+
+`AnvilRegionFormat` exposes the file layout constants, including `SECTOR_BYTES`, `HEADER_BYTES` and the location-table
+limits. These describe the disk container; `MinecraftCoordinates` owns the spatial dimensions of Regions and Chunks.
 
 `AnvilRegionFormat` reads and writes complete `.mca` container streams. Because this module has no paths, external
 `.mcc` payloads remain separate values for a filesystem owner to resolve.

@@ -256,7 +256,7 @@ class StandaloneFileStoresTest {
         assertEquals(
             nbtDocument,
             savedDataStore.read(savedDataId) { source ->
-                minecraftWorldNbtFormat().decodeDocumentFromOkio(source)
+                NbtFormat.forWorldFiles().decodeDocumentFromOkio(source)
             },
         )
         assertEquals(2, sourceOpeningCountingFileSystem.sourceOpenCount)

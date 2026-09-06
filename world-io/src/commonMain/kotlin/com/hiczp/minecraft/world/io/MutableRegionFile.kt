@@ -133,8 +133,8 @@ internal class MutableRegionFile private constructor(
         if (shouldStoreExternally(compressedByteCount)) {
             writeExternal(localChunkPosition, compression, compressedByteCount, regionWriterState, block)
         } else {
-            val inlineSectors = regionSectorsForBytes(
-                REGION_CHUNK_RECORD_HEADER_BYTES.toLong() + compressedByteCount,
+            val inlineSectors = AnvilRegionFormat.sectorsForBytes(
+                AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES.toLong() + compressedByteCount,
             )
             writeInternal(localChunkPosition, compression, compressedByteCount, inlineSectors, regionWriterState, block)
         }
@@ -235,10 +235,10 @@ internal class MutableRegionFile private constructor(
             -1L
         }
         if (size > 0L) {
-            val remainder = size % REGION_SECTOR_BYTES
+            val remainder = size % AnvilRegionFormat.SECTOR_BYTES
             if (remainder != 0L) {
                 try {
-                    fileHandle.resize(size + REGION_SECTOR_BYTES - remainder)
+                    fileHandle.resize(size + AnvilRegionFormat.SECTOR_BYTES - remainder)
                 } catch (resizeFailure: Throwable) {
                     failure = combineFailures(failure, resizeFailure)
                 }
@@ -270,7 +270,7 @@ internal class MutableRegionFile private constructor(
         } else {
             val regionLocation = regionHeader.location(localChunkPosition)!!
             val bufferedSource = fileHandle.source(
-                regionLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES,
+                regionLocation.byteOffset + AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
             ).limit(regionChunkInfo.compressedByteCount).buffer()
             useResource(bufferedSource, { it.close() }) {
                 readPayload(regionChunkInfo, bufferedSource, block)
@@ -302,7 +302,7 @@ internal class MutableRegionFile private constructor(
                 encodedRegionChunkRecordHeader.size
             )
             writePayload(
-                fileHandle.sink(newLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES),
+                fileHandle.sink(newLocation.byteOffset + AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES),
                 compressedLength,
                 block,
             )
@@ -379,7 +379,7 @@ internal class MutableRegionFile private constructor(
         regionWriteBatch.staged.forEach { stagedRegionChunk ->
             nextHeader.set(stagedRegionChunk.localChunkPosition, stagedRegionChunk.newLocation, timestamp)
         }
-        for (index in 0 until REGION_CHUNK_COUNT) {
+        for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
             val localChunkPosition = LocalChunkPosition.fromIndex(index)
             if (localChunkPosition in regionWriteBatch.locals) continue
             val oldLocation = regionWriterState.regionHeader.location(localChunkPosition) ?: continue
@@ -445,8 +445,8 @@ internal class MutableRegionFile private constructor(
         val sectorCount = if (external) {
             1
         } else {
-            regionSectorsForBytes(
-                REGION_CHUNK_RECORD_HEADER_BYTES + compressedLength,
+            AnvilRegionFormat.sectorsForBytes(
+                AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES + compressedLength,
             )
         }
         val oldLocation = regionWriterState.regionHeader.location(localChunkPosition)
@@ -475,7 +475,7 @@ internal class MutableRegionFile private constructor(
                 ).encode()
                 fileHandle.write(newLocation.byteOffset, recordHeader, 0, recordHeader.size)
                 writePayload(
-                    fileHandle.sink(newLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES),
+                    fileHandle.sink(newLocation.byteOffset + AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES),
                     compressedLength,
                     block,
                 )
@@ -688,15 +688,15 @@ private class RegionWriteBatch {
 }
 
 private fun shouldStoreExternally(compressedLength: Long): Boolean {
-    val maximumInlineBytes = (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES
-    return compressedLength > maximumInlineBytes - REGION_CHUNK_RECORD_HEADER_BYTES
+    val maximumInlineBytes = (AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * AnvilRegionFormat.SECTOR_BYTES
+    return compressedLength > maximumInlineBytes - AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES
 }
 
 internal fun readUsableHeader(fileHandle: FileHandle): RegionHeader {
-    val headerBytes = fileHandle.readAtMost(0L, REGION_HEADER_BYTES)
+    val headerBytes = fileHandle.readAtMost(0L, AnvilRegionFormat.HEADER_BYTES)
     val regionHeader = RegionHeader.decode(headerBytes)
     val fileSize = fileHandle.size()
-    for (index in 0 until REGION_CHUNK_COUNT) {
+    for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
         val localChunkPosition = LocalChunkPosition.fromIndex(index)
         val regionLocation = regionHeader.location(localChunkPosition) ?: continue
         if (!regionLocation.isUsableAtOpen(fileSize)) {
@@ -708,7 +708,7 @@ internal fun readUsableHeader(fileHandle: FileHandle): RegionHeader {
 
 private fun allocatorFor(regionHeader: RegionHeader): RegionSectorAllocator {
     val regionSectorAllocator = RegionSectorAllocator()
-    for (index in 0 until REGION_CHUNK_COUNT) {
+    for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
         val localChunkPosition = LocalChunkPosition.fromIndex(index)
         regionHeader.location(localChunkPosition)?.let(regionSectorAllocator::mark)
     }
@@ -761,8 +761,8 @@ internal fun readRegionChunkInfo(
     localChunkPosition: LocalChunkPosition,
 ): RegionChunkInfo? {
     val regionLocation = regionHeader.location(localChunkPosition) ?: return null
-    val prefix = fileHandle.readAtMost(regionLocation.byteOffset, REGION_CHUNK_RECORD_HEADER_BYTES)
-    if (prefix.size < REGION_CHUNK_RECORD_HEADER_BYTES) {
+    val prefix = fileHandle.readAtMost(regionLocation.byteOffset, AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES)
+    if (prefix.size < AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES) {
         throw AnvilFormatException("Chunk $localChunkPosition has a truncated record header")
     }
     val regionChunkRecordHeader = RegionChunkRecordHeader.decode(prefix)
@@ -791,7 +791,7 @@ internal fun readRegionChunkInfo(
             timestampEpochSeconds = timestamp,
         )
     }
-    val maximumPayload = regionLocation.allocatedBytes - REGION_CHUNK_RECORD_HEADER_BYTES
+    val maximumPayload = regionLocation.allocatedBytes - AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES
     if (regionChunkRecordHeader.compressedLength !in 0..maximumPayload) {
         throw AnvilFormatException(
             "Chunk $localChunkPosition has invalid length ${regionChunkRecordHeader.length} in ${regionLocation.sectorCount} allocated sectors",

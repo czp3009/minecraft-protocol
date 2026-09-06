@@ -55,15 +55,11 @@ val resourcePackRejectionReason = TextComponent.literal("Enable server resource 
 
 ### Convenience API: include the pack in negotiation
 
-Use the values above and a fresh connection returned by `MinecraftServer.accept()`. Invoke this application helper
+Use the values above and a fresh `minecraftServerConnection` returned by `MinecraftServer.accept()`. Run this code
 inside that connection's `use` block so exceptions also close it:
 
 ```kotlin
-suspend fun negotiateWithResourcePack(
-    minecraftServerConnection: MinecraftServerConnection,
-    resourcePack: ClientboundResourcePackPushPacket,
-    resourcePackRejectionReason: TextComponent,
-): MinecraftServerNegotiationResult? = try {
+val minecraftServerNegotiationResult = try {
     minecraftServerConnection.negotiate(
         minecraftServerNegotiationOptions = MinecraftServerNegotiationOptions(
             resourcePack = resourcePack,
@@ -87,33 +83,28 @@ sent; initial-world sending follows as described below. The library leaves rejec
 ### Plain API: exchange the packets
 
 For application-owned negotiation, first complete Login and enter Configuration through your packet loop. The same
-`resourcePack` and rejection reason above can be used directly. `handleOtherPacket` is your handler for unrelated
-incoming packets while waiting; this helper owns receiving for the duration of the exchange:
+`resourcePack` and rejection reason above can be used directly. `handleOtherPacket` is your suspending handler for
+unrelated incoming `ServerboundPacket` values. Run this exchange inside your manual negotiation, with the same
+rejection handling and connection lifetime shown above:
 
 ```kotlin
-suspend fun offerResourcePack(
-    minecraftServerConnection: MinecraftServerConnection,
-    resourcePack: ClientboundResourcePackPushPacket,
-    resourcePackRejectionReason: TextComponent,
-    handleOtherPacket: suspend (ServerboundPacket) -> Unit,
-): ServerboundResourcePackPacket.Action {
-    minecraftServerConnection.outgoing.send(resourcePack)
-    minecraftServerConnection.requestFlush()
-    while (true) {
-        val serverboundPacket = minecraftServerConnection.incoming.receive()
-        if (serverboundPacket !is ServerboundResourcePackPacket || serverboundPacket.id != resourcePack.id) {
-            handleOtherPacket(serverboundPacket)
-            continue
-        }
-        if (resourcePack.required && serverboundPacket.action == ServerboundResourcePackPacket.Action.DECLINED) {
-            throw MinecraftConfigurationRejectedException(resourcePackRejectionReason, "Required resource pack declined")
-        }
-        if (serverboundPacket.action.isTerminal()) return serverboundPacket.action
+minecraftServerConnection.outgoing.send(resourcePack)
+minecraftServerConnection.requestFlush()
+while (true) {
+    val serverboundPacket = minecraftServerConnection.incoming.receive()
+    if (serverboundPacket !is ServerboundResourcePackPacket || serverboundPacket.id != resourcePack.id) {
+        handleOtherPacket(serverboundPacket)
+        continue
     }
+    if (resourcePack.required && serverboundPacket.action == ServerboundResourcePackPacket.Action.DECLINED) {
+        throw MinecraftConfigurationRejectedException(resourcePackRejectionReason, "Required resource pack declined")
+    }
+    if (serverboundPacket.action.isTerminal()) break
 }
 ```
 
-Call this from your manual negotiation instead of concurrently with `negotiate()`. To use `configurationTasks`, return
+The exchange owns receiving until a terminal response; do not run it concurrently with `negotiate()`.
+To use `configurationTasks`, return
 `ServerNegotiationTaskResult.CONTINUE` for consumed progress, `COMPLETE` for completion, and `PASS` for unrelated
 packets. During Play, Push/Pop packets and resource-pack responses also use the ordinary channels; your packet loop owns
 their policy. [The client guide](../protocol-client/README.md#handle-resource-packs) shows application-owned downloading

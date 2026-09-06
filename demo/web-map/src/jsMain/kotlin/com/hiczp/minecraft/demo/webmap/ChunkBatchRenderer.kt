@@ -2,7 +2,6 @@
 
 package com.hiczp.minecraft.demo.webmap
 
-import com.hiczp.minecraft.world.format.CHUNK_SIDE
 import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import kotlinx.coroutines.*
@@ -241,7 +240,7 @@ class ChunkBatchRenderer(
         assetRevision: String,
         officialAssetSession: OfficialAssetSession?,
     ): CachedChunkTile {
-        val chunkPixelSide = CHUNK_SIDE * MAXIMUM_RENDER_BLOCK_PIXELS
+        val chunkPixelSide = MinecraftCoordinates.CHUNK_SIDE * MAXIMUM_RENDER_BLOCK_PIXELS
         val tile: dynamic = browserDocument.createElement("canvas")
         tile.width = chunkPixelSide
         tile.height = chunkPixelSide
@@ -253,8 +252,8 @@ class ChunkBatchRenderer(
         for (cellIndex in 0 until SURFACE_CELL_COUNT) {
             if (cellIndex % RENDER_YIELD_INTERVAL == 0) yield()
             currentCoroutineContext().ensureActive()
-            val localX = cellIndex % CHUNK_SIDE
-            val localZ = cellIndex / CHUNK_SIDE
+            val localX = cellIndex % MinecraftCoordinates.CHUNK_SIDE
+            val localZ = cellIndex / MinecraftCoordinates.CHUNK_SIDE
             val surfaceColumn = chunkSurface[localX, localZ] ?: continue
             surfaceColumnInputs += SurfaceColumnInput(
                 localX = localX,

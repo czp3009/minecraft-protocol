@@ -6,9 +6,9 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi
+import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketSession
-import com.hiczp.minecraft.protocol.session.createMinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
@@ -321,7 +321,7 @@ class MinecraftClientNegotiationFailureTest {
         val serverToClient = ByteChannel(autoFlush = true)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val client = MinecraftClientConnection(
-            minecraftClientPacketConnection = createMinecraftClientPacketConnection(
+            minecraftClientPacketConnection = MinecraftClientPacketConnection.create(
                 minecraftFrameStream = clientFrames,
                 closeTransport = { clientFrames.cancel() },
                 minecraftConnectionDefinition = MinecraftConnectionDefinition(),

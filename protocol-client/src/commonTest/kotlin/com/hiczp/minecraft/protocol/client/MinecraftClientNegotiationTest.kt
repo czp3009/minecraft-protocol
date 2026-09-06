@@ -13,21 +13,20 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
 import com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi
+import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketSession
-import com.hiczp.minecraft.protocol.session.createMinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
-import com.hiczp.minecraft.protocol.world.*
-import com.hiczp.minecraft.world.format.BiomeId
-import com.hiczp.minecraft.world.format.BlockId
-import com.hiczp.minecraft.world.format.BlockState
-import com.hiczp.minecraft.world.format.DimensionTypeLayout
-import com.hiczp.minecraft.world.format.NbtPropertyReadMappings
+import com.hiczp.minecraft.protocol.world.ChunkPacketDecoder
+import com.hiczp.minecraft.protocol.world.ChunkPacketDecoderContext
+import com.hiczp.minecraft.protocol.world.ChunkPacketMissingData
+import com.hiczp.minecraft.protocol.world.ChunkPacketReadMappings
+import com.hiczp.minecraft.world.format.*
 import io.ktor.utils.io.*
-import kotlin.test.*
-import kotlin.uuid.Uuid
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlin.test.*
+import kotlin.uuid.Uuid
 
 @OptIn(InternalMinecraftConnectionApi::class)
 class MinecraftClientNegotiationTest {
@@ -363,7 +362,7 @@ class MinecraftClientNegotiationTest {
         val serverToClient = ByteChannel(autoFlush = true)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val client = MinecraftClientConnection(
-            minecraftClientPacketConnection = createMinecraftClientPacketConnection(
+            minecraftClientPacketConnection = MinecraftClientPacketConnection.create(
                 minecraftFrameStream = clientFrames,
                 closeTransport = { clientFrames.cancel() },
                 minecraftConnectionDefinition = MinecraftConnectionDefinition(),

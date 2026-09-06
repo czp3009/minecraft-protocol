@@ -29,15 +29,15 @@ class NamespacedValuesTest {
 
         assertEquals(
             NbtString("example:moon"),
-            nbtFormat.encodeToNbtTag(DimensionId.serializer(), DimensionId("moon", "example")),
+            nbtFormat.encodeToNbtTag(DimensionId("moon", "example"), DimensionId.serializer()),
         )
         assertEquals(
             NbtString("minecraft:overworld"),
-            nbtFormat.encodeToNbtTag(DimensionTypeId.serializer(), DimensionTypeId("overworld")),
+            nbtFormat.encodeToNbtTag(DimensionTypeId("overworld"), DimensionTypeId.serializer()),
         )
         assertEquals(
             NbtString("example:state/value"),
-            nbtFormat.encodeToNbtTag(SavedDataId.serializer(), SavedDataId("state/value", "example")),
+            nbtFormat.encodeToNbtTag(SavedDataId("state/value", "example"), SavedDataId.serializer()),
         )
     }
 

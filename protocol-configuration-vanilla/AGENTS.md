@@ -9,7 +9,8 @@ This module owns generated immutable Configuration defaults for the repository-s
   here; generic Configuration projection and the archive provider do not require it.
 - Consume declared root analysis artifacts. The data-pack extraction manifest provides the format version without
   copying archive payloads or reading another module's generated output.
-- `vanillaDataPackRegistryProjectors` covers the synchronized registries exposed by generated Configuration data.
+- `VanillaConfigurationData.dataPackRegistryProjectors` covers the synchronized registries exposed by generated
+  Configuration data.
   Derive that set from the artifact instead of copying IDs; caller projectors replace matching IDs or extend new IDs.
 - Keep stack-to-Configuration projection separate from world-selection completion and filesystem reads. Accept world
   feature flags explicitly; no convenience reconstructs a hidden combined world/configuration/codec object.

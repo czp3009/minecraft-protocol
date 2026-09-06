@@ -29,7 +29,7 @@ internal object OfficialCodecFixtureGenerator {
             ),
         )
         val fixtures = buildJsonArray {
-            for (packetCodec in MinecraftPacketRegistry.entries) {
+            for (packetCodec in PacketRegistry.vanilla.entries) {
                 if (packetCodec.packetFraming != PacketFraming.NORMAL) {
                     continue
                 }
@@ -45,7 +45,7 @@ internal object OfficialCodecFixtureGenerator {
                 val seenPayloads = mutableSetOf<String>()
                 for ((sampleName, samplePacket) in samples) {
                     val encodedPacketPayload = runCatching {
-                        MinecraftPacketRegistry.encodePayload(
+                        PacketRegistry.vanilla.encodePayload(
                             samplePacket,
                             packetCodec.packetKey.connectionState,
                             packetCodec.packetKey.packetDirection,

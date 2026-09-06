@@ -42,7 +42,7 @@ sealed class MinecraftPacketPayloadFormat(
         value: T,
     ): ByteArray {
         val buffer = Buffer()
-        encodeToSink(serializer, value, buffer)
+        encodeToSink(value, buffer, serializer)
         return buffer.readByteArray()
     }
 
@@ -52,7 +52,7 @@ sealed class MinecraftPacketPayloadFormat(
     ): T {
         val buffer = Buffer()
         buffer.write(bytes)
-        return decodeFromSource(deserializer, buffer, bytes.size)
+        return decodeFromSource(buffer, bytes.size, deserializer)
     }
 
     /**
@@ -61,9 +61,9 @@ sealed class MinecraftPacketPayloadFormat(
      * The format neither flushes nor closes the caller-owned sink.
      */
     fun <T> encodeToSink(
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         sink: Sink,
+        serializationStrategy: SerializationStrategy<T>,
     ) {
         val minecraftEncoder = MinecraftEncoder(sink, minecraftPacketPayloadFormatConfiguration, serializersModule)
         minecraftEncoder.encodeSerializableValue(serializationStrategy, value)
@@ -77,9 +77,9 @@ sealed class MinecraftPacketPayloadFormat(
      * closes nor reads beyond that caller-provided boundary.
      */
     fun <T> decodeFromSource(
-        deserializationStrategy: DeserializationStrategy<T>,
         source: Source,
         byteCount: Int,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T {
         val minecraftDecoder = MinecraftDecoder(
             MinecraftReader(source, byteCount),
@@ -100,13 +100,13 @@ inline fun <reified T> MinecraftPacketPayloadFormat.encodeToSink(
     value: T,
     sink: Sink,
 ) {
-    encodeToSink(serializersModule.serializer(), value, sink)
+    encodeToSink(value, sink, serializersModule.serializer())
 }
 
 inline fun <reified T> MinecraftPacketPayloadFormat.decodeFromSource(
     source: Source,
     byteCount: Int,
-): T = decodeFromSource(serializersModule.serializer(), source, byteCount)
+): T = decodeFromSource(source, byteCount, serializersModule.serializer())
 
 private class ConfiguredMinecraftPacketPayloadFormat(
     minecraftPacketPayloadFormatConfiguration: MinecraftPacketPayloadFormatConfiguration,

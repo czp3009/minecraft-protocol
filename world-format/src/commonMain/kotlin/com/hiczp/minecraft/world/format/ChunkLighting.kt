@@ -6,10 +6,10 @@ class ColumnData<T>(values: List<T>) : Iterable<T> {
     private val values = values.toMutableList()
 
     init {
-        require(this.values.size == SECTION_SIDE * SECTION_SIDE) { "Column data needs 256 entries" }
+        require(this.values.size == MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE) { "Column data needs 256 entries" }
     }
 
-    constructor(initialValue: T) : this(List(SECTION_SIDE * SECTION_SIDE) { initialValue })
+    constructor(initialValue: T) : this(List(MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE) { initialValue })
 
     operator fun get(index: Int): T = values[index]
 
@@ -28,8 +28,8 @@ class ColumnData<T>(values: List<T>) : Iterable<T> {
     override fun iterator(): Iterator<T> = values.iterator()
 
     private fun index(x: Int, z: Int): Int {
-        require(x in 0 until SECTION_SIDE && z in 0 until SECTION_SIDE) { "Column coordinates must be in 0..15" }
-        return z * SECTION_SIDE + x
+        require(x in 0 until MinecraftCoordinates.SECTION_SIDE && z in 0 until MinecraftCoordinates.SECTION_SIDE) { "Column coordinates must be in 0..15" }
+        return z * MinecraftCoordinates.SECTION_SIDE + x
     }
 }
 
@@ -38,11 +38,13 @@ class LightLayer(values: List<Int>) : Iterable<Int> {
     private val values = values.toMutableList()
 
     init {
-        require(this.values.size == SECTION_BLOCK_COUNT) { "A light layer needs $SECTION_BLOCK_COUNT values" }
+        require(this.values.size == MinecraftCoordinates.SECTION_BLOCK_COUNT) {
+            "A light layer needs ${MinecraftCoordinates.SECTION_BLOCK_COUNT} values"
+        }
         require(this.values.all { it in 0..15 }) { "Light values must be in 0..15" }
     }
 
-    constructor(initialValue: Int) : this(List(SECTION_BLOCK_COUNT) { initialValue })
+    constructor(initialValue: Int) : this(List(MinecraftCoordinates.SECTION_BLOCK_COUNT) { initialValue })
 
     operator fun get(index: Int): Int = values[index]
 

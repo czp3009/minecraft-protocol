@@ -23,12 +23,12 @@ class EntityChunkNbtDecoder(val entityChunkNbtDecoderContext: EntityChunkNbtDeco
 
     /** Consumes one NBT record, leaving the source open; returns domain data and the stored DataVersion separately. */
     fun decode(source: Source): EntityChunkNbtDecodeResult = entityChunkNbtOperation {
-        nbtFormat.decodeFromSource(reader, source)
+        nbtFormat.decodeFromSource(source, reader)
     }
 
     /** Applies the same semantic reader to an already materialized NBT document. */
     fun decodeDocument(nbtDocument: NbtDocument): EntityChunkNbtDecodeResult = entityChunkNbtOperation {
-        entityChunkNbtDecoderContext.nbtFormat.decodeFromNbtTag(reader, nbtDocument.root)
+        entityChunkNbtDecoderContext.nbtFormat.decodeFromNbtTag(nbtDocument.root, reader)
     }
 }
 

@@ -16,7 +16,7 @@ own the packet sequence.
 Before this call, construct `DataPackStack(dataPack)` from a pack decoded with `DataPackFormat().decode(archive)` as
 shown in [world-format](../world-format/README.md#structured-files-and-data-packs). Construct
 `DataPackConfigurationProjector(baseConfigurationData, dataPackRegistryProjectors)` from the application's base and
-`DataPackRegistryProjector(...)` callbacks, or use `vanillaDataPackConfigurationProjector()` from the
+`DataPackRegistryProjector(...)` callbacks, or use `VanillaConfigurationData.dataPackConfigurationProjector()` from the
 [vanilla provider](../protocol-configuration-vanilla/README.md). Select the target with
 `DataPackFormatVersion(major, minor)`;
 `VanillaConfigurationData.dataPackFormatVersion` supplies the repository-selected value.

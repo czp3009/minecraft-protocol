@@ -4,9 +4,10 @@ import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
 import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
-import kotlin.test.*
+import com.hiczp.minecraft.nbt.serialization.SnbtFormat
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
+import kotlin.test.*
 
 class ChunkNbtTest {
     private val context = testChunkContext()
@@ -105,6 +106,69 @@ class ChunkNbtTest {
         val output = encoder.encodeDocument(result.chunk)
         assertEquals(NbtString("minecraft:noise"), output.root["Status"])
         assertNull(output.root["carving_mask"])
+    }
+
+    @Test
+    fun generationBlockEntityPlaceholdersDoNotPreventReadingTerrainAndStatus() {
+        // WorldGenRegion.setBlock writes DUMMY markers until a Block Entity is materialized.
+        val root = SnbtFormat.decodeDocumentFromString(
+            """
+            {
+                DataVersion: 42,
+                block_entities: [
+                    {id: "DUMMY", x: -625, y: -52, z: 80},
+                    {id: "example:machine", x: -628, y: -52, z: 81, keepPacked: 1b, energy: 7L},
+                    {id: "DUMMY", x: -627, y: -53, z: 82}
+                ],
+                xPos: -40, zPos: 5,
+                sections: [{Y: -4b, block_states: {palette: [{Name: "minecraft:stone"}]}}]
+            }
+            """.trimIndent()
+        ).root
+        val blockPosition = BlockPosition(-628, -52, 81)
+        for (status in listOf("minecraft:initialize_light", "minecraft:full")) {
+            // Status follows block_entities; decoding cannot depend on compound field order.
+            val nbtDocument = NbtDocument(NbtCompound(root.value + ("Status" to NbtString(status))))
+            val buffer = Buffer()
+            nbtFormat.encodeDocumentToSink(nbtDocument, buffer)
+            for (result in listOf(decoder.decode(buffer), decoder.decodeDocument(nbtDocument))) {
+                val chunk = result.chunk
+                assertEquals(ChunkPosition(-40, 5), chunk.chunkPosition)
+                assertEquals(status, chunk.status)
+                assertEquals(status == "minecraft:full", chunk.isFullyGenerated)
+                assertEquals(BlockState(BlockId.parse("stone")), chunk.getBlockState(blockPosition))
+                assertEquals(setOf(blockPosition), chunk.blockEntities.keys)
+                val blockEntity = chunk.blockEntities.getValue(blockPosition)
+                assertEquals(BlockEntityTypeId("example:machine"), blockEntity.blockEntityTypeId)
+                assertEquals(7L, blockEntity.properties.require(PropertyKey("energy", PropertyTypes.Long)))
+                val saved = encoder.encodeDocument(chunk).root.requiredTag<NbtList>("block_entities")
+                assertEquals(listOf(root.requiredTag<NbtList>("block_entities")[1]), saved.value)
+            }
+        }
+    }
+
+    @Test
+    fun otherInvalidBlockEntityIdsStillFailInsteadOfBeingSkippedOrNormalized() {
+        for (id in listOf("minecraft:DUMMY", "Dummy", "invalid id")) {
+            val nbtDocument = NbtDocument(
+                NbtCompound(
+                    mapOf(
+                        "DataVersion" to NbtInt(42), "Status" to NbtString("minecraft:full"),
+                        "block_entities" to NbtList(
+                            listOf(
+                                NbtCompound(
+                                    mapOf("id" to NbtString(id), "x" to NbtInt(0), "y" to NbtInt(0), "z" to NbtInt(0))
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+            val buffer = Buffer()
+            nbtFormat.encodeDocumentToSink(nbtDocument, buffer)
+            assertFailsWith<ChunkNbtFormatException> { decoder.decode(buffer) }
+            assertFailsWith<ChunkNbtFormatException> { decoder.decodeDocument(nbtDocument) }
+        }
     }
 
     @Test

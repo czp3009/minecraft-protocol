@@ -31,33 +31,33 @@ interface MinecraftServerPacketConnection : MinecraftPacketConnection<Serverboun
     companion object {
         /** The interval used by the matching official dedicated server. */
         val DEFAULT_KEEP_ALIVE_INTERVAL: Duration = 15.seconds
-    }
-}
 
-/** Creates the low-level server endpoint used by server orchestration modules. */
-@InternalMinecraftConnectionApi
-fun createMinecraftServerPacketConnection(
-    minecraftFrameStream: MinecraftFrameStream,
-    closeTransport: () -> Unit,
-    minecraftConnectionDefinition: MinecraftConnectionDefinition,
-    connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
-): MinecraftServerPacketConnection {
-    val minecraftServerPacketSession = MinecraftServerPacketSession(
-        minecraftFrameStream = minecraftFrameStream,
-        packetRegistry = minecraftConnectionDefinition.packetRegistry,
-        minecraftPacketPayloadFormat = minecraftConnectionDefinition.minecraftPacketPayloadFormat,
-    )
-    val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
-        minecraftPacketSession = minecraftServerPacketSession,
-        closeTransport = closeTransport,
-        minecraftConnectionDefinition = minecraftConnectionDefinition,
-        connectionDispatcher = connectionDispatcher,
-    )
-    return MinecraftServerPacketConnectionImplementation(
-        minecraftServerPacketSession,
-        minecraftPacketConnectionCore
-    ).also { minecraftServerPacketConnectionImplementation ->
-        minecraftServerPacketConnectionImplementation.start()
+        /** Creates the low-level server endpoint used by server orchestration modules. */
+        @InternalMinecraftConnectionApi
+        fun create(
+            minecraftFrameStream: MinecraftFrameStream,
+            closeTransport: () -> Unit,
+            minecraftConnectionDefinition: MinecraftConnectionDefinition,
+            connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
+        ): MinecraftServerPacketConnection {
+            val minecraftServerPacketSession = MinecraftServerPacketSession(
+                minecraftFrameStream = minecraftFrameStream,
+                packetRegistry = minecraftConnectionDefinition.packetRegistry,
+                minecraftPacketPayloadFormat = minecraftConnectionDefinition.minecraftPacketPayloadFormat,
+            )
+            val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
+                minecraftPacketSession = minecraftServerPacketSession,
+                closeTransport = closeTransport,
+                minecraftConnectionDefinition = minecraftConnectionDefinition,
+                connectionDispatcher = connectionDispatcher,
+            )
+            return MinecraftServerPacketConnectionImplementation(
+                minecraftServerPacketSession,
+                minecraftPacketConnectionCore
+            ).also { minecraftServerPacketConnectionImplementation ->
+                minecraftServerPacketConnectionImplementation.start()
+            }
+        }
     }
 }
 

@@ -36,14 +36,18 @@ class ChunkPacketDecoder(val chunkPacketDecoderContext: ChunkPacketDecoderContex
                 SectionTerrain(
                     decodePacketPalette(
                         section.states,
-                        SECTION_BLOCK_COUNT,
+                        MinecraftCoordinates.SECTION_BLOCK_COUNT,
                         packetCodecContext.blockStateRegistrySize
                     ) { id ->
                         val state = packetCodecContext.blockState(id)
                             ?: error("Block-state registry ID $id has no installed entry")
                         BlockState(BlockId(state.block.value), StateProperties(state.properties))
                     },
-                    decodePacketPalette(section.biomes, SECTION_BIOME_COUNT, biomeRegistry.size) { id ->
+                    decodePacketPalette(
+                        section.biomes,
+                        MinecraftCoordinates.SECTION_BIOME_COUNT,
+                        biomeRegistry.size
+                    ) { id ->
                         BiomeId((biomeRegistry[id] ?: error("Biome registry ID $id has no installed entry")).id.value)
                     },
                     SectionStatistics(
@@ -72,10 +76,10 @@ class ChunkPacketDecoder(val chunkPacketDecoderContext: ChunkPacketDecoderContex
             val values = unpackPacketValues(
                 PackedLongArray(packed),
                 packetValueBits(chunkLayout.height + 1),
-                (SECTION_SIDE * SECTION_SIDE)
+                (MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)
             )
             missing.heightmaps.maps[mappings.heightmapType(type)] =
-                Heightmap(ColumnData(List((SECTION_SIDE * SECTION_SIDE)) { index ->
+                Heightmap(ColumnData(List((MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)) { index ->
                     require(values[index] <= chunkLayout.height) { "Packet heightmap exceeds the encoded height range" }
                     MinecraftCoordinates.offsetBlockCoordinate(chunkLayout.minBlockY, values[index])
                 }))

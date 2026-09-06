@@ -36,7 +36,8 @@
   membership and delegate to local operations.
 - `Chunk` models completed data, without `ProtoChunk` progression. NBT decoding attempts the completed schema even
   for a nonterminal `status`, which it exposes for caller decisions. It neither rejects by status nor preserves all
-  unfinished generation data; lossless preservation of that input requires raw NBT.
+  unfinished generation data; lossless preservation of that input requires raw NBT. The exact saved `DUMMY` Block
+  Entity ID is a generation placeholder: omit it without constructing game content or weakening content-ID validation.
 - Full constructors retain supplied mutable references; empty constructors allocate empty data. Deletion changes
   reachability only. Do not add detach tracking, hidden indexes, invalidation or graph ownership.
 - `ChunkContext` contains raw-ID-free dimension/layout and default block/biome facts. Its reference on a Chunk is

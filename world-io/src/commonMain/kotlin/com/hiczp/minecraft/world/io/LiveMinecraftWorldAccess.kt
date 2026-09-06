@@ -15,7 +15,7 @@ import kotlin.jvm.JvmName
 /** Read formats shared by every operation and logical Region opened through one live access. */
 data class LiveMinecraftWorldAccessConfiguration(
     val chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
-    val standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+    val standaloneNbtFormat: NbtFormat = NbtFormat.forWorldFiles(),
     val standaloneJson: Json = Json,
     val dataPackFormat: DataPackFormat = DataPackFormat(),
 )

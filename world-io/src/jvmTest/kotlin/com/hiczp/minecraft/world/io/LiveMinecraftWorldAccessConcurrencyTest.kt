@@ -65,8 +65,8 @@ class LiveMinecraftWorldAccessConcurrencyTest {
         val inlinePosition = ChunkPosition(0, 0)
         val externalPosition = ChunkPosition(1, 0)
         val externalPayload = ByteArray(
-            REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         ) { index -> index.toByte() }
         val base = concurrencyFakeFileSystem()
         val setup = CoordinatedRegionStore(minecraftWorldPaths, fileSystem = base)

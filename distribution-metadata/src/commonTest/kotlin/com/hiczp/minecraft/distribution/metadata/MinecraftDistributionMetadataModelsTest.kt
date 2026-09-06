@@ -142,8 +142,9 @@ class MinecraftDistributionMetadataModelsTest {
         assertEquals(19, minecraftDownload.size)
         assertEquals(
             "ab/abcdef0123456789abcdef0123456789abcdef01",
-            minecraftAssetPath(minecraftAssetObject.hash),
+            minecraftAssetObject.path,
         )
+        assertEquals(minecraftAssetObject.path, MinecraftAssetObject.path(minecraftAssetObject.hash))
         assertEquals(
             "https://resources.download.minecraft.net/ab/abcdef0123456789abcdef0123456789abcdef01",
             minecraftDownload.url,

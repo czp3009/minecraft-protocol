@@ -24,12 +24,12 @@ class ChunkNbtEncoder(val chunkNbtEncoderContext: ChunkNbtEncoderContext) {
 
     /** Writes decompressed NBT without mutating the Chunk, flushing the sink or closing it. */
     fun encode(chunk: Chunk, sink: Sink) = chunkNbtOperation {
-        nbtFormat.encodeToSink(writer, chunk, sink)
+        nbtFormat.encodeToSink(chunk, sink, writer)
     }
 
     /** Materializes the same persisted representation as [encode] in an NBT document. */
     fun encodeDocument(chunk: Chunk): NbtDocument = chunkNbtOperation {
-        NbtDocument(chunkNbtEncoderContext.nbtFormat.encodeToNbtTag(writer, chunk).compound())
+        NbtDocument(chunkNbtEncoderContext.nbtFormat.encodeToNbtTag(chunk, writer).compound())
     }
 }
 

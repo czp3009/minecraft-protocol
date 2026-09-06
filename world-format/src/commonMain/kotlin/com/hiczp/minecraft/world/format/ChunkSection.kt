@@ -22,8 +22,8 @@ data class SectionTerrain(
     }
 
     constructor(defaultBlockState: BlockState, defaultBiome: BiomeId) : this(
-        PalettedContainer(SECTION_BLOCK_COUNT, defaultBlockState),
-        PalettedContainer(SECTION_BIOME_COUNT, defaultBiome),
+        PalettedContainer(MinecraftCoordinates.SECTION_BLOCK_COUNT, defaultBlockState),
+        PalettedContainer(MinecraftCoordinates.SECTION_BIOME_COUNT, defaultBiome),
         SectionStatistics(null, null, null, null),
     )
 
@@ -45,8 +45,12 @@ data class SectionTerrain(
 
     /** Operations that serialize the complete shape also check after callers replace a palette reference. */
     fun requireShape() {
-        require(blockStates.size == SECTION_BLOCK_COUNT) { "A Section needs $SECTION_BLOCK_COUNT block states" }
-        require(biomes.size == SECTION_BIOME_COUNT) { "A Section needs $SECTION_BIOME_COUNT biome samples" }
+        require(blockStates.size == MinecraftCoordinates.SECTION_BLOCK_COUNT) {
+            "A Section needs ${MinecraftCoordinates.SECTION_BLOCK_COUNT} block states"
+        }
+        require(biomes.size == MinecraftCoordinates.SECTION_BIOME_COUNT) {
+            "A Section needs ${MinecraftCoordinates.SECTION_BIOME_COUNT} biome samples"
+        }
     }
 
     private fun biomeIndex(localBlockPosition: LocalBlockPosition): Int = MinecraftCoordinates.biomeIndex(
@@ -68,8 +72,3 @@ internal fun bitsForPaletteSize(size: Int): Int {
     require(size > 0)
     return if (size == 1) 0 else Int.SIZE_BITS - (size - 1).countLeadingZeroBits()
 }
-
-const val BIOME_CELL_SIDE: Int = 4
-const val BIOME_SECTION_SIDE: Int = SECTION_SIDE / BIOME_CELL_SIDE
-const val SECTION_BIOME_COUNT: Int = BIOME_SECTION_SIDE * BIOME_SECTION_SIDE * BIOME_SECTION_SIDE
-const val SECTION_LIGHT_BYTE_COUNT: Int = SECTION_BLOCK_COUNT / 2

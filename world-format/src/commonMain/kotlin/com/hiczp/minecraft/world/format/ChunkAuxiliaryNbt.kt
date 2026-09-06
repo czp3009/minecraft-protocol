@@ -11,7 +11,8 @@ internal fun decodeHeightmaps(
     val bits = bitsForPaletteSize(chunkLayout.height + 1)
     nbtCompound.forEachEntry { name, tag ->
         if (tag is NbtLongArray) {
-            val values = unpackNbtValues(tag, bits, SECTION_SIDE * SECTION_SIDE)
+            val values =
+                unpackNbtValues(tag, bits, MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)
             require(values.all { it in 0..chunkLayout.height }) { "Heightmap values exceed the dimension height" }
             heightmaps.maps[HeightmapType(name)] = Heightmap(ColumnData(values.map { it + chunkLayout.minBlockY }))
         } else {
@@ -30,7 +31,7 @@ internal fun encodeHeightmaps(
         heightmaps.properties, NbtPropertyScope("heightmaps"), heightmaps.maps.keys.map { it.serializationKey }.toSet(),
     )
     heightmaps.maps.forEach { (type, heightmap) ->
-        val values = IntArray(SECTION_SIDE * SECTION_SIDE) { index ->
+        val values = IntArray(MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE) { index ->
             val y =
                 requireNotNull(heightmap.firstAvailable[index]) { "Heightmap ${type.serializationKey} column $index is unknown" }
             val height = y.toLong() - chunkLayout.minBlockY

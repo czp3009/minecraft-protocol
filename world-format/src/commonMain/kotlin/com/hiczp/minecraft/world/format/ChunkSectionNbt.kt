@@ -13,10 +13,16 @@ internal fun decodeSection(
     val terrain = if (blockStates == null && biomes == null) null else {
         require(y in chunkContext.dimensionTypeLayout.chunkLayout) { "Section terrain Y $y is outside the build range" }
         SectionTerrain(
-            blockStates?.let { decodeNbtPalette(it, SECTION_BLOCK_COUNT, 4, ::decodeBlockState) }
-                ?: PalettedContainer(SECTION_BLOCK_COUNT, chunkContext.defaultBlockState),
-            biomes?.let { decodeNbtPalette(it, SECTION_BIOME_COUNT, 1) { tag -> BiomeId.parse(tag.string()) } }
-                ?: PalettedContainer(SECTION_BIOME_COUNT, chunkContext.defaultBiome),
+            blockStates?.let { decodeNbtPalette(it, MinecraftCoordinates.SECTION_BLOCK_COUNT, 4, ::decodeBlockState) }
+                ?: PalettedContainer(MinecraftCoordinates.SECTION_BLOCK_COUNT, chunkContext.defaultBlockState),
+            biomes?.let {
+                decodeNbtPalette(
+                    it,
+                    MinecraftCoordinates.SECTION_BIOME_COUNT,
+                    1
+                ) { tag -> BiomeId.parse(tag.string()) }
+            }
+                ?: PalettedContainer(MinecraftCoordinates.SECTION_BIOME_COUNT, chunkContext.defaultBiome),
             SectionStatistics(null, null, null, null),
         )
     }
@@ -96,8 +102,11 @@ private fun <T : Any> encodeNbtPalette(
 internal fun decodeBlockEntity(
     nbtCompound: NbtCompound,
     mappings: NbtPropertyReadMappings,
-): Pair<BlockPosition, BlockEntity> {
-    val blockEntityTypeId = BlockEntityTypeId.parse(nbtCompound.string("id"))
+): Pair<BlockPosition, BlockEntity>? {
+    val id = nbtCompound.string("id")
+    // WorldGenRegion's DUMMY marker requires block-specific creation, outside the completed-data model.
+    if (id == "DUMMY") return null
+    val blockEntityTypeId = BlockEntityTypeId.parse(id)
     return nbtCompound.blockPosition() to BlockEntity(
         blockEntityTypeId,
         decodeComponents(nbtCompound.optionalTag<NbtCompound>("components") ?: NbtCompound(emptyMap()), mappings),

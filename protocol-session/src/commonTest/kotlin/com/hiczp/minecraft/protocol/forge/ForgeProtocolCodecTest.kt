@@ -4,7 +4,6 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.ClientIntent
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import kotlinx.io.Buffer
@@ -14,7 +13,7 @@ import kotlin.test.*
 
 class ForgeProtocolCodecTest {
     private val packetRegistry = PacketRegistry(
-        MinecraftPacketRegistry.entries,
+        PacketRegistry.vanilla.entries,
         ForgeProtocol.packetCodecs,
     )
 

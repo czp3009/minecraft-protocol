@@ -96,7 +96,7 @@ data class PacketCodec<T : Packet>(
 }
 
 /**
- * Read-only packet table. Callers may reindex or filter [MinecraftPacketRegistry.entries] once at application startup,
+ * Read-only packet table. Callers may reindex or filter [PacketRegistry.vanilla.entries] once at application startup,
  * append extension [registrations], and share the result across connections. Supplied registration lists must remain
  * stable because lookup indexes are built during construction.
  */
@@ -376,13 +376,16 @@ class PacketRegistry(
             )
         return packetCodecRegistration.routeForPacket(packet, outerPacketId)
     }
-}
 
-val MinecraftPacketRegistry: PacketRegistry = PacketRegistry(
-    GeneratedPacketDefinitions.entries.map { packetDefinition ->
-        packetDefinition.toPacketCodec()
-    },
-)
+    companion object {
+        /** Immutable packet table generated for the repository-selected vanilla protocol. */
+        val vanilla: PacketRegistry = PacketRegistry(
+            GeneratedPacketDefinitions.entries.map { packetDefinition ->
+                packetDefinition.toPacketCodec()
+            },
+        )
+    }
+}
 
 private fun <T : Packet> PacketDefinition<T>.toPacketCodec(): PacketCodec<T> =
     PacketCodec(

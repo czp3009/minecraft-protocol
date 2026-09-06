@@ -2,29 +2,15 @@ package com.hiczp.minecraft.protocol.configuration.vanilla
 
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.protocol.configuration.DataPackRegistryEntryProjector
-import com.hiczp.minecraft.protocol.configuration.DataPackRegistryProjector
 import com.hiczp.minecraft.world.format.datapack.DataPackFileContent
 import kotlinx.serialization.json.*
 
 /**
- * Release-matched defaults for every vanilla registry synchronized during Configuration.
- *
  * Vanilla registry resources are JSON files. Their client-visible fields retain the same JSON representation when the
- * official network codecs read NBT, while server-only fields are ignored by those codecs. These projectors preserve the
+ * official network codecs read NBT, while server-only fields are ignored by those codecs. This projector preserves the
  * complete JSON value tree so a normal vanilla data pack needs no caller-written registry mapping.
  */
-val vanillaDataPackRegistryProjectors: List<DataPackRegistryProjector> by lazy(
-    LazyThreadSafetyMode.PUBLICATION,
-) {
-    VanillaConfigurationData.synchronizedRegistryPackets(emptyList()).map { clientboundRegistryDataPacket ->
-        DataPackRegistryProjector(
-            registryId = clientboundRegistryDataPacket.registry,
-            dataPackRegistryEntryProjector = vanillaDataPackRegistryEntryProjector,
-        )
-    }
-}
-
-private val vanillaDataPackRegistryEntryProjector = DataPackRegistryEntryProjector { _, resolvedDataPackResource, _ ->
+internal val vanillaDataPackRegistryEntryProjector = DataPackRegistryEntryProjector { _, resolvedDataPackResource, _ ->
     val jsonFile = resolvedDataPackResource.dataPackFileContent as? DataPackFileContent.JsonFile
         ?: throw IllegalArgumentException(
             "Vanilla registry resource ${resolvedDataPackResource.sourceDataPackFilePath} must be JSON",

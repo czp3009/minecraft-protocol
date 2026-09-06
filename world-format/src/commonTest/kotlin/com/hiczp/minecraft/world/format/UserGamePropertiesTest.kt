@@ -75,7 +75,7 @@ class UserGamePropertiesTest {
                 )
             )
         )
-        val (position, blockEntity) = decodeBlockEntity(tag, mappings)
+        val (position, blockEntity) = assertNotNull(decodeBlockEntity(tag, mappings))
         val properties = blockEntity.properties
         val inventory = properties.require(ContainerProperties.Items)
         assertEquals(3, inventory.items.size)

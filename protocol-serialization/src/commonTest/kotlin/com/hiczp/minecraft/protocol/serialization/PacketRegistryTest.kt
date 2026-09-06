@@ -13,14 +13,14 @@ class PacketRegistryTest {
     fun `shared packet classes select the codec registered for their current state`() {
         val packet = ClientboundShowDialogPacket(DialogHolder.Direct(NbtString("x")))
         val configuration =
-            MinecraftPacketRegistry.encodePayload(packet, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND)
-        val play = MinecraftPacketRegistry.encodePayload(packet, ConnectionState.PLAY, PacketDirection.CLIENTBOUND)
+            PacketRegistry.vanilla.encodePayload(packet, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND)
+        val play = PacketRegistry.vanilla.encodePayload(packet, ConnectionState.PLAY, PacketDirection.CLIENTBOUND)
         assertContentEquals("08000178".hexToByteArray(), configuration.payload)
         assertContentEquals("0008000178".hexToByteArray(), play.payload)
         for (encoded in listOf(configuration, play)) {
             assertEquals(
                 packet,
-                MinecraftPacketRegistry.decodePayload(
+                PacketRegistry.vanilla.decodePayload(
                     encoded.packetKey.connectionState,
                     encoded.packetKey.packetDirection,
                     encoded.packetKey.id,
@@ -28,9 +28,9 @@ class PacketRegistryTest {
                 )
             )
         }
-        assertFailsWith<MinecraftSerializationException> { MinecraftPacketRegistry.encodePayload(packet) }
+        assertFailsWith<MinecraftSerializationException> { PacketRegistry.vanilla.encodePayload(packet) }
         assertFailsWith<IllegalArgumentException> {
-            MinecraftPacketRegistry.encodePayload(
+            PacketRegistry.vanilla.encodePayload(
                 ClientboundShowDialogPacket(DialogHolder.Reference(0)),
                 ConnectionState.CONFIGURATION,
                 PacketDirection.CLIENTBOUND
@@ -40,14 +40,14 @@ class PacketRegistryTest {
 
     @Test
     fun `registry identities and class routes are unique`() {
-        assertTrue(MinecraftPacketRegistry.entries.isNotEmpty())
+        assertTrue(PacketRegistry.vanilla.entries.isNotEmpty())
         assertEquals(
-            MinecraftPacketRegistry.entries.size,
-            MinecraftPacketRegistry.entries.map { it.packetKey }.toSet().size,
+            PacketRegistry.vanilla.entries.size,
+            PacketRegistry.vanilla.entries.map { it.packetKey }.toSet().size,
         )
         assertEquals(
-            MinecraftPacketRegistry.entries.size,
-            MinecraftPacketRegistry.entries.map {
+            PacketRegistry.vanilla.entries.size,
+            PacketRegistry.vanilla.entries.map {
                 Triple(
                     it.packetClass,
                     it.packetKey.connectionState,
@@ -65,7 +65,7 @@ class PacketRegistryTest {
             port = 25_565,
             intention = ClientIntent.STATUS,
         )
-        val encodedPacketPayload = MinecraftPacketRegistry.encodePayload(clientIntentionPacket)
+        val encodedPacketPayload = PacketRegistry.vanilla.encodePayload(clientIntentionPacket)
         assertEquals(
             PacketKey(
                 ConnectionState.HANDSHAKE,
@@ -77,7 +77,7 @@ class PacketRegistryTest {
         assertEquals(PacketFraming.NORMAL, encodedPacketPayload.packetFraming)
         assertEquals(
             clientIntentionPacket,
-            MinecraftPacketRegistry.decodePayload(
+            PacketRegistry.vanilla.decodePayload(
                 encodedPacketPayload.packetKey.connectionState,
                 encodedPacketPayload.packetKey.packetDirection,
                 encodedPacketPayload.packetKey.id,
@@ -86,7 +86,7 @@ class PacketRegistryTest {
         )
 
         assertIs<ServerboundStatusRequestPacket>(
-            MinecraftPacketRegistry.decodePayload(
+            PacketRegistry.vanilla.decodePayload(
                 ConnectionState.STATUS,
                 PacketDirection.SERVERBOUND,
                 0x00,
@@ -103,7 +103,7 @@ class PacketRegistryTest {
             ),
         )
         val failures = buildList {
-            for (packetCodec in MinecraftPacketRegistry.entries) {
+            for (packetCodec in PacketRegistry.vanilla.entries) {
                 if (packetCodec.packetFraming != PacketFraming.NORMAL) {
                     continue
                 }
@@ -111,7 +111,7 @@ class PacketRegistryTest {
                     @Suppress("UNCHECKED_CAST")
                     val kSerializer = packetCodec.kSerializer as KSerializer<Packet>
                     val sample = kSerializer.packetSampleValue(PacketSampleProfile.MINIMAL)
-                    val encodedPacketPayload = MinecraftPacketRegistry.encodePayload(
+                    val encodedPacketPayload = PacketRegistry.vanilla.encodePayload(
                         sample,
                         packetCodec.packetKey.connectionState,
                         packetCodec.packetKey.packetDirection,
@@ -120,7 +120,7 @@ class PacketRegistryTest {
                     assertEquals(packetCodec.packetKey, encodedPacketPayload.packetKey)
                     assertEquals(
                         sample,
-                        MinecraftPacketRegistry.decodePayload(
+                        PacketRegistry.vanilla.decodePayload(
                             packetCodec.packetKey.connectionState,
                             packetCodec.packetKey.packetDirection,
                             packetCodec.packetKey.id,
@@ -151,7 +151,7 @@ class PacketRegistryTest {
         )
         val coveredProfiles = mutableSetOf<PacketSampleProfile>()
         var successfulSamples = 0
-        for (packetCodec in MinecraftPacketRegistry.entries) {
+        for (packetCodec in PacketRegistry.vanilla.entries) {
             if (packetCodec.packetFraming != PacketFraming.NORMAL) {
                 continue
             }
@@ -162,7 +162,7 @@ class PacketRegistryTest {
                     kSerializer.packetSampleValue(packetSampleProfile)
                 }.getOrNull() ?: continue
                 val encodedPacketPayload = runCatching {
-                    MinecraftPacketRegistry.encodePayload(
+                    PacketRegistry.vanilla.encodePayload(
                         sample,
                         packetCodec.packetKey.connectionState,
                         packetCodec.packetKey.packetDirection,
@@ -172,7 +172,7 @@ class PacketRegistryTest {
 
                 assertEquals(
                     sample,
-                    MinecraftPacketRegistry.decodePayload(
+                    PacketRegistry.vanilla.decodePayload(
                         packetCodec.packetKey.connectionState,
                         packetCodec.packetKey.packetDirection,
                         packetCodec.packetKey.id,
@@ -186,7 +186,7 @@ class PacketRegistryTest {
             }
         }
 
-        val normalPacketCount = MinecraftPacketRegistry.entries.count {
+        val normalPacketCount = PacketRegistry.vanilla.entries.count {
             it.packetFraming == PacketFraming.NORMAL
         }
         assertEquals(PacketSampleProfile.entries.toSet(), coveredProfiles)
@@ -198,7 +198,7 @@ class PacketRegistryTest {
 
     @Test
     fun `legacy packet is not marked as normally framed`() {
-        val encodedPacketPayload = MinecraftPacketRegistry.encodePayload(
+        val encodedPacketPayload = PacketRegistry.vanilla.encodePayload(
             LegacyServerListPingPacket(),
         )
         assertEquals(PacketFraming.LEGACY_UNFRAMED, encodedPacketPayload.packetFraming)
@@ -207,7 +207,7 @@ class PacketRegistryTest {
     @Test
     fun `unknown packet identity is rejected`() {
         assertFailsWith<MinecraftSerializationException> {
-            MinecraftPacketRegistry.decodePayload(
+            PacketRegistry.vanilla.decodePayload(
                 ConnectionState.STATUS,
                 PacketDirection.CLIENTBOUND,
                 0x7F,

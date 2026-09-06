@@ -39,7 +39,7 @@ class KotlinxPacketBodyCodec<T : Packet>(
         packet: T,
         sink: Sink,
     ) {
-        minecraftPacketPayloadFormat.encodeToSink(kSerializer, packet, sink)
+        minecraftPacketPayloadFormat.encodeToSink(packet, sink, kSerializer)
     }
 
     override fun decode(
@@ -47,7 +47,7 @@ class KotlinxPacketBodyCodec<T : Packet>(
         packetRoute: PacketRoute,
         source: Source,
         byteCount: Int,
-    ): T = minecraftPacketPayloadFormat.decodeFromSource(kSerializer, source, byteCount)
+    ): T = minecraftPacketPayloadFormat.decodeFromSource(source, byteCount, kSerializer)
 }
 
 /**
@@ -64,7 +64,7 @@ class MappedKotlinxPacketBodyCodec<T : Packet, Body>(
         packet: T,
         sink: Sink,
     ) {
-        minecraftPacketPayloadFormat.encodeToSink(kSerializer, encodeBody(packet), sink)
+        minecraftPacketPayloadFormat.encodeToSink(encodeBody(packet), sink, kSerializer)
     }
 
     override fun decode(
@@ -74,7 +74,7 @@ class MappedKotlinxPacketBodyCodec<T : Packet, Body>(
         byteCount: Int,
     ): T = decodePacket(
         packetRoute,
-        minecraftPacketPayloadFormat.decodeFromSource(kSerializer, source, byteCount),
+        minecraftPacketPayloadFormat.decodeFromSource(source, byteCount, kSerializer),
     )
 }
 

@@ -5,7 +5,6 @@ import com.hiczp.minecraft.protocol.model.packet.Packet
 import com.hiczp.minecraft.protocol.model.packet.PacketDirection
 import com.hiczp.minecraft.protocol.model.packet.PacketRoute
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
@@ -15,7 +14,7 @@ import kotlin.test.*
 
 class FabricProtocolCodecTest {
     private val packetRegistry = PacketRegistry(
-        MinecraftPacketRegistry.entries,
+        PacketRegistry.vanilla.entries,
         FabricProtocol.packetCodecs,
     )
 

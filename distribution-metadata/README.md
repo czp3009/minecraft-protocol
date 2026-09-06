@@ -52,9 +52,9 @@ suspend fun currentReleaseAssetDownloads(
 ```
 
 `MinecraftAssetObject.toDownload()` lowercases the returned hash and derives
-`https://resources.download.minecraft.net/{first two hash characters}/{full hash}`. The pure function
-`minecraftAssetPath(hash)` supplies that relative path with a lowercased hash; applications can reuse it beneath their
-own asset storage directory. Neither operation validates the hash or performs I/O.
+`https://resources.download.minecraft.net/{first two hash characters}/{full hash}`. The asset object's `path` property
+supplies that relative path; `MinecraftAssetObject.path(hash)` supports callers holding only a hash. Both lowercase
+the hash without validation or I/O, and applications choose their own asset storage directory.
 
 `MinecraftLibraryDownload.toDownload()` and `MinecraftLoggingFile.toDownload()` copy their `sha1`, `size`, and `url`
 unchanged into a `MinecraftDownload`. The library's `path` and logging file's `id` remain on the original descriptors

@@ -2,9 +2,6 @@ package com.hiczp.minecraft.protocol.world
 
 import com.hiczp.minecraft.protocol.model.packet.ClientboundAddEntityPacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
-import com.hiczp.minecraft.protocol.model.packet.ClientboundUpdateAttributesPacket
-import com.hiczp.minecraft.protocol.model.type.EntityMetadata
-import com.hiczp.minecraft.protocol.model.type.EquipmentUpdate
 import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
 import com.hiczp.minecraft.world.format.DataProperties
 import com.hiczp.minecraft.world.format.Entity
@@ -57,24 +54,6 @@ fun interface EntityPacketMissingDataProvider {
 
 /** Unsent data is explicit. Received fields are applied to these ordinary retained references. */
 data class EntityPacketMissingData(val properties: DataProperties, val passengers: MutableList<Entity>?)
-
-/** Projections read current Entity fields/properties; they do not retain a second set of mutable values. */
-data class EntityPacketWriteMappings(
-    /** Type-specific projection for ClientboundAddEntityPacket.data, including any registry or connection references. */
-    val spawnData: (Entity, PacketCodecContext) -> Int,
-    val metadata: (Entity, PacketCodecContext) -> EntityMetadata?,
-    val attributes: (Entity, PacketCodecContext) -> List<ClientboundUpdateAttributesPacket.AttributeSnapshot>,
-    val equipment: (Entity, PacketCodecContext) -> List<EquipmentUpdate>,
-)
-
-/** Every supported trailing data packet is delivered in received order to its explicit semantic mapping. */
-data class EntityPacketReadMappings(
-    /** Applies ClientboundAddEntityPacket.data to semantic state before trailing pairing packets are decoded. */
-    val spawnData: (Entity, Int, PacketCodecContext) -> Unit,
-    val metadata: (Entity, EntityMetadata, PacketCodecContext) -> Unit,
-    val attributes: (Entity, List<ClientboundUpdateAttributesPacket.AttributeSnapshot>, PacketCodecContext) -> Unit,
-    val equipment: (Entity, List<EquipmentUpdate>, PacketCodecContext) -> Unit,
-)
 
 /**
  * [pendingPackets] retains relation packets, messages for other IDs and unrecognized tails in received order.

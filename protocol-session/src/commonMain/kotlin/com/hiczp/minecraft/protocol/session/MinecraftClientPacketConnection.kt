@@ -1,6 +1,9 @@
 package com.hiczp.minecraft.protocol.session
 
-import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.packet.ClientboundKeepAlivePacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundPacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundKeepAlivePacket
+import com.hiczp.minecraft.protocol.model.packet.ServerboundPacket
 import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 import kotlinx.coroutines.CoroutineDispatcher
@@ -13,32 +16,34 @@ import kotlinx.coroutines.Dispatchers
 interface MinecraftClientPacketConnection : MinecraftPacketConnection<ClientboundPacket, ServerboundPacket> {
     /** Arms encryption for the wire boundary immediately after Encryption Response. */
     fun prepareOutboundEncryption(sharedSecret: ByteArray)
-}
 
-/** Creates the low-level client endpoint used by client orchestration modules. */
-@InternalMinecraftConnectionApi
-fun createMinecraftClientPacketConnection(
-    minecraftFrameStream: MinecraftFrameStream,
-    closeTransport: () -> Unit,
-    minecraftConnectionDefinition: MinecraftConnectionDefinition,
-    connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
-): MinecraftClientPacketConnection {
-    val minecraftClientPacketSession = MinecraftClientPacketSession(
-        minecraftFrameStream = minecraftFrameStream,
-        packetRegistry = minecraftConnectionDefinition.packetRegistry,
-        minecraftPacketPayloadFormat = minecraftConnectionDefinition.minecraftPacketPayloadFormat,
-    )
-    val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
-        minecraftPacketSession = minecraftClientPacketSession,
-        closeTransport = closeTransport,
-        minecraftConnectionDefinition = minecraftConnectionDefinition,
-        connectionDispatcher = connectionDispatcher,
-    )
-    return MinecraftClientPacketConnectionImplementation(
-        minecraftClientPacketSession,
-        minecraftPacketConnectionCore
-    ).also { minecraftClientPacketConnectionImplementation ->
-        minecraftClientPacketConnectionImplementation.start()
+    companion object {
+        /** Creates the low-level client endpoint used by client orchestration modules. */
+        @InternalMinecraftConnectionApi
+        fun create(
+            minecraftFrameStream: MinecraftFrameStream,
+            closeTransport: () -> Unit,
+            minecraftConnectionDefinition: MinecraftConnectionDefinition,
+            connectionDispatcher: CoroutineDispatcher = Dispatchers.Default,
+        ): MinecraftClientPacketConnection {
+            val minecraftClientPacketSession = MinecraftClientPacketSession(
+                minecraftFrameStream = minecraftFrameStream,
+                packetRegistry = minecraftConnectionDefinition.packetRegistry,
+                minecraftPacketPayloadFormat = minecraftConnectionDefinition.minecraftPacketPayloadFormat,
+            )
+            val minecraftPacketConnectionCore = MinecraftPacketConnectionCore(
+                minecraftPacketSession = minecraftClientPacketSession,
+                closeTransport = closeTransport,
+                minecraftConnectionDefinition = minecraftConnectionDefinition,
+                connectionDispatcher = connectionDispatcher,
+            )
+            return MinecraftClientPacketConnectionImplementation(
+                minecraftClientPacketSession,
+                minecraftPacketConnectionCore
+            ).also { minecraftClientPacketConnectionImplementation ->
+                minecraftClientPacketConnectionImplementation.start()
+            }
+        }
     }
 }
 

@@ -97,7 +97,7 @@ class SystemWorldStorageTest {
             assertEquals(
                 0L,
                 checkNotNull(fileSystem.metadata(regionPath).size) %
-                        REGION_SECTOR_BYTES,
+                        AnvilRegionFormat.SECTOR_BYTES,
             )
         } finally {
             fileSystem.deleteRecursively(root, mustExist = false)
@@ -377,8 +377,8 @@ private fun zlibChunk(bytes: ByteArray): CompressedChunk = CompressedChunk(
 )
 
 private fun systemExternalPayload(seed: Int): ByteArray = ByteArray(
-    REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-            REGION_CHUNK_RECORD_HEADER_BYTES,
+    AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+            AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
 ) { index -> (index * 31 + seed).toByte() }
 
 private fun systemDocument(value: Int): NbtDocument = NbtDocument(

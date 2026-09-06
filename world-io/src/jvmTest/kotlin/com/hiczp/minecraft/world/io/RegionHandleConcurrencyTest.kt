@@ -568,8 +568,8 @@ class RegionHandleConcurrencyTest {
         val regionPath = directory / "r.0.0.mca"
         val sidecar = directory / "c.0.0.mcc"
         val externalBytes = ByteArray(
-            REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         ) { index -> (index * 17 + 3).toByte() }
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)
@@ -835,8 +835,8 @@ class RegionHandleConcurrencyTest {
         val chunkPosition = ChunkPosition(0, 0)
         val sidecar = directory / "c.0.0.mcc"
         val externalBytes = ByteArray(
-            REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         ) { index -> (index * 13 + 5).toByte() }
         val base = concurrencyFakeFileSystem()
         val setup = concurrencyStore(base)

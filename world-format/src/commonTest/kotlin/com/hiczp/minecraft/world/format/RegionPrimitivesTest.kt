@@ -6,18 +6,18 @@ class RegionPrimitivesTest {
     @Test
     fun locationsPackOffsetsAndCountsAcrossTheirFullWireRanges() {
         val maximum = RegionLocation(
-            REGION_MAX_SECTOR_OFFSET,
-            REGION_MAX_SECTOR_COUNT,
+            AnvilRegionFormat.MAX_SECTOR_OFFSET,
+            AnvilRegionFormat.MAX_SECTOR_COUNT,
         )
 
         assertEquals(-1, maximum.packed)
         assertEquals(maximum, RegionLocation.fromPacked(maximum.packed))
         assertEquals(
-            REGION_MAX_SECTOR_OFFSET.toLong() * REGION_SECTOR_BYTES,
+            AnvilRegionFormat.MAX_SECTOR_OFFSET.toLong() * AnvilRegionFormat.SECTOR_BYTES,
             maximum.byteOffset,
         )
         assertEquals(
-            REGION_MAX_SECTOR_COUNT * REGION_SECTOR_BYTES,
+            AnvilRegionFormat.MAX_SECTOR_COUNT * AnvilRegionFormat.SECTOR_BYTES,
             maximum.allocatedBytes,
         )
         assertNull(RegionLocation.fromPacked(0))
@@ -25,20 +25,20 @@ class RegionPrimitivesTest {
             RegionLocation(-1, 1)
         }
         assertFailsWith<IllegalArgumentException> {
-            RegionLocation(REGION_MAX_SECTOR_OFFSET + 1, 1)
+            RegionLocation(AnvilRegionFormat.MAX_SECTOR_OFFSET + 1, 1)
         }
         assertFailsWith<IllegalArgumentException> {
             RegionLocation(2, -1)
         }
         assertFailsWith<IllegalArgumentException> {
-            RegionLocation(2, REGION_MAX_SECTOR_COUNT + 1)
+            RegionLocation(2, AnvilRegionFormat.MAX_SECTOR_COUNT + 1)
         }
     }
 
     @Test
     fun headerRoundTripsEveryEntryAndUsesBigEndianIntegers() {
         val regionHeader = RegionHeader()
-        for (index in 0 until REGION_CHUNK_COUNT) {
+        for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
             val localChunkPosition = LocalChunkPosition.fromIndex(index)
             regionHeader.set(
                 localChunkPosition = localChunkPosition,
@@ -48,7 +48,7 @@ class RegionPrimitivesTest {
         }
 
         val byteArray = regionHeader.encode()
-        assertEquals(REGION_HEADER_BYTES, byteArray.size)
+        assertEquals(AnvilRegionFormat.HEADER_BYTES, byteArray.size)
         assertContentEquals(
             byteArrayOf(0, 0, 2, 1),
             byteArray.copyOfRange(0, Int.SIZE_BYTES),
@@ -67,7 +67,7 @@ class RegionPrimitivesTest {
         assertNull(regionHeader.location(LocalChunkPosition(1, 0)))
         assertEquals(0, regionHeader.timestamp(LocalChunkPosition(0, 0)))
         assertFailsWith<IllegalArgumentException> {
-            RegionHeader.decode(ByteArray(REGION_HEADER_BYTES + 1))
+            RegionHeader.decode(ByteArray(AnvilRegionFormat.HEADER_BYTES + 1))
         }
     }
 
@@ -99,10 +99,10 @@ class RegionPrimitivesTest {
 
     @Test
     fun openCompatibilityChecksMatchVanillaBoundaries() {
-        assertFalse(RegionLocation(1, 1).isUsableAtOpen(REGION_HEADER_BYTES.toLong()))
-        assertFalse(RegionLocation(2, 0).isUsableAtOpen(REGION_HEADER_BYTES.toLong()))
-        assertTrue(RegionLocation(2, 1).isUsableAtOpen(REGION_HEADER_BYTES.toLong()))
-        assertFalse(RegionLocation(3, 1).isUsableAtOpen(REGION_HEADER_BYTES.toLong()))
+        assertFalse(RegionLocation(1, 1).isUsableAtOpen(AnvilRegionFormat.HEADER_BYTES.toLong()))
+        assertFalse(RegionLocation(2, 0).isUsableAtOpen(AnvilRegionFormat.HEADER_BYTES.toLong()))
+        assertTrue(RegionLocation(2, 1).isUsableAtOpen(AnvilRegionFormat.HEADER_BYTES.toLong()))
+        assertFalse(RegionLocation(3, 1).isUsableAtOpen(AnvilRegionFormat.HEADER_BYTES.toLong()))
     }
 
     @Test
@@ -127,19 +127,19 @@ class RegionPrimitivesTest {
             regionSectorAllocator.allocate(0)
         }
         assertFailsWith<IllegalArgumentException> {
-            regionSectorAllocator.allocate(REGION_MAX_SECTOR_COUNT + 1)
+            regionSectorAllocator.allocate(AnvilRegionFormat.MAX_SECTOR_COUNT + 1)
         }
     }
 
     @Test
     fun recordEncodingOwnsTheExactExternalThresholdAndCompressionFlags() {
         val lastInlinePayload = ByteArray(
-            REGION_MAX_SECTOR_COUNT * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.MAX_SECTOR_COUNT * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         )
         val firstExternalPayload = ByteArray(
-            REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         )
 
         Compression.entries.forEach { compression ->
@@ -148,7 +148,7 @@ class RegionPrimitivesTest {
                 lastInlinePayload,
             )
             assertFalse(inline.external)
-            assertEquals(REGION_MAX_SECTOR_COUNT, inline.allocatedSectors)
+            assertEquals(AnvilRegionFormat.MAX_SECTOR_COUNT, inline.allocatedSectors)
             assertEquals(
                 RegionChunkRecordHeader(
                     length = lastInlinePayload.size + 1,
@@ -204,24 +204,24 @@ class RegionPrimitivesTest {
             )
         }
 
-        assertFailsWith<IllegalArgumentException> { regionSectorsForBytes(-1) }
-        assertEquals(0, regionSectorsForBytes(0))
-        assertEquals(1, regionSectorsForBytes(1))
-        assertEquals(1, regionSectorsForBytes(REGION_SECTOR_BYTES.toLong()))
+        assertFailsWith<IllegalArgumentException> { AnvilRegionFormat.sectorsForBytes(-1) }
+        assertEquals(0, AnvilRegionFormat.sectorsForBytes(0))
+        assertEquals(1, AnvilRegionFormat.sectorsForBytes(1))
+        assertEquals(1, AnvilRegionFormat.sectorsForBytes(AnvilRegionFormat.SECTOR_BYTES.toLong()))
         assertEquals(
             2,
-            regionSectorsForBytes(REGION_SECTOR_BYTES.toLong() + 1L),
+            AnvilRegionFormat.sectorsForBytes(AnvilRegionFormat.SECTOR_BYTES.toLong() + 1L),
         )
-        val largestRepresentableBytes = Int.MAX_VALUE.toLong() * REGION_SECTOR_BYTES
+        val largestRepresentableBytes = Int.MAX_VALUE.toLong() * AnvilRegionFormat.SECTOR_BYTES
         assertEquals(
             Int.MAX_VALUE,
-            regionSectorsForBytes(largestRepresentableBytes),
+            AnvilRegionFormat.sectorsForBytes(largestRepresentableBytes),
         )
         assertFailsWith<AnvilFormatException> {
-            regionSectorsForBytes(largestRepresentableBytes + 1L)
+            AnvilRegionFormat.sectorsForBytes(largestRepresentableBytes + 1L)
         }
         assertFailsWith<AnvilFormatException> {
-            regionSectorsForBytes(Long.MAX_VALUE)
+            AnvilRegionFormat.sectorsForBytes(Long.MAX_VALUE)
         }
     }
 }

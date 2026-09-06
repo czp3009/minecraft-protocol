@@ -172,7 +172,7 @@ class RootSavedDataModelsTest {
         )
 
         val encoded = assertIs<NbtCompound>(
-            nbtFormat.encodeToNbtTag(WorldGenSettingsData.serializer(), worldGenSettingsData),
+            nbtFormat.encodeToNbtTag(worldGenSettingsData, WorldGenSettingsData.serializer()),
         )
         val dimensions = assertIs<NbtCompound>(encoded["dimensions"])
         val overworld = assertIs<NbtCompound>(dimensions["minecraft:overworld"])
@@ -184,7 +184,7 @@ class RootSavedDataModelsTest {
         assertEquals(inlineGenerator, moon["generator"])
         assertEquals(
             worldGenSettingsData,
-            nbtFormat.decodeFromNbtTag(WorldGenSettingsData.serializer(), encoded),
+            nbtFormat.decodeFromNbtTag(encoded, WorldGenSettingsData.serializer()),
         )
     }
 
@@ -204,7 +204,6 @@ class RootSavedDataModelsTest {
 
         assertFailsWith<SerializationException> {
             nbtFormat.decodeFromNbtTag(
-                WorldGenSettingsData.serializer(),
                 worldGenSettingsWith(
                     NbtCompound(
                         mapOf(
@@ -213,19 +212,19 @@ class RootSavedDataModelsTest {
                         ),
                     ),
                 ),
+                WorldGenSettingsData.serializer(),
             )
         }
         assertFailsWith<SerializationException> {
             nbtFormat.decodeFromNbtTag(
-                WorldGenSettingsData.serializer(),
                 worldGenSettingsWith(
                     NbtCompound(mapOf("type" to NbtString("minecraft:overworld"))),
                 ),
+                WorldGenSettingsData.serializer(),
             )
         }
         assertFailsWith<SerializationException> {
             nbtFormat.decodeFromNbtTag(
-                WorldGenSettingsData.serializer(),
                 worldGenSettingsWith(
                     NbtCompound(
                         mapOf(
@@ -235,6 +234,7 @@ class RootSavedDataModelsTest {
                     ),
                     "Minecraft:overworld",
                 ),
+                WorldGenSettingsData.serializer(),
             )
         }
     }
@@ -262,7 +262,7 @@ class RootSavedDataModelsTest {
         )
 
         assertFailsWith<SerializationException> {
-            nbtFormat.decodeFromNbtTag(WorldGenSettingsData.serializer(), encoded)
+            nbtFormat.decodeFromNbtTag(encoded, WorldGenSettingsData.serializer())
         }
     }
 
@@ -271,26 +271,26 @@ class RootSavedDataModelsTest {
         val clocks = WorldClocksData(
             mapOf("minecraft:overworld" to WorldClocksData.Clock(totalTicks = 12)),
         )
-        val encodedClocks = nbtFormat.encodeToNbtTag(WorldClocksData.serializer(), clocks)
+        val encodedClocks = nbtFormat.encodeToNbtTag(clocks, WorldClocksData.serializer())
         val clocksCompound = assertIs<NbtCompound>(encodedClocks)
         assertEquals(setOf("minecraft:overworld"), clocksCompound.value.keys)
 
         val bossEvents = CustomBossEventsData(
             mapOf("minecraft:example" to CustomBossEventsData.Event(name = NbtString("Example"))),
         )
-        val encodedBossEvents = nbtFormat.encodeToNbtTag(CustomBossEventsData.serializer(), bossEvents)
+        val encodedBossEvents = nbtFormat.encodeToNbtTag(bossEvents, CustomBossEventsData.serializer())
         val bossEventsCompound = assertIs<NbtCompound>(encodedBossEvents)
         assertEquals(setOf("minecraft:example"), bossEventsCompound.value.keys)
     }
 
     private fun <T> assertRoundTrip(serializer: KSerializer<T>, value: T) {
-        val encoded = nbtFormat.encodeToNbtTag(serializer, value)
-        assertEquals(value, nbtFormat.decodeFromNbtTag(serializer, encoded))
+        val encoded = nbtFormat.encodeToNbtTag(value, serializer)
+        assertEquals(value, nbtFormat.decodeFromNbtTag(encoded, serializer))
 
         val savedDataFile = SavedDataFile(dataVersion = 4_903, data = value)
         val savedDataSerializer = SavedDataFile.serializer(serializer)
-        val encodedFile = nbtFormat.encodeToNbtTag(savedDataSerializer, savedDataFile)
-        assertEquals(savedDataFile, nbtFormat.decodeFromNbtTag(savedDataSerializer, encodedFile))
+        val encodedFile = nbtFormat.encodeToNbtTag(savedDataFile, savedDataSerializer)
+        assertEquals(savedDataFile, nbtFormat.decodeFromNbtTag(encodedFile, savedDataSerializer))
     }
 }
 

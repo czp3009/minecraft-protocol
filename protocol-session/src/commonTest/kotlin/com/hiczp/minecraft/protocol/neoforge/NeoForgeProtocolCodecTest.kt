@@ -6,7 +6,6 @@ import com.hiczp.minecraft.protocol.model.packet.PacketDirection
 import com.hiczp.minecraft.protocol.model.packet.PacketRoute
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
@@ -19,7 +18,7 @@ import kotlin.test.*
 
 class NeoForgeProtocolCodecTest {
     private val packetRegistry = PacketRegistry(
-        MinecraftPacketRegistry.entries,
+        PacketRegistry.vanilla.entries,
         NeoForgeProtocol.packetCodecs,
     )
 

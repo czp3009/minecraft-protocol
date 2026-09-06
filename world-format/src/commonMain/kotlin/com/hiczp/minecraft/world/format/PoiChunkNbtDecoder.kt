@@ -26,12 +26,12 @@ class PoiChunkNbtDecoder(val poiChunkNbtDecoderContext: PoiChunkNbtDecoderContex
 
     /** Consumes one NBT record, leaving the source open; returns domain data and the stored DataVersion separately. */
     fun decode(source: Source): PoiChunkNbtDecodeResult = poiChunkNbtOperation {
-        nbtFormat.decodeFromSource(reader, source)
+        nbtFormat.decodeFromSource(source, reader)
     }
 
     /** Applies the same semantic reader to an already materialized NBT document. */
     fun decodeDocument(nbtDocument: NbtDocument): PoiChunkNbtDecodeResult = poiChunkNbtOperation {
-        poiChunkNbtDecoderContext.nbtFormat.decodeFromNbtTag(reader, nbtDocument.root)
+        poiChunkNbtDecoderContext.nbtFormat.decodeFromNbtTag(nbtDocument.root, reader)
     }
 }
 

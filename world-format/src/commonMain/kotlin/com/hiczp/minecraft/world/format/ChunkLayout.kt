@@ -15,22 +15,22 @@ data class ChunkLayout(
         require(sectionCount > 0) { "A Chunk layout must contain at least one Section" }
         val maximumSectionY = MinecraftCoordinates.offsetSectionCoordinate(minSectionY, sectionCount - 1)
         MinecraftCoordinates.sectionBlockCoordinate(minSectionY, 0)
-        MinecraftCoordinates.sectionBlockCoordinate(maximumSectionY, SECTION_SIDE - 1)
+        MinecraftCoordinates.sectionBlockCoordinate(maximumSectionY, MinecraftCoordinates.SECTION_SIDE - 1)
         MinecraftCoordinates.blockCountForSections(sectionCount)
     }
 
     companion object {
         /** Creates a Section layout from block-aligned dimension bounds. */
         fun fromBlockBounds(minY: Int, height: Int): ChunkLayout {
-            require(minY % SECTION_SIDE == 0) {
-                "Chunk minimum block Y must be a multiple of $SECTION_SIDE"
+            require(minY % MinecraftCoordinates.SECTION_SIDE == 0) {
+                "Chunk minimum block Y must be a multiple of ${MinecraftCoordinates.SECTION_SIDE}"
             }
-            require(height % SECTION_SIDE == 0) {
-                "Chunk block height must be a multiple of $SECTION_SIDE"
+            require(height % MinecraftCoordinates.SECTION_SIDE == 0) {
+                "Chunk block height must be a multiple of ${MinecraftCoordinates.SECTION_SIDE}"
             }
             return ChunkLayout(
                 minSectionY = MinecraftCoordinates.sectionCoordinate(minY),
-                sectionCount = height / SECTION_SIDE,
+                sectionCount = height / MinecraftCoordinates.SECTION_SIDE,
             )
         }
     }
@@ -48,7 +48,7 @@ data class ChunkLayout(
         get() = MinecraftCoordinates.blockCountForSections(sectionCount)
 
     val maxBlockY: Int
-        get() = MinecraftCoordinates.sectionBlockCoordinate(maxSectionY, SECTION_SIDE - 1)
+        get() = MinecraftCoordinates.sectionBlockCoordinate(maxSectionY, MinecraftCoordinates.SECTION_SIDE - 1)
 
     val blockYRange: IntRange
         get() = minBlockY..maxBlockY

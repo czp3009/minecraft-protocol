@@ -19,12 +19,12 @@ class PoiChunkNbtEncoder(val poiChunkNbtEncoderContext: PoiChunkNbtEncoderContex
 
     /** Writes decompressed NBT without mutating the graph, flushing the sink or closing it. */
     fun encode(poiChunk: PoiChunk, sink: Sink) = poiChunkNbtOperation {
-        nbtFormat.encodeToSink(writer, poiChunk, sink)
+        nbtFormat.encodeToSink(poiChunk, sink, writer)
     }
 
     /** Materializes the same persisted representation as [encode] in a document. */
     fun encodeDocument(poiChunk: PoiChunk): NbtDocument = poiChunkNbtOperation {
-        NbtDocument(poiChunkNbtEncoderContext.nbtFormat.encodeToNbtTag(writer, poiChunk).compound())
+        NbtDocument(poiChunkNbtEncoderContext.nbtFormat.encodeToNbtTag(poiChunk, writer).compound())
     }
 }
 

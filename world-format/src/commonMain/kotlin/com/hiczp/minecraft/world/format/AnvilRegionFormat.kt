@@ -24,7 +24,39 @@ data class AnvilChunkRecordInfo(
  * that explicitly want one in-memory file image.
  */
 sealed class AnvilRegionFormat {
-    companion object Default : AnvilRegionFormat()
+    companion object Default : AnvilRegionFormat() {
+        /** Byte width of one allocation sector in an Anvil file. */
+        const val SECTOR_BYTES: Int = 4_096
+
+        /** One location-table sector followed by one timestamp-table sector. */
+        const val HEADER_SECTORS: Int = 2
+        const val HEADER_BYTES: Int = SECTOR_BYTES * HEADER_SECTORS
+
+        /** Four-byte length followed by one compression/placement byte. */
+        const val CHUNK_RECORD_HEADER_BYTES: Int = Int.SIZE_BYTES + 1
+        const val EXTERNAL_STREAM_FLAG: Int = 0x80
+
+        /** Location-table fields are an unsigned byte count and an unsigned 24-bit sector offset. */
+        const val MAX_SECTOR_COUNT: Int = 0xFF
+        const val MAX_SECTOR_OFFSET: Int = 0xFF_FFFF
+
+        /** Records requiring this many sectors use an external sidecar. */
+        const val EXTERNAL_CHUNK_SECTOR_THRESHOLD: Int = MAX_SECTOR_COUNT + 1
+    }
+
+    /** Rounds a byte count up to complete Anvil sectors; the result must fit in an Int. */
+    fun sectorsForBytes(byteCount: Long): Int {
+        require(byteCount >= 0)
+        val sectors = if (byteCount == 0L) {
+            0L
+        } else {
+            (byteCount - 1L) / SECTOR_BYTES + 1L
+        }
+        if (sectors > Int.MAX_VALUE) {
+            throw AnvilFormatException("Region record is too large")
+        }
+        return sectors.toInt()
+    }
 
     /** Reads one region without closing [source]. */
     fun decodeFromSource(source: Source): AnvilRegion {
@@ -101,15 +133,15 @@ sealed class AnvilRegionFormat {
             val payloadLength = if (chunkPlan.external) 0 else chunkPlan.content.compressedByteCount.toInt()
             sink.writeInt(payloadLength + 1)
             val version = RegionChunkRecordHeader.compressionId(chunkPlan.anvilChunkRecord.compression) or
-                    if (chunkPlan.external) REGION_EXTERNAL_STREAM_FLAG else 0
+                    if (chunkPlan.external) EXTERNAL_STREAM_FLAG else 0
             sink.writeByte(version.toByte())
             if (chunkPlan.external) {
                 externalChunks[chunkPlan.localChunkPosition] = chunkPlan.content
             } else {
                 chunkPlan.content.writeTo(sink)
             }
-            val padding = chunkPlan.allocatedSectors * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES - payloadLength
+            val padding = chunkPlan.allocatedSectors * SECTOR_BYTES -
+                    CHUNK_RECORD_HEADER_BYTES - payloadLength
             writeZeroes(sink, padding)
         }
         return externalChunks
@@ -128,10 +160,10 @@ sealed class AnvilRegionFormat {
         source: Source,
         block: (AnvilChunkRecordInfo, Source) -> Unit,
     ) {
-        val regionHeader = RegionHeader.decode(source.readByteArray(REGION_HEADER_BYTES))
+        val regionHeader = RegionHeader.decode(source.readByteArray(HEADER_BYTES))
         val plans = ArrayList<DecodeChunkPlan>()
 
-        for (index in 0 until REGION_CHUNK_COUNT) {
+        for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
             val localChunkPosition = LocalChunkPosition.fromIndex(index)
             val regionLocation = regionHeader.location(localChunkPosition) ?: continue
             val sectorOffset = regionLocation.sectorOffset
@@ -162,10 +194,10 @@ sealed class AnvilRegionFormat {
         var currentSector = 2
         plans.sortedBy(DecodeChunkPlan::sectorOffset).forEach { decodeChunkPlan ->
             val gapSectors = decodeChunkPlan.sectorOffset - currentSector
-            source.skip(gapSectors.toLong() * REGION_SECTOR_BYTES)
+            source.skip(gapSectors.toLong() * SECTOR_BYTES)
 
             val length = source.readInt()
-            val allocatedPayloadBytes = decodeChunkPlan.allocatedSectors * REGION_SECTOR_BYTES - Int.SIZE_BYTES
+            val allocatedPayloadBytes = decodeChunkPlan.allocatedSectors * SECTOR_BYTES - Int.SIZE_BYTES
             if (length !in 1..allocatedPayloadBytes) {
                 val sectors = decodeChunkPlan.allocatedSectors
                 throw AnvilFormatException(
@@ -173,8 +205,8 @@ sealed class AnvilRegionFormat {
                 )
             }
             val versionByte = source.readByte().toInt() and 0xFF
-            val external = versionByte and REGION_EXTERNAL_STREAM_FLAG != 0
-            val compressionId = versionByte and REGION_EXTERNAL_STREAM_FLAG.inv()
+            val external = versionByte and EXTERNAL_STREAM_FLAG != 0
+            val compressionId = versionByte and EXTERNAL_STREAM_FLAG.inv()
             val compression =
                 RegionChunkRecordHeader.compressionFromId(compressionId)
                     ?: throw AnvilFormatException(
@@ -220,7 +252,7 @@ sealed class AnvilRegionFormat {
             it.sectorOffset = nextSector
             nextSector += it.allocatedSectors
         }
-        if (nextSector > REGION_MAX_SECTOR_OFFSET + 1) {
+        if (nextSector > MAX_SECTOR_OFFSET + 1) {
             throw AnvilFormatException(
                 "Encoded region exceeds location-table range",
             )
@@ -240,11 +272,11 @@ sealed class AnvilRegionFormat {
         if (compressedByteCount > Int.MAX_VALUE) {
             throw AnvilFormatException("Chunk $localChunkPosition is too large for an Anvil record")
         }
-        val inlineSectors = regionSectorsForBytes(
-            REGION_CHUNK_RECORD_HEADER_BYTES.toLong() + compressedByteCount,
+        val inlineSectors = sectorsForBytes(
+            CHUNK_RECORD_HEADER_BYTES.toLong() + compressedByteCount,
         )
         val external = anvilChunkRecord.anvilChunkPlacement == AnvilChunkPlacement.EXTERNAL ||
-                inlineSectors >= REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD
+                inlineSectors >= EXTERNAL_CHUNK_SECTOR_THRESHOLD
         return ChunkPlan(
             localChunkPosition = localChunkPosition,
             anvilChunkRecord = anvilChunkRecord,

@@ -51,7 +51,7 @@ class AnvilRegionFormatTest {
 
     @Test
     fun everyLocalIndexAndRandomAbsoluteCoordinateRoundTrips() {
-        for (index in 0 until REGION_CHUNK_COUNT) {
+        for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
             assertEquals(index, LocalChunkPosition.fromIndex(index).index)
         }
 
@@ -59,14 +59,14 @@ class AnvilRegionFormatTest {
         val boundaries = listOf(
             Int.MIN_VALUE,
             Int.MIN_VALUE + 1,
-            -REGION_SIDE - 1,
-            -REGION_SIDE,
+            -MinecraftCoordinates.REGION_SIDE - 1,
+            -MinecraftCoordinates.REGION_SIDE,
             -1,
             0,
             1,
-            REGION_SIDE - 1,
-            REGION_SIDE,
-            REGION_SIDE + 1,
+            MinecraftCoordinates.REGION_SIDE - 1,
+            MinecraftCoordinates.REGION_SIDE,
+            MinecraftCoordinates.REGION_SIDE + 1,
             Int.MAX_VALUE - 1,
             Int.MAX_VALUE,
         )
@@ -87,7 +87,7 @@ class AnvilRegionFormatTest {
         val regionPosition = RegionPosition(-2, 1)
         val positions = regionPosition.chunkPositions().toList()
 
-        assertEquals(REGION_CHUNK_COUNT, positions.size)
+        assertEquals(MinecraftCoordinates.REGION_CHUNK_COUNT, positions.size)
         positions.forEachIndexed { index, chunkPosition ->
             val localChunkPosition = LocalChunkPosition.fromIndex(index)
             assertEquals(regionPosition.chunk(localChunkPosition), chunkPosition)
@@ -140,7 +140,7 @@ class AnvilRegionFormatTest {
 
         assertTrue(encodedAnvilRegion.externalChunks.isEmpty())
         assertEquals(anvilRegion, decoded)
-        assertEquals(5 * REGION_SECTOR_BYTES, encodedAnvilRegion.bytes.size)
+        assertEquals(5 * AnvilRegionFormat.SECTOR_BYTES, encodedAnvilRegion.bytes.size)
     }
 
     @Test
@@ -186,13 +186,13 @@ class AnvilRegionFormatTest {
         assertNull(anvilChunkRecord.content)
         assertEquals(Compression.LZ4, anvilChunkRecord.compression)
         assertEquals(42, anvilChunkRecord.timestampEpochSeconds)
-        assertEquals(3 * REGION_SECTOR_BYTES, encodedAnvilRegion.bytes.size)
+        assertEquals(3 * AnvilRegionFormat.SECTOR_BYTES, encodedAnvilRegion.bytes.size)
     }
 
     @Test
     fun oversizedInlineChunkIsAutomaticallyExternalized() {
         val localChunkPosition = LocalChunkPosition(1, 2)
-        val byteArray = ByteArray(256 * REGION_SECTOR_BYTES)
+        val byteArray = ByteArray(256 * AnvilRegionFormat.SECTOR_BYTES)
         val encodedAnvilRegion = AnvilRegionFormat.encodeToByteArray(
             AnvilRegion(
                 mapOf(
@@ -216,7 +216,7 @@ class AnvilRegionFormatTest {
     fun externalizationUsesTheExactVanillaSectorThreshold() {
         val inline = LocalChunkPosition(0, 0)
         val external = LocalChunkPosition(1, 0)
-        val largestInlinePayload = 255 * REGION_SECTOR_BYTES - Int.SIZE_BYTES - 1
+        val largestInlinePayload = 255 * AnvilRegionFormat.SECTOR_BYTES - Int.SIZE_BYTES - 1
         val firstExternalPayload = largestInlinePayload + 1
         val encodedAnvilRegion = AnvilRegionFormat.encodeToByteArray(
             AnvilRegion(
@@ -250,7 +250,7 @@ class AnvilRegionFormatTest {
     @Test
     fun deterministicallyRoundTripsRandomRegionStructures() {
         val random = Random(0x4D434152)
-        val positions = (0 until REGION_CHUNK_COUNT)
+        val positions = (0 until MinecraftCoordinates.REGION_CHUNK_COUNT)
             .map(LocalChunkPosition::fromIndex)
 
         repeat(100) { sample ->
@@ -324,36 +324,37 @@ class AnvilRegionFormatTest {
 
     @Test
     fun rejectsInvalidLocationsOverlapsAndRecordLengths() {
-        val beforeHeader = ByteArray(REGION_HEADER_BYTES)
+        val beforeHeader = ByteArray(AnvilRegionFormat.HEADER_BYTES)
         writeInt(beforeHeader, 0, (1 shl 8) or 1)
         assertFailsWith<AnvilFormatException> {
             AnvilRegionFormat.decodeFromByteArray(beforeHeader)
         }
 
-        val zeroAllocation = ByteArray(3 * REGION_SECTOR_BYTES)
+        val zeroAllocation = ByteArray(3 * AnvilRegionFormat.SECTOR_BYTES)
         writeInt(zeroAllocation, 0, 2 shl 8)
         assertFailsWith<AnvilFormatException> {
             AnvilRegionFormat.decodeFromByteArray(zeroAllocation)
         }
 
-        val outsideFile = ByteArray(3 * REGION_SECTOR_BYTES)
+        val outsideFile = ByteArray(3 * AnvilRegionFormat.SECTOR_BYTES)
         writeInt(outsideFile, 0, (3 shl 8) or 1)
         assertFailsWith<AnvilFormatException> {
             AnvilRegionFormat.decodeFromByteArray(outsideFile)
         }
 
-        val overlap = ByteArray(3 * REGION_SECTOR_BYTES)
+        val overlap = ByteArray(3 * AnvilRegionFormat.SECTOR_BYTES)
         writeInt(overlap, 0, (2 shl 8) or 1)
         writeInt(overlap, 4, (2 shl 8) or 1)
-        writeInt(overlap, 2 * REGION_SECTOR_BYTES, 1)
-        overlap[2 * REGION_SECTOR_BYTES + 4] = RegionChunkRecordHeader.compressionId(Compression.NONE).toByte()
+        writeInt(overlap, 2 * AnvilRegionFormat.SECTOR_BYTES, 1)
+        overlap[2 * AnvilRegionFormat.SECTOR_BYTES + 4] =
+            RegionChunkRecordHeader.compressionId(Compression.NONE).toByte()
         assertFailsWith<AnvilFormatException> {
             AnvilRegionFormat.decodeFromByteArray(overlap)
         }
 
-        val excessiveLength = ByteArray(3 * REGION_SECTOR_BYTES)
+        val excessiveLength = ByteArray(3 * AnvilRegionFormat.SECTOR_BYTES)
         writeInt(excessiveLength, 0, (2 shl 8) or 1)
-        writeInt(excessiveLength, 2 * REGION_SECTOR_BYTES, REGION_SECTOR_BYTES)
+        writeInt(excessiveLength, 2 * AnvilRegionFormat.SECTOR_BYTES, AnvilRegionFormat.SECTOR_BYTES)
         assertFailsWith<AnvilFormatException> {
             AnvilRegionFormat.decodeFromByteArray(excessiveLength)
         }
@@ -369,9 +370,9 @@ class AnvilRegionFormatTest {
             }
         }
 
-        val truncatedRecord = ByteArray(REGION_HEADER_BYTES + Int.SIZE_BYTES)
+        val truncatedRecord = ByteArray(AnvilRegionFormat.HEADER_BYTES + Int.SIZE_BYTES)
         writeInt(truncatedRecord, 0, (2 shl 8) or 1)
-        writeInt(truncatedRecord, REGION_HEADER_BYTES, 1)
+        writeInt(truncatedRecord, AnvilRegionFormat.HEADER_BYTES, 1)
         assertFailsWith<AnvilFormatException> {
             AnvilRegionFormat.decodeFromByteArray(truncatedRecord)
         }
@@ -786,13 +787,13 @@ class AnvilRegionFormatTest {
             LocalChunkPosition(-1, 0)
         }
         assertFailsWith<IllegalArgumentException> {
-            LocalChunkPosition(0, REGION_SIDE)
+            LocalChunkPosition(0, MinecraftCoordinates.REGION_SIDE)
         }
         assertFailsWith<IllegalArgumentException> {
             LocalChunkPosition.fromIndex(-1)
         }
         assertFailsWith<IllegalArgumentException> {
-            LocalChunkPosition.fromIndex(REGION_CHUNK_COUNT)
+            LocalChunkPosition.fromIndex(MinecraftCoordinates.REGION_CHUNK_COUNT)
         }
 
         Compression.entries.forEach {
@@ -1216,10 +1217,10 @@ class AnvilRegionFormatTest {
     } ?: AnvilChunkRecord.unresolvedExternal(compression, timestampEpochSeconds)
 
     private fun singleRecord(length: Int, version: Int): ByteArray =
-        ByteArray(3 * REGION_SECTOR_BYTES).also {
+        ByteArray(3 * AnvilRegionFormat.SECTOR_BYTES).also {
             writeInt(it, 0, (2 shl 8) or 1)
-            writeInt(it, 2 * REGION_SECTOR_BYTES, length)
-            it[2 * REGION_SECTOR_BYTES + 4] = version.toByte()
+            writeInt(it, 2 * AnvilRegionFormat.SECTOR_BYTES, length)
+            it[2 * AnvilRegionFormat.SECTOR_BYTES + 4] = version.toByte()
         }
 
     private fun writeInt(bytes: ByteArray, offset: Int, value: Int) {

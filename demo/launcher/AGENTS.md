@@ -15,8 +15,9 @@ Java client.
   refresh per identity. A failed refresh remains visible as expired login state until an explicit sign-in succeeds.
 - `MetadataPlanner` consumes the modern models from `distribution-metadata`, preserves argument boundaries and rule
   order, and rejects unsafe installation paths and unknown launch rules. Use the module's `toDownload()` projections and
-  `minecraftAssetPath(hash)`; the planner supplies installation directory prefixes. Expand `defaultUserJvm` before the
-  version's `jvm` arguments; only user-supplied JVM options may replace `defaultUserJvm` if such an option is added.
+  `MinecraftAssetObject.path` property; the planner supplies installation directory prefixes. Expand `defaultUserJvm`
+  before the version's `jvm` arguments; only user-supplied JVM options may replace `defaultUserJvm` if such an option is
+  added.
 - `LauncherPlatform` detects the host OS version with system commands shared by JVM and Native. Preserve the Windows
   build number for version ranges; evaluate ranges only after the rule's OS and architecture match.
 - `InstallationService` reads metadata through the shared HTTP client's distribution API and writes the typed asset

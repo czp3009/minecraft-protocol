@@ -17,7 +17,7 @@ import kotlin.jvm.JvmName
 /** Formats and Region-storage policy shared by every dimension opened under one world lease. */
 data class MinecraftWorldAccessConfiguration(
     val chunkNbtFormat: CompressedNbtFormat = CompressedNbtFormat(),
-    val standaloneNbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+    val standaloneNbtFormat: NbtFormat = NbtFormat.forWorldFiles(),
     val standaloneJson: Json = Json,
     val dataPackFormat: DataPackFormat = DataPackFormat(),
     val regionStorageConfiguration: RegionStorageConfiguration = RegionStorageConfiguration(),

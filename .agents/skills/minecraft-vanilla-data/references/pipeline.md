@@ -46,7 +46,8 @@ required core at its official lowest-priority position, and return the complete 
 order, aggregate unavailable selected IDs, and avoid forcing unrelated built-in payloads to decode. Configuration
 projection is separately owned by protocol-configuration-vanilla; pass world feature flags into that step explicitly.
 
-`vanillaDataPackRegistryProjectors` is the release-matched default bridge from parsed vanilla registry JSON to network
+`VanillaConfigurationData.dataPackRegistryProjectors` is the release-matched default bridge from parsed vanilla registry
+JSON to network
 NBT. Derive its registry IDs from the complete generated Configuration snapshot, keep caller projectors as per-ID
 overrides or mod additions, and prove every bundled synchronized registry entry against the official client before
 claiming the zero-configuration path.

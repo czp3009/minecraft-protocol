@@ -26,7 +26,7 @@ class SurfaceProjectionPolicyTest {
             val surface = project(chunk, blockYRange = dimensionTypeLayout.logicalBlockYRange)
 
             assertEquals(column(OAK_LOG), surface[3, 4])
-            assertEquals(surface.palette.indexOf(surface[3, 4]), surface.cells[4 * CHUNK_SIDE + 3])
+            assertEquals(surface.palette.indexOf(surface[3, 4]), surface.cells[4 * MinecraftCoordinates.CHUNK_SIDE + 3])
         }
     }
 

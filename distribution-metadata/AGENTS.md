@@ -20,7 +20,7 @@ and Java runtime documents, plus streaming download requests by URL or asset has
 - Preserve server-produced values as wire data. Transport, response validation, plugin, serialization, and cancellation
   failures propagate without conversion into module-specific exceptions.
 - Preserve dynamic catalog platform/component names and runtime file discriminators. Keep asset URL construction based
-  on `minecraftAssetPath(hash)` so consumers can reuse the same relative path beneath their own storage roots. Path
+  on `MinecraftAssetObject.path(hash)`; the instance `path` property delegates to it for application storage roots. Path
   derivation only lowercases and formats the hash; it does not validate it or choose an installation directory.
 - Keep `toDownload()` projections together in `MinecraftDownload.kt`. Library and logging projections preserve `sha1`,
   `size`, and `url` exactly; asset objects derive the URL without inventing descriptor data. Keep HTTP download

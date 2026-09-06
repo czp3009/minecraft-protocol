@@ -1,9 +1,9 @@
 package com.hiczp.minecraft.protocol.server
 
 import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaConfigurationData
 import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaRegistryData
 import com.hiczp.minecraft.protocol.configuration.vanilla.toVanillaConfigurationData
-import com.hiczp.minecraft.protocol.configuration.vanilla.vanillaDataPackRegistryProjectors
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
@@ -60,7 +60,7 @@ internal object HeadlessClientEndToEndRunner {
             dataPackId = DataPackId("official-client-default-projectors"),
             dataPackMetadata = null,
             dataPackFileContentsByPath = buildMap {
-                vanillaDataPackRegistryProjectors.forEach { dataPackRegistryProjector ->
+                VanillaConfigurationData.dataPackRegistryProjectors.forEach { dataPackRegistryProjector ->
                     resolvedCoreDataPackStack.resources(dataPackRegistryProjector.dataPackResourceType)
                         .values.forEach { resolvedDataPackResource ->
                             put(

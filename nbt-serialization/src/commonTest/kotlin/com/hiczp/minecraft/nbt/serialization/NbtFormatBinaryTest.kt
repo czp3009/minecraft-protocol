@@ -117,7 +117,7 @@ class NbtFormatBinaryTest {
             )
         }
 
-        NbtFormat.encodeToSink(streamingProbeSerializer, streamingProbe, sink)
+        NbtFormat.encodeToSink(streamingProbe, sink, streamingProbeSerializer)
         val streamed = sink.readByteArray()
 
         assertContentEquals(

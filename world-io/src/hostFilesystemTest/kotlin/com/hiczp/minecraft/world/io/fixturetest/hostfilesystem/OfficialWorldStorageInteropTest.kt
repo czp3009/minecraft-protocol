@@ -1034,7 +1034,7 @@ class OfficialWorldStorageInteropTest {
     }
 
     private fun readRegionHeader(path: Path): RegionHeader =
-        RegionHeader.decode(readAtMost(path, 0L, REGION_HEADER_BYTES))
+        RegionHeader.decode(readAtMost(path, 0L, AnvilRegionFormat.HEADER_BYTES))
 
     private fun readAtMost(
         path: Path,

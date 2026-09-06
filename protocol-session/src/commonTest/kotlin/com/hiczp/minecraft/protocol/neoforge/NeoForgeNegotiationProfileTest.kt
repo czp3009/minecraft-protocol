@@ -2,13 +2,14 @@ package com.hiczp.minecraft.protocol.neoforge
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.serialization.*
+import com.hiczp.minecraft.protocol.serialization.KotlinxPacketBodyCodec
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
+import com.hiczp.minecraft.protocol.serialization.PacketCodecRegistration
+import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.session.RoutedCustomPayload
-import kotlin.test.*
-import kotlin.time.Duration
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.supervisorScope
@@ -16,13 +17,15 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
+import kotlin.test.*
+import kotlin.time.Duration
 
 class NeoForgeNegotiationProfileTest {
     @Test
     fun scriptedProfilesNegotiateTasksRegistriesAndDynamicPlayPackets() = runTest {
         val customCodecs = testPlayCodecs()
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             NeoForgeProtocol.packetCodecs + customCodecs,
         )
         val serverToClient = Channel<ClientboundPacket>(Channel.UNLIMITED)
@@ -204,7 +207,7 @@ class NeoForgeNegotiationProfileTest {
             ),
         )
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             NeoForgeProtocol.packetCodecs + requiredPacketCodecs,
         )
         val incoming = Channel<ServerboundPacket>(Channel.UNLIMITED)
@@ -250,7 +253,7 @@ class NeoForgeNegotiationProfileTest {
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)
         val outgoing = Channel<ServerboundPacket>(Channel.UNLIMITED)
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             NeoForgeProtocol.packetCodecs,
         )
         val neoForgeTestClientConnection = NeoForgeTestClientConnection(

@@ -44,7 +44,7 @@ class RegionStorageEdgeTest {
         assertNull(short.readCompressedChunk(chunkPosition))
         short.close()
         assertEquals(
-            REGION_SECTOR_BYTES.toLong(),
+            AnvilRegionFormat.SECTOR_BYTES.toLong(),
             fakeFileSystem.metadata(path).size,
         )
         assertContentEquals(byteArrayOf(1), fakeFileSystem.readFileBytes(path).copyOf(1))
@@ -102,7 +102,7 @@ class RegionStorageEdgeTest {
         regionStorage.close()
 
         val storedHeader = RegionHeader.decode(
-            fakeFileSystem.readFileBytes(path).copyOfRange(0, REGION_HEADER_BYTES),
+            fakeFileSystem.readFileBytes(path).copyOfRange(0, AnvilRegionFormat.HEADER_BYTES),
         )
         assertEquals(RegionLocation(1, 1), storedHeader.location(first))
         assertEquals(RegionLocation(3, 1), storedHeader.location(second))
@@ -128,7 +128,7 @@ class RegionStorageEdgeTest {
         assertTrue(
             existsForRecord(
                 record(
-                    length = REGION_SECTOR_BYTES - Int.SIZE_BYTES,
+                    length = AnvilRegionFormat.SECTOR_BYTES - Int.SIZE_BYTES,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE),
                 ),
             ),
@@ -136,7 +136,7 @@ class RegionStorageEdgeTest {
         assertTrue(
             existsForRecord(
                 record(
-                    length = REGION_SECTOR_BYTES - Int.SIZE_BYTES + 1,
+                    length = AnvilRegionFormat.SECTOR_BYTES - Int.SIZE_BYTES + 1,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE),
                 ),
             ),
@@ -151,7 +151,7 @@ class RegionStorageEdgeTest {
                 record(
                     length = 99,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
-                            REGION_EXTERNAL_STREAM_FLAG,
+                            AnvilRegionFormat.EXTERNAL_STREAM_FLAG,
                 ),
                 externalFileKind = ExternalFileKind.MISSING,
             ),
@@ -161,7 +161,7 @@ class RegionStorageEdgeTest {
                 record(
                     length = 99,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
-                            REGION_EXTERNAL_STREAM_FLAG,
+                            AnvilRegionFormat.EXTERNAL_STREAM_FLAG,
                 ),
                 externalFileKind = ExternalFileKind.DIRECTORY,
             ),
@@ -171,7 +171,7 @@ class RegionStorageEdgeTest {
                 record(
                     length = 99,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
-                            REGION_EXTERNAL_STREAM_FLAG,
+                            AnvilRegionFormat.EXTERNAL_STREAM_FLAG,
                 ),
                 externalFileKind = ExternalFileKind.REGULAR,
             ),
@@ -181,7 +181,7 @@ class RegionStorageEdgeTest {
                 record(
                     length = 1,
                     version = RegionChunkRecordHeader.compressionId(Compression.NONE) or
-                            REGION_EXTERNAL_STREAM_FLAG,
+                            AnvilRegionFormat.EXTERNAL_STREAM_FLAG,
                 ),
                 externalFileKind = ExternalFileKind.REGULAR,
             ),
@@ -193,7 +193,7 @@ class RegionStorageEdgeTest {
         assertReadFails(record(length = 0, version = RegionChunkRecordHeader.compressionId(Compression.NONE)))
         assertReadFails(
             record(
-                length = REGION_SECTOR_BYTES,
+                length = AnvilRegionFormat.SECTOR_BYTES,
                 version = RegionChunkRecordHeader.compressionId(Compression.NONE)
             )
         )
@@ -220,7 +220,7 @@ class RegionStorageEdgeTest {
                 bytes = record(
                     length = 0,
                     version = RegionChunkRecordHeader.compressionId(Compression.LZ4) or
-                            REGION_EXTERNAL_STREAM_FLAG,
+                            AnvilRegionFormat.EXTERNAL_STREAM_FLAG,
                 ),
                 externalPayload = externalPayload,
             )
@@ -230,7 +230,7 @@ class RegionStorageEdgeTest {
                 bytes = record(
                     length = Int.MIN_VALUE,
                     version = RegionChunkRecordHeader.compressionId(Compression.LZ4) or
-                            REGION_EXTERNAL_STREAM_FLAG,
+                            AnvilRegionFormat.EXTERNAL_STREAM_FLAG,
                     suffix = byteArrayOf(1, 2, 3),
                 ),
                 externalPayload = externalPayload,
@@ -238,7 +238,7 @@ class RegionStorageEdgeTest {
         }
         val validRecord = record(
             length = 1,
-            version = RegionChunkRecordHeader.compressionId(Compression.LZ4) or REGION_EXTERNAL_STREAM_FLAG,
+            version = RegionChunkRecordHeader.compressionId(Compression.LZ4) or AnvilRegionFormat.EXTERNAL_STREAM_FLAG,
         )
         val compressedChunk = readRecord(
             bytes = validRecord,
@@ -445,9 +445,9 @@ private fun singleAllocatedRecord(record: ByteArray): ByteArray {
     val regionHeader = RegionHeader().apply {
         set(localChunkPosition, RegionLocation(2, 1), timestamp = 37)
     }
-    val byteArray = ByteArray(REGION_HEADER_BYTES + record.size)
+    val byteArray = ByteArray(AnvilRegionFormat.HEADER_BYTES + record.size)
     regionHeader.encode().copyInto(byteArray)
-    record.copyInto(byteArray, destinationOffset = REGION_HEADER_BYTES)
+    record.copyInto(byteArray, destinationOffset = AnvilRegionFormat.HEADER_BYTES)
     return byteArray
 }
 
@@ -455,10 +455,10 @@ private fun record(
     length: Int,
     version: Int,
     suffix: ByteArray = ByteArray(0),
-): ByteArray = ByteArray(REGION_CHUNK_RECORD_HEADER_BYTES + suffix.size).also {
+): ByteArray = ByteArray(AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES + suffix.size).also {
     writeEdgeInt(it, 0, length)
     it[Int.SIZE_BYTES] = version.toByte()
-    suffix.copyInto(it, destinationOffset = REGION_CHUNK_RECORD_HEADER_BYTES)
+    suffix.copyInto(it, destinationOffset = AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES)
 }
 
 private fun writeEdgeInt(bytes: ByteArray, offset: Int, value: Int) {

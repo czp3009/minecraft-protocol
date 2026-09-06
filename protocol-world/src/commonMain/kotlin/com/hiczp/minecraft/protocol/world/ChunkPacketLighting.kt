@@ -4,7 +4,12 @@ import com.hiczp.minecraft.protocol.model.type.BitSet
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.ClientboundLightUpdatePacketData
 import com.hiczp.minecraft.protocol.model.type.LightDataLayer
-import com.hiczp.minecraft.world.format.*
+import com.hiczp.minecraft.world.format.Chunk
+import com.hiczp.minecraft.world.format.ChunkLayout
+import com.hiczp.minecraft.world.format.LightLayer
+import com.hiczp.minecraft.world.format.MinecraftCoordinates
+
+private const val LIGHT_LAYER_BYTE_COUNT: Int = MinecraftCoordinates.SECTION_BLOCK_COUNT / 2
 
 internal fun encodePacketLight(
     chunk: Chunk,
@@ -40,8 +45,8 @@ internal fun decodePacketLight(
         if (updateMask[index]) {
             val bytes = updates.getOrNull(updateIndex++)?.bytes?.toByteArray()
                 ?: error("Light mask has more updates than available payloads")
-            require(bytes.size == SECTION_LIGHT_BYTE_COUNT) { "A light update needs $SECTION_LIGHT_BYTE_COUNT bytes" }
-            put(sectionY, LightLayer(List(SECTION_BLOCK_COUNT) { entry ->
+            require(bytes.size == LIGHT_LAYER_BYTE_COUNT) { "A light update needs $LIGHT_LAYER_BYTE_COUNT bytes" }
+            put(sectionY, LightLayer(List(MinecraftCoordinates.SECTION_BLOCK_COUNT) { entry ->
                 bytes[entry / 2].toInt().ushr((entry % 2) * 4) and 15
             }))
         } else if (emptyMask[index]) {
@@ -61,7 +66,7 @@ private class LightAccumulator(bitCount: Int) {
             set(emptyWords, index)
         } else {
             set(updateWords, index)
-            val bytes = ByteArray(SECTION_LIGHT_BYTE_COUNT) { offset ->
+            val bytes = ByteArray(LIGHT_LAYER_BYTE_COUNT) { offset ->
                 (lightLayer[offset * 2] or (lightLayer[offset * 2 + 1] shl 4)).toByte()
             }
             updates.add(LightDataLayer(ByteString(bytes)))

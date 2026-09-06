@@ -242,12 +242,12 @@ class NbtFormatTreeTest {
     @Test
     fun `explicit serializers override specialized runtime array mappings`() {
         val value = byteArrayOf(0, 1, -1)
-        val nbtTag = NbtFormat.encodeToNbtTag(ByteArrayAsStringSerializer, value)
+        val nbtTag = NbtFormat.encodeToNbtTag(value, ByteArrayAsStringSerializer)
 
         assertEquals(NbtString("0001ff"), nbtTag)
         assertContentEquals(
             value,
-            NbtFormat.decodeFromNbtTag(ByteArrayAsStringSerializer, nbtTag),
+            NbtFormat.decodeFromNbtTag(nbtTag, ByteArrayAsStringSerializer),
         )
     }
 
@@ -292,6 +292,9 @@ class NbtFormatTreeTest {
             contextHolder,
             nbtFormat.decodeFromNbtTag<ContextHolder>(nbtTag),
         )
+        val nbtDocument = NbtDocument(assertIs<NbtCompound>(nbtTag))
+        assertEquals(contextHolder, nbtDocument.decodeNbt<ContextHolder>(nbtFormat))
+        assertEquals(contextHolder, nbtDocument.decodeNbt(nbtFormat, ContextHolder.serializer()))
     }
 }
 

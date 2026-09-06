@@ -32,7 +32,10 @@ class ChunkLayoutTest {
     @Test
     fun rejectsBoundsWhoseMaximumBlockCoordinateOverflows() {
         assertFailsWith<IllegalArgumentException> {
-            ChunkLayout.fromBlockBounds(minY = Int.MAX_VALUE - (SECTION_SIDE - 1), height = SECTION_SIDE * 2)
+            ChunkLayout.fromBlockBounds(
+                minY = Int.MAX_VALUE - (MinecraftCoordinates.SECTION_SIDE - 1),
+                height = MinecraftCoordinates.SECTION_SIDE * 2
+            )
         }
     }
 }

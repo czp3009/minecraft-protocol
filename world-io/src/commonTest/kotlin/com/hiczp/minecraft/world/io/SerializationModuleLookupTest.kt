@@ -20,7 +20,8 @@ class SerializationModuleLookupTest {
     @Test
     fun reifiedWorldApisResolveContextualSerializersFromTheExecutingFormat() = runTest {
         val serializersModule = contextualIoValueSerializersModule()
-        val standaloneNbtFormat = minecraftWorldNbtFormat(serializersModule)
+        val standaloneNbtFormat =
+            NbtFormat(NbtFormatConfiguration(serializersModule = serializersModule)).forWorldFiles()
         val chunkNbtFormat = CompressedNbtFormat(
             NbtFormat(
                 NbtFormatConfiguration(

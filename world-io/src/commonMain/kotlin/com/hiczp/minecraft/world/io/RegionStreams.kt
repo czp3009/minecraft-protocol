@@ -80,7 +80,7 @@ internal class RegionReadScopeCore private constructor(
         get() {
             checkValid()
             return sequence {
-                for (index in 0 until REGION_CHUNK_COUNT) {
+                for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
                     checkValid()
                     val localChunkPosition = LocalChunkPosition.fromIndex(index)
                     regionReadAccess?.readChunkInfo(localChunkPosition, regionHeader)?.let { yield(it) }

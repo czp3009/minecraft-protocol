@@ -32,16 +32,16 @@ sealed class NbtFormat(
     final override fun <T> encodeToByteArray(
         serializer: SerializationStrategy<T>,
         value: T,
-    ): ByteArray = encodeBytes { encodeToSink(serializer, value, it) }
+    ): ByteArray = encodeBytes { encodeToSink(value, it, serializer) }
 
     final override fun <T> decodeFromByteArray(
         deserializer: DeserializationStrategy<T>,
         bytes: ByteArray,
-    ): T = decodeFully(bytes) { decodeFromSource(deserializer, it) }
+    ): T = decodeFully(bytes) { decodeFromSource(it, deserializer) }
 
     fun <T> encodeToNbtTag(
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
+        serializationStrategy: SerializationStrategy<T>,
     ): NbtTag = encodeOperation("${serializationStrategy.descriptor.serialName} tree") {
         var result: NbtTag? = null
         val nbtTreeEncoder = NbtTreeEncoder(nbtFormatConfiguration, "$") { nbtTag ->
@@ -60,17 +60,17 @@ sealed class NbtFormat(
     }
 
     fun <T> decodeFromNbtTag(
-        deserializationStrategy: DeserializationStrategy<T>,
         nbtTag: NbtTag,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T = decodeOperation("${deserializationStrategy.descriptor.serialName} tree") {
         NbtTreeDecoder(nbtTag, nbtFormatConfiguration, "$")
             .decodeSerializableValue(deserializationStrategy)
     }
 
     fun <T> encodeToSink(
-        serializationStrategy: SerializationStrategy<T>,
         value: T,
         sink: Sink,
+        serializationStrategy: SerializationStrategy<T>,
     ) = encodeOperation("${serializationStrategy.descriptor.serialName} binary value") {
         val nbtBinaryWriter = NbtBinaryWriter(sink)
         val nbtBinaryEncoder = NbtBinaryEncoder(
@@ -101,8 +101,8 @@ sealed class NbtFormat(
     }
 
     fun <T> decodeFromSource(
-        deserializationStrategy: DeserializationStrategy<T>,
         source: Source,
+        deserializationStrategy: DeserializationStrategy<T>,
     ): T = decodeOperation(
         "${deserializationStrategy.descriptor.serialName} binary value",
         binaryInput = true,
@@ -236,16 +236,16 @@ sealed class NbtFormat(
 }
 
 inline fun <reified T> NbtFormat.encodeToNbtTag(value: T): NbtTag =
-    encodeToNbtTag(serializersModule.serializer(), value)
+    encodeToNbtTag(value, serializersModule.serializer())
 
 inline fun <reified T> NbtFormat.decodeFromNbtTag(nbtTag: NbtTag): T =
-    decodeFromNbtTag(serializersModule.serializer(), nbtTag)
+    decodeFromNbtTag(nbtTag, serializersModule.serializer())
 
 inline fun <reified T> NbtFormat.encodeToSink(value: T, sink: Sink) =
-    encodeToSink(serializersModule.serializer(), value, sink)
+    encodeToSink(value, sink, serializersModule.serializer())
 
 inline fun <reified T> NbtFormat.decodeFromSource(source: Source): T =
-    decodeFromSource(serializersModule.serializer(), source)
+    decodeFromSource(source, serializersModule.serializer())
 
 private class ConfiguredNbtFormat(
     nbtFormatConfiguration: NbtFormatConfiguration,

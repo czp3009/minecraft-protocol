@@ -90,6 +90,15 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
   retain. Do not require a live connection, world owner, or duplicate configuration merely to retrieve data already in
   a result or snapshot. Keep independent facts distinct; a dimension ID does not identify its dimension type. Required
   I/O owners, policy callbacks and explicit codec contexts remain inputs when they supply an actual operation need.
+- Prefer public conveniences as extensions on a semantically relevant input or operation owner. Return the natural
+  result so callers can chain adjacent steps or retain intermediate values for reuse. Factories without an existing
+  instance belong on the constructed type's constructor or companion, or on an existing provider whose data they use.
+  Avoid unqualified top-level convenience functions unless a concrete semantic or Kotlin constraint justifies one;
+  document that exception at the declaration. Do not invent receivers, wrapper types, per-field setters or duplicate
+  entry points solely for fluent syntax. When no coherent shortcut improves the caller's code, keep the plain API.
+- Keep public default values and constants on their natural type, companion or existing provider as well. Immutability
+  alone does not justify a receiver-less public property. Keep implementation-only values private or internal; apply
+  the same ownership rules to generated declarations and every `expect`/`actual` source set.
 - Name representation-boundary directions relative to the in-memory domain value: decoding converts a persisted or
   network representation into that value, and encoding converts the value into the representation. This rule does not
   split a bidirectional physical `Format` that operates wholly inside one representation layer.
@@ -180,7 +189,8 @@ Keep physical byte encoding out of models, socket and framing behavior out of se
 - Use maintained format-aware libraries for JSON, XML, form data, and other structured formats. Never assemble or escape
   structured data with string concatenation or templates. JSON uses `kotlinx.serialization.json`.
 - When a reified serialization overload mirrors an explicit strategy overload, preserve the shared parameter order and
-  append the `SerializationStrategy` or `DeserializationStrategy`. Resolve the reified serializer from the executing
+  append the `SerializationStrategy` or `DeserializationStrategy`. Overrides of upstream interfaces such as
+  `BinaryFormat` and `StringFormat` retain their required signatures. Resolve the reified serializer from the executing
   format's `serializersModule`; use top-level `serializer<T>()` only when no format/module context exists.
 - Give built-in typed conveniences, explicit-strategy overloads, and reified serialization overloads the same Kotlin
   operation name. Use `@JvmName` to resolve an erased JVM signature clash instead of adding an `As` suffix or a dummy
@@ -321,7 +331,9 @@ Fixture preparation and lifecycle details belong in the nearest guides under `bu
   execution order; a reference to setup introduced later does not establish an input's origin. Consume or return
   intermediate results, and identify application callbacks and the values they receive.
 - Prefer short examples that demonstrate stable entry points. Link to the owning module instead of copying another
-  module's full workflow.
+  module's full workflow. Show constructors, members and extensions directly instead of introducing free-standing
+  factories that merely wrap them. Application scenario functions may clarify lifetime or policy, but identify them
+  as application code so readers do not mistake them for additional library APIs.
 - For a capability with both plain and convenience APIs, the owning subproject README demonstrates both using the same
   inputs and explains what the convenience derives. Show codec construction and parameter origins on the plain path;
   the root README uses the convenience path. Do not invent a second API solely to give every module two examples.

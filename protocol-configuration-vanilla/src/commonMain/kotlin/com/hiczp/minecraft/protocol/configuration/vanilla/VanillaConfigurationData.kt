@@ -19,6 +19,16 @@ object VanillaConfigurationData : ConfigurationData {
         VanillaConfigurationPacketPayloads.dataPackFormatMinor,
     )
 
+    /** Release-matched JSON-to-NBT projectors for every vanilla registry synchronized during Configuration. */
+    val dataPackRegistryProjectors: List<DataPackRegistryProjector> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        synchronizedRegistryPackets(emptyList()).map { clientboundRegistryDataPacket ->
+            DataPackRegistryProjector(
+                registryId = clientboundRegistryDataPacket.registry,
+                dataPackRegistryEntryProjector = vanillaDataPackRegistryEntryProjector,
+            )
+        }
+    }
+
     private val vanillaConfigurationSnapshot: VanillaConfigurationSnapshot by lazy(
         LazyThreadSafetyMode.PUBLICATION,
     ) {

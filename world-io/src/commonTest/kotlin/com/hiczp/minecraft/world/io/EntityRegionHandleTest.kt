@@ -3,12 +3,12 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtByteArray
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.world.format.*
-import kotlin.test.*
-import kotlin.uuid.Uuid
 import kotlinx.coroutines.test.runTest
 import okio.Buffer
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
+import kotlin.test.*
+import kotlin.uuid.Uuid
 
 class EntityRegionHandleTest {
     @Test
@@ -44,7 +44,7 @@ class EntityRegionHandleTest {
         )
         val entityChunk = EntityChunk(chunkPosition, ENTITY_CONTEXT, mutableListOf(entity), DataProperties())
         val externalBytes = ByteArray(
-            REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES - REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES - AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         ) { index -> (index * 31).toByte() }
         val externalEntity = Entity(
             entityTypeId = EntityTypeId("minecraft:pig"),

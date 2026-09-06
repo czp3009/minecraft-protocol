@@ -271,7 +271,7 @@ internal class CountingMutableRegionFileSystem(
             arrayOffset: Int,
             byteCount: Int,
         ) {
-            if (fileOffset == 0L && byteCount == REGION_HEADER_BYTES) headerWrites++
+            if (fileOffset == 0L && byteCount == AnvilRegionFormat.HEADER_BYTES) headerWrites++
             delegate.write(fileOffset, array, arrayOffset, byteCount)
         }
 
@@ -289,8 +289,8 @@ internal class CountingMutableRegionFileSystem(
 }
 
 private fun firstExternalChunkLength(): Long =
-    (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES -
-            REGION_CHUNK_RECORD_HEADER_BYTES + 1L
+    (AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * AnvilRegionFormat.SECTOR_BYTES -
+            AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES + 1L
 
 private fun inlineChunk(value: Int): CompressedChunk = CompressedChunk(
     compression = Compression.NONE,

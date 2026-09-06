@@ -389,14 +389,14 @@ class MinecraftServerNegotiationTest {
             val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
             val dispatcher = StandardTestDispatcher(testScheduler)
             val server = MinecraftServerConnection(
-                createMinecraftServerPacketConnection(
+                MinecraftServerPacketConnection.create(
                     serverFrames, { serverFrames.cancel() }, MinecraftConnectionDefinition(), dispatcher,
                 ),
                 MinecraftServerAuthentication.Offline,
                 "127.0.0.1",
             )
             val client = MinecraftClientConnection(
-                createMinecraftClientPacketConnection(
+                MinecraftClientPacketConnection.create(
                     clientFrames, { clientFrames.cancel() }, MinecraftConnectionDefinition(), dispatcher,
                 ),
                 "localhost",
@@ -798,7 +798,7 @@ class MinecraftServerNegotiationTest {
         val serverFrames = MinecraftFrameStream(clientToServer, serverToClient)
         val clientFrames = MinecraftFrameStream(serverToClient, clientToServer)
         val minecraftServerConnection = MinecraftServerConnection(
-            minecraftServerPacketConnection = createMinecraftServerPacketConnection(
+            minecraftServerPacketConnection = MinecraftServerPacketConnection.create(
                 minecraftFrameStream = serverFrames,
                 closeTransport = { serverFrames.cancel() },
                 minecraftConnectionDefinition = MinecraftConnectionDefinition(),

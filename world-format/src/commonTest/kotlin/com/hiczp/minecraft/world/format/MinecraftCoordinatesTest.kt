@@ -111,7 +111,7 @@ class MinecraftCoordinatesTest {
         val chunkPositions = regionPosition.chunkPositions()
         val chunkPositionList = chunkPositions.toList()
 
-        assertEquals(REGION_CHUNK_COUNT, chunkPositionList.size)
+        assertEquals(MinecraftCoordinates.REGION_CHUNK_COUNT, chunkPositionList.size)
         assertEquals(ChunkPosition(-64, 32), chunkPositionList.first())
         assertEquals(ChunkPosition(-33, 63), chunkPositionList.last())
         assertEquals(
@@ -124,7 +124,7 @@ class MinecraftCoordinatesTest {
 
         val sectionPosition = SectionPosition(-1, 2, 3)
         val blockPositions = sectionPosition.blockPositions().toList()
-        assertEquals(SECTION_BLOCK_COUNT, blockPositions.size)
+        assertEquals(MinecraftCoordinates.SECTION_BLOCK_COUNT, blockPositions.size)
         assertEquals(BlockPosition(-16, 32, 48), blockPositions.first())
         assertEquals(BlockPosition(-1, 47, 63), blockPositions.last())
         blockPositions.forEachIndexed { index, blockPosition ->

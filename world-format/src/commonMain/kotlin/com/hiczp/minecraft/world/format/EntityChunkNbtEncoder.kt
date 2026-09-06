@@ -18,12 +18,12 @@ class EntityChunkNbtEncoder(val entityChunkNbtEncoderContext: EntityChunkNbtEnco
 
     /** Writes decompressed NBT without mutating the graph, flushing the sink or closing it. */
     fun encode(entityChunk: EntityChunk, sink: Sink) = entityChunkNbtOperation {
-        nbtFormat.encodeToSink(writer, entityChunk, sink)
+        nbtFormat.encodeToSink(entityChunk, sink, writer)
     }
 
     /** Materializes the same persisted representation as [encode] in a document. */
     fun encodeDocument(entityChunk: EntityChunk): NbtDocument = entityChunkNbtOperation {
-        NbtDocument(entityChunkNbtEncoderContext.nbtFormat.encodeToNbtTag(writer, entityChunk).compound())
+        NbtDocument(entityChunkNbtEncoderContext.nbtFormat.encodeToNbtTag(entityChunk, writer).compound())
     }
 }
 

@@ -129,8 +129,8 @@ class MutableRegionFileTest {
         val externalPosition = LocalChunkPosition(1, 0)
         val inline = ByteArray(32 * 1_024) { it.toByte() }
         val external = ByteArray(
-            (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1) * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES + 1,
+            (AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1) * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES + 1,
         ) { (it * 3).toByte() }
 
         try {
@@ -199,8 +199,8 @@ class MutableRegionFileTest {
             )
 
             val firstExternalLength =
-                (REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * REGION_SECTOR_BYTES -
-                        REGION_CHUNK_RECORD_HEADER_BYTES + 1L
+                (AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD - 1L) * AnvilRegionFormat.SECTOR_BYTES -
+                        AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES + 1L
             assertFailsWith<WorldIOException> {
                 mutableRegionFile.writeCompressedChunk(localChunkPosition, Compression.NONE, firstExternalLength) { }
             }

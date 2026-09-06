@@ -9,7 +9,7 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormatConfiguration
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
+import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.world.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.DataComponentPatch
@@ -284,10 +284,10 @@ class UserWorldSimulationTest {
     )
 
     private fun transmit(packet: ClientboundPacket): Packet {
-        val encoded = MinecraftPacketRegistry.encodePayload(
+        val encoded = PacketRegistry.vanilla.encodePayload(
             packet, ConnectionState.PLAY, PacketDirection.CLIENTBOUND, minecraftPacketPayloadFormat,
         )
-        return MinecraftPacketRegistry.decodePayload(
+        return PacketRegistry.vanilla.decodePayload(
             ConnectionState.PLAY, PacketDirection.CLIENTBOUND, encoded.packetKey.id, encoded.payload,
             minecraftPacketPayloadFormat,
         )

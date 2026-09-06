@@ -105,17 +105,14 @@ The default client declines resource packs. To handle them, provide `onResourceP
 states through its second argument, and returns one terminal `ServerboundResourcePackPacket.Action`.
 The library supplies no HTTP client, downloader, archive cache, consent UI or resource loader.
 
-In this application helper, `downloadResourcePack` checks the request and downloads/verifies the archive using your
-own HTTP client, returning bytes or `null` on download failure. `applyResourcePack` installs those bytes under the pack
-ID and returns whether loading succeeded. `removeResourcePack` removes one applied pack, or all server packs for a null
-ID. These are application functions, not library APIs:
+Supply three application functions: `downloadResourcePack(request: ClientboundResourcePackPushPacket): ByteArray?`
+checks the request and downloads/verifies the archive using your HTTP client, returning null on download failure.
+`applyResourcePack(id: Uuid, bytes: ByteArray): Boolean` installs the bytes under that ID and reports loading success;
+`removeResourcePack(id: Uuid?)` removes one applied pack, or all server packs for null. All three functions suspend and
+are implemented by your application. Configure negotiation directly:
 
 ```kotlin
-fun resourcePackOptions(
-   downloadResourcePack: suspend (ClientboundResourcePackPushPacket) -> ByteArray?,
-   applyResourcePack: suspend (Uuid, ByteArray) -> Boolean,
-   removeResourcePack: suspend (Uuid?) -> Unit,
-): MinecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
+val minecraftClientNegotiationOptions = MinecraftClientNegotiationOptions(
    onResourcePack = { request, reportProgress ->
       reportProgress(ServerboundResourcePackPacket.Action.ACCEPTED)
       val bytes = downloadResourcePack(request)
@@ -140,11 +137,9 @@ reporting `ACCEPTED`; invalid URLs can return `INVALID_URL`. Never report succes
 
 ### Convenience API: handle packs during negotiation
 
-With a fresh connection from `MinecraftClientConnection.connect(...)` and the three application functions described
-above, replace the earlier default negotiation call with:
+With a fresh connection from `MinecraftClientConnection.connect(...)`, pass the options constructed above:
 
 ```kotlin
-val minecraftClientNegotiationOptions = resourcePackOptions(downloadResourcePack, applyResourcePack, removeResourcePack)
 val minecraftClientNegotiationResult = minecraftClientConnection.negotiate(
     minecraftIdentity = MinecraftOfflineIdentity("Player"),
     minecraftClientNegotiationOptions = minecraftClientNegotiationOptions,
@@ -165,30 +160,21 @@ examples below, and initial-world packets remain on `incoming`.
 
 ### Plain API: handle resource-pack packets yourself
 
-For a manual Configuration or Play packet loop, pass `minecraftClientNegotiationOptions.onResourcePack` from the
-options built above as the handler. The `request` parameter below is a `ClientboundResourcePackPushPacket` received
-from that connection's `incoming` channel:
+Within your manual Configuration or Play packet loop, reuse the options constructed above. Here `request` is a
+`ClientboundResourcePackPushPacket` received from `minecraftClientConnection.incoming`. Execute this body in a child
+coroutine of your packet-loop scope so receiving can continue during downloading:
 
 ```kotlin
-suspend fun answerResourcePack(
-   minecraftClientConnection: MinecraftClientConnection,
-   request: ClientboundResourcePackPushPacket,
-   onResourcePack: suspend (
-      ClientboundResourcePackPushPacket,
-      suspend (ServerboundResourcePackPacket.Action) -> Unit,
-   ) -> ServerboundResourcePackPacket.Action,
-) {
-   val action = onResourcePack(request) { progress ->
-      minecraftClientConnection.outgoing.send(ServerboundResourcePackPacket(request.id, progress))
-      minecraftClientConnection.requestFlush()
-   }
-   minecraftClientConnection.outgoing.send(ServerboundResourcePackPacket(request.id, action))
-   minecraftClientConnection.requestFlush()
+val action = minecraftClientNegotiationOptions.onResourcePack(request) { progress ->
+    minecraftClientConnection.outgoing.send(ServerboundResourcePackPacket(request.id, progress))
+    minecraftClientConnection.requestFlush()
 }
+minecraftClientConnection.outgoing.send(ServerboundResourcePackPacket(request.id, action))
+minecraftClientConnection.requestFlush()
 ```
 
-Launch this helper in a child of your packet-loop scope so receiving can continue while it downloads. Your manual
-loop owns per-ID jobs, replacement/Pop cancellation, invoking `onResourcePackPop`, and the Configuration transition.
+Your manual loop owns per-ID jobs, replacement/Pop cancellation, invoking `onResourcePackPop`, and the Configuration
+transition.
 Do not run that loop concurrently with
 `negotiate()`. [The server guide](../protocol-server/README.md#offer-a-resource-pack)
 shows the matching configuration and required-pack policy.
@@ -398,7 +384,9 @@ The incoming channel combines delimiter-framed messages into `ClientboundBundleP
 `EntityPacketDecoder` to `toEntities`. Construct it with `EntityPacketDecoder(EntityPacketDecoderContext(...))`,
 supplying the negotiated packet registry context, application mappings and missing-data provider
 described in [protocol-world](../protocol-world/README.md#entities-and-items).
-`registerEntity` stores the decoded Entity under its connection-local Int ID; `pendingPacket` receives unresolved tails:
+`registerEntity` stores the decoded Entity under its connection-local Int ID; `pendingPacket` receives unresolved tails.
+The same `toEntities(...)` extension accepts an `Iterable<ClientboundPacket>` when the application already has an
+ordered packet collection. This application function demonstrates the bundle path:
 
 ```kotlin
 fun applyPairing(

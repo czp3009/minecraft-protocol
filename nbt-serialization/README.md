@@ -24,6 +24,12 @@ val decodedMyValue = unnamedNbtFormat.decodeFromSource<MyValue>(binaryBuffer)
 check(decodedMyValue == myValue)
 ```
 
+The reified tree and stream extensions use the executing format's serializer module. Explicit-strategy overloads keep
+the same arguments and append the strategy, for example
+`unnamedNbtFormat.encodeToSink(myValue, binaryBuffer, MyValue.serializer())` or
+`unnamedNbtFormat.decodeFromSource(binaryBuffer, MyValue.serializer())`. The inherited `BinaryFormat` byte-array and
+`StringFormat` string methods keep kotlinx.serialization's strategy-first signatures.
+
 For real streams, the caller opens, flushes and closes its endpoints. The format consumes or writes one value. Explicit
 tag and document operations use the same streaming boundary:
 
@@ -45,6 +51,7 @@ complete byte value is required:
 
 ```kotlin
 check(nbtDocument.decodeNbt<MyValue>() == myValue)
+check(nbtDocument.decodeNbt(unnamedNbtFormat, MyValue.serializer()) == myValue)
 nbtDocument.writeTo(worldBuffer)
 val worldNbtBytes = NbtFormat.encodeDocumentToByteArray(nbtDocument)
 check(NbtFormat.decodeDocumentFromByteArray(worldNbtBytes) == nbtDocument)

@@ -3,7 +3,6 @@ package com.hiczp.minecraft.world.io
 import com.hiczp.minecraft.nbt.NbtDocument
 import com.hiczp.minecraft.nbt.serialization.NbtBinaryFormatException
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
-import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
 import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import com.hiczp.minecraft.world.format.Compression
 import com.hiczp.minecraft.world.format.CompressionRegistry
@@ -14,8 +13,6 @@ import kotlinx.io.okio.asOkioSink
 import kotlinx.io.okio.asOkioSource
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationStrategy
-import kotlinx.serialization.modules.EmptySerializersModule
-import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.serializer
 import okio.*
 
@@ -28,7 +25,7 @@ import okio.*
  */
 class NbtFileStore internal constructor(
     val rawFileStore: RawFileStore,
-    val nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+    val nbtFormat: NbtFormat = NbtFormat.forWorldFiles(),
     val compressionCodecs: CompressionRegistry = CompressionRegistry,
 ) {
     init {
@@ -37,13 +34,13 @@ class NbtFileStore internal constructor(
 
     constructor(
         fileSystem: FileSystem = systemFileSystem,
-        nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+        nbtFormat: NbtFormat = NbtFormat.forWorldFiles(),
         compressionCodecs: CompressionRegistry = CompressionRegistry,
     ) : this(RawFileStore(fileSystem), nbtFormat, compressionCodecs)
 
     internal constructor(
         worldFileAccess: WorldFileAccess,
-        nbtFormat: NbtFormat = minecraftWorldNbtFormat(),
+        nbtFormat: NbtFormat = NbtFormat.forWorldFiles(),
         compressionCodecs: CompressionRegistry = CompressionRegistry,
     ) : this(RawFileStore(worldFileAccess), nbtFormat, compressionCodecs)
 
@@ -216,12 +213,7 @@ internal fun NbtFormat.requireStandaloneWorldRoot() {
     }
 }
 
-/** Creates an NBT format with the unnamed-root framing used by standalone world files. */
-fun minecraftWorldNbtFormat(
-    serializersModule: SerializersModule = EmptySerializersModule(),
-): NbtFormat = NbtFormat(
-    NbtFormatConfiguration(
-        serializersModule = serializersModule,
-        nbtRootEncoding = NbtRootEncoding.UNNAMED,
-    ),
+/** Copies this format's serializer and mapping settings with the unnamed-root framing used by standalone world files. */
+fun NbtFormat.forWorldFiles(): NbtFormat = NbtFormat(
+    nbtFormatConfiguration.copy(nbtRootEncoding = NbtRootEncoding.UNNAMED),
 )

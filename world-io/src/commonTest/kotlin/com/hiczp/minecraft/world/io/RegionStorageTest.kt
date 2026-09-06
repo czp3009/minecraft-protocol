@@ -24,7 +24,10 @@ class RegionStorageTest {
 
         regionStorage.writeCompressedChunk(chunkPosition, chunk(byteArrayOf(2)))
         assertEquals(RegionLocation(3, 1), header(recordingFileSystem, path).location(chunkPosition.localChunkPosition))
-        assertEquals(1, recordingFileSystem.read(path) { readByteArray() }[2 * REGION_SECTOR_BYTES + 5].toInt())
+        assertEquals(
+            1,
+            recordingFileSystem.read(path) { readByteArray() }[2 * AnvilRegionFormat.SECTOR_BYTES + 5].toInt()
+        )
 
         regionStorage.writeCompressedChunk(chunkPosition, chunk(byteArrayOf(3)))
         assertEquals(RegionLocation(2, 1), header(recordingFileSystem, path).location(chunkPosition.localChunkPosition))
@@ -33,7 +36,7 @@ class RegionStorageTest {
 
         regionStorage.close()
         assertEquals(0L, recordingFileSystem.openPathsCount())
-        assertEquals(0L, recordingFileSystem.metadata(path).size!! % REGION_SECTOR_BYTES)
+        assertEquals(0L, recordingFileSystem.metadata(path).size!! % AnvilRegionFormat.SECTOR_BYTES)
     }
 
     @Test
@@ -43,8 +46,8 @@ class RegionStorageTest {
         val chunkPosition = ChunkPosition(-1, -1)
         val regionStorage = store(fakeFileSystem, directory)
         val externalBytes = ByteArray(
-            REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         ) { (it * 13).toByte() }
 
         regionStorage.writeCompressedChunk(chunkPosition, chunk(externalBytes))
@@ -87,11 +90,12 @@ class RegionStorageTest {
                 3,
             )
         }
-        val byteArray = ByteArray(3 * REGION_SECTOR_BYTES)
+        val byteArray = ByteArray(3 * AnvilRegionFormat.SECTOR_BYTES)
         regionHeader.encode().copyInto(byteArray)
-        writeInt(byteArray, 2 * REGION_SECTOR_BYTES, 2)
-        byteArray[2 * REGION_SECTOR_BYTES + 4] = RegionChunkRecordHeader.compressionId(Compression.NONE).toByte()
-        byteArray[2 * REGION_SECTOR_BYTES + 5] = 42
+        writeInt(byteArray, 2 * AnvilRegionFormat.SECTOR_BYTES, 2)
+        byteArray[2 * AnvilRegionFormat.SECTOR_BYTES + 4] =
+            RegionChunkRecordHeader.compressionId(Compression.NONE).toByte()
+        byteArray[2 * AnvilRegionFormat.SECTOR_BYTES + 5] = 42
         path.parent?.let(fakeFileSystem::createDirectories)
         fakeFileSystem.write(path) { write(byteArray) }
 
@@ -500,7 +504,7 @@ class RegionStorageTest {
 
         assertTrue(
             handleRecordingFileSystem.reads.any {
-                it.offset == 0L && it.byteCount == REGION_HEADER_BYTES
+                it.offset == 0L && it.byteCount == AnvilRegionFormat.HEADER_BYTES
             },
         )
         assertFalse(
@@ -509,11 +513,11 @@ class RegionStorageTest {
             },
         )
         assertTrue(
-            handleRecordingFileSystem.writes.any { it.offset >= REGION_HEADER_BYTES },
+            handleRecordingFileSystem.writes.any { it.offset >= AnvilRegionFormat.HEADER_BYTES },
         )
         assertTrue(
             handleRecordingFileSystem.writes.any {
-                it.offset == 0L && it.byteCount == REGION_HEADER_BYTES
+                it.offset == 0L && it.byteCount == AnvilRegionFormat.HEADER_BYTES
             },
         )
         assertFalse(
@@ -732,7 +736,7 @@ private class RecordFailingFileSystem(
         super.openReadWrite(file, mustCreate, mustExist),
         file,
     ) { fileHandle, fileOffset, array, arrayOffset, byteCount ->
-        if (fileOffset >= REGION_HEADER_BYTES && failRecord) {
+        if (fileOffset >= AnvilRegionFormat.HEADER_BYTES && failRecord) {
             failRecord = false
             fileHandle.write(fileOffset, array, arrayOffset, 1)
             throw IOException("synthetic record failure")
@@ -903,7 +907,7 @@ private fun interceptRegionHandle(
 
 private fun header(fileSystem: FileSystem, path: Path): RegionHeader =
     RegionHeader.decode(
-        fileSystem.read(path) { readByteArray() }.copyOfRange(0, REGION_HEADER_BYTES),
+        fileSystem.read(path) { readByteArray() }.copyOfRange(0, AnvilRegionFormat.HEADER_BYTES),
     )
 
 private fun writeInt(bytes: ByteArray, offset: Int, value: Int) {
@@ -914,6 +918,6 @@ private fun writeInt(bytes: ByteArray, offset: Int, value: Int) {
 }
 
 private fun externalPayload(seed: Int): ByteArray = ByteArray(
-    REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-            REGION_CHUNK_RECORD_HEADER_BYTES,
+    AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+            AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
 ) { index -> (index * 13 + seed).toByte() }

@@ -2,14 +2,13 @@ package com.hiczp.minecraft.protocol.session
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.transport.MinecraftFrameStream
 
 /** Sequential client endpoint: receives clientbound packets and sends serverbound packets. */
 class MinecraftClientPacketSession(
     minecraftFrameStream: MinecraftFrameStream,
-    packetRegistry: PacketRegistry = MinecraftPacketRegistry,
+    packetRegistry: PacketRegistry = PacketRegistry.vanilla,
     minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
 ) : MinecraftPacketSession<ClientboundPacket, ServerboundPacket>(
     minecraftFrameStream = minecraftFrameStream,

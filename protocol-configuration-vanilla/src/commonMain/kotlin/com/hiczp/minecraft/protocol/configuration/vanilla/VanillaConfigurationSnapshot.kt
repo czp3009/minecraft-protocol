@@ -4,7 +4,7 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.KnownPack
 import com.hiczp.minecraft.protocol.model.type.RegistryTags
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
+import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import kotlin.io.encoding.Base64
 
 internal data class VanillaConfigurationSnapshot(
@@ -49,7 +49,7 @@ internal fun decodeVanillaConfigurationSnapshot(): VanillaConfigurationSnapshot 
 private fun decodeConfigurationPacket(
     packetId: Int,
     packetPayloadChunks: List<String>,
-): Packet = MinecraftPacketRegistry.decodePayload(
+): Packet = PacketRegistry.vanilla.decodePayload(
     connectionState = ConnectionState.CONFIGURATION,
     packetDirection = PacketDirection.CLIENTBOUND,
     id = packetId,

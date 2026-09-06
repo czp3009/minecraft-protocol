@@ -71,7 +71,7 @@ class MinecraftEntityPairingTest {
         assertSame(entities[1], results[0].entity)
         assertEquals(2, results[1].entity.properties.require(EntityProperties.SharedFlags).toInt())
         assertTrue(bundle.isEntityPairingBundle)
-        assertFailsWith<IllegalArgumentException> { decodeEntityPairings(listOf(link), decoder) }
+        assertFailsWith<IllegalArgumentException> { listOf(link).toEntities(decoder) }
         assertFailsWith<IllegalStateException> { decoder.decode(listOf(first, second)) }
     }
 

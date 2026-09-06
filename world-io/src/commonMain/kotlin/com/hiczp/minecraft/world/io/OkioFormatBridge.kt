@@ -30,7 +30,7 @@ internal fun <T> NbtFormat.decodeFromOkio(
     source: BufferedSource,
     deserializationStrategy: DeserializationStrategy<T>,
 ): T = decodeFromOkio(source) { kotlinxSource ->
-    decodeFromSource(deserializationStrategy, kotlinxSource)
+    decodeFromSource(kotlinxSource, deserializationStrategy)
 }
 
 internal inline fun <reified T> NbtFormat.decodeFromOkio(source: BufferedSource): T =
@@ -51,7 +51,7 @@ internal fun <T> NbtFormat.encodeToOkio(
 ) {
     val kotlinxSink = sink.asKotlinxIoRawSink().buffered()
     withOkioIoFailures {
-        encodeToSink(serializationStrategy, value, kotlinxSink)
+        encodeToSink(value, kotlinxSink, serializationStrategy)
         kotlinxSink.emit()
     }
 }
@@ -110,7 +110,7 @@ internal fun <T> CompressedNbtFormat.encodeFromOkio(
     compression: Compression,
     serializationStrategy: SerializationStrategy<T>,
 ): CompressedChunk = encodeCompressedChunk(compressionRegistry, compression) { sink ->
-    nbtFormat.encodeToSink(serializationStrategy, value, sink)
+    nbtFormat.encodeToSink(value, sink, serializationStrategy)
 }
 
 internal inline fun <reified T> CompressedNbtFormat.encodeFromOkio(

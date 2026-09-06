@@ -189,6 +189,21 @@ format on every operation. World access supplies `standaloneNbtFormat` and `stan
 configuration; data-pack parsing retains its separate `DataPackFormat`. JSON tree operations use the distinct
 `readJsonElement` and `writeJsonElement` names.
 
+Standalone world files use unnamed-root NBT. For a `nbtFormat` constructed with
+`NbtFormat(NbtFormatConfiguration(...))`,
+the plain form is
+`NbtFormat(nbtFormat.nbtFormatConfiguration.copy(nbtRootEncoding = NbtRootEncoding.UNNAMED))`. The `forWorldFiles()`
+extension performs that configuration step while preserving the serializer module and other mapping settings:
+
+```kotlin
+val nbtFormat = NbtFormat(NbtFormatConfiguration(ignoreUnknownKeys = true))
+val nbtFileStore = NbtFileStore(nbtFormat = nbtFormat.forWorldFiles())
+```
+
+Use this store's `readDocument`/`writeDocument` or typed operations for exact paths. The same configured format can be
+passed as `standaloneNbtFormat` to `MinecraftWorldAccessConfiguration` or `LiveMinecraftWorldAccessConfiguration`.
+The NBT types come from `nbt-serialization`; default world stores already use the required framing.
+
 Stateless does not mean read-only: a directly constructed `LevelDataStore` may promote `level.dat_old`, and a
 `PlayerDataStore` may preserve corrupt evidence. Such policy operations do not acquire a logical lock on the caller's
 behalf. The live facade supplies the same stores with a read-only physical capability, which disables those mutations.

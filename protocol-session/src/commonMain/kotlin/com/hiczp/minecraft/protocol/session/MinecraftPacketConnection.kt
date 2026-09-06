@@ -5,7 +5,6 @@ import com.hiczp.minecraft.protocol.model.packet.Packet
 import com.hiczp.minecraft.protocol.model.packet.PacketRouteKey
 import com.hiczp.minecraft.protocol.model.type.PacketCodecContext
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
-import com.hiczp.minecraft.protocol.serialization.MinecraftPacketRegistry
 import com.hiczp.minecraft.protocol.serialization.PacketCodecRegistration
 import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import io.ktor.utils.io.core.*
@@ -58,7 +57,7 @@ interface MinecraftPacketConnection<
  * retain those references without rebuilding or cloning them.
  */
 data class MinecraftConnectionDefinition(
-    val packetRegistry: PacketRegistry = MinecraftPacketRegistry,
+    val packetRegistry: PacketRegistry = PacketRegistry.vanilla,
     val minecraftPacketPayloadFormat: MinecraftPacketPayloadFormat = MinecraftPacketPayloadFormat.Default,
     val incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
     val outgoingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
@@ -76,7 +75,7 @@ data class MinecraftConnectionDefinition(
             incomingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
             outgoingCapacity: Int = DEFAULT_CHANNEL_CAPACITY,
         ): MinecraftConnectionDefinition = MinecraftConnectionDefinition(
-            packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, extensionCodecs),
+            packetRegistry = PacketRegistry(PacketRegistry.vanilla.entries, extensionCodecs),
             minecraftPacketPayloadFormat = minecraftPacketPayloadFormat,
             incomingCapacity = incomingCapacity,
             outgoingCapacity = outgoingCapacity,

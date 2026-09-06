@@ -2,7 +2,10 @@ package com.hiczp.minecraft.protocol.forge
 
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
-import com.hiczp.minecraft.protocol.serialization.*
+import com.hiczp.minecraft.protocol.serialization.KotlinxPacketBodyCodec
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
+import com.hiczp.minecraft.protocol.serialization.PacketCodecRegistration
+import com.hiczp.minecraft.protocol.serialization.PacketRegistry
 import com.hiczp.minecraft.protocol.session.MinecraftClientPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftPacketConnection
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
@@ -31,7 +34,7 @@ class ForgeNegotiationProfileTest {
     fun scriptedProfilesNegotiateTasksRegistriesAndDynamicPlayPackets() = runTest {
         val customCodecs = forgeTestPlayCodecs()
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             ForgeProtocol.packetCodecs + customCodecs,
         )
         val serverToClient = Channel<ClientboundPacket>(Channel.UNLIMITED)
@@ -166,7 +169,7 @@ class ForgeNegotiationProfileTest {
             listOf(ForgeChannelDefinition(required, 1)),
         )
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             ForgeProtocol.packetCodecs,
         )
         val incoming = Channel<ServerboundPacket>(Channel.UNLIMITED)
@@ -223,7 +226,7 @@ class ForgeNegotiationProfileTest {
     @Test
     fun outOfOrderRegistryDataThrowsWithoutReply() = runTest {
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             ForgeProtocol.packetCodecs,
         )
         val incoming = Channel<ClientboundPacket>(Channel.UNLIMITED)

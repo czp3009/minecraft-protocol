@@ -195,9 +195,9 @@ private object FabricRegistrySyncBodyCodec : PacketBodyCodec<FabricRegistrySyncP
         packet: FabricRegistrySyncPacket,
         sink: Sink,
     ) = minecraftPacketPayloadFormat.encodeToSink(
-        FabricRegistrySyncSerializer,
         packet,
         sink,
+        FabricRegistrySyncSerializer,
     )
 
     override fun decode(
@@ -206,9 +206,9 @@ private object FabricRegistrySyncBodyCodec : PacketBodyCodec<FabricRegistrySyncP
         source: Source,
         byteCount: Int,
     ): FabricRegistrySyncPacket = minecraftPacketPayloadFormat.decodeFromSource(
-        FabricRegistrySyncSerializer,
         source,
         byteCount,
+        FabricRegistrySyncSerializer,
     )
 }
 

@@ -5,7 +5,6 @@ package com.hiczp.minecraft.protocol.server
 import com.hiczp.minecraft.protocol.session.InternalMinecraftConnectionApi
 import com.hiczp.minecraft.protocol.session.MinecraftConnectionDefinition
 import com.hiczp.minecraft.protocol.session.MinecraftServerPacketConnection
-import com.hiczp.minecraft.protocol.session.createMinecraftServerPacketConnection
 import com.hiczp.minecraft.protocol.transport.MinecraftTransport
 import com.hiczp.minecraft.protocol.transport.MinecraftTransportConfiguration
 import io.ktor.network.selector.*
@@ -32,7 +31,7 @@ class MinecraftServer(
         val clientSocket = serverSocket.accept()
         val minecraftTransport = MinecraftTransport(clientSocket, minecraftTransportConfiguration)
         return MinecraftServerConnection(
-            minecraftServerPacketConnection = createMinecraftServerPacketConnection(
+            minecraftServerPacketConnection = MinecraftServerPacketConnection.create(
                 minecraftFrameStream = minecraftTransport.minecraftFrameStream,
                 closeTransport = minecraftTransport::close,
                 minecraftConnectionDefinition = minecraftConnectionDefinition,

@@ -38,7 +38,7 @@ class VanillaConfigurationProjectionTest {
             VanillaConfigurationData.synchronizedRegistryPackets(emptyList()).map { clientboundRegistryDataPacket ->
                 clientboundRegistryDataPacket.registry
             },
-            vanillaDataPackRegistryProjectors.map(DataPackRegistryProjector::registryId),
+            VanillaConfigurationData.dataPackRegistryProjectors.map(DataPackRegistryProjector::registryId),
         )
     }
 

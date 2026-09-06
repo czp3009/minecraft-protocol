@@ -6,22 +6,22 @@ data class RegionLocation(
     val sectorCount: Int,
 ) {
     init {
-        require(sectorOffset in 0..REGION_MAX_SECTOR_OFFSET)
-        require(sectorCount in 0..REGION_MAX_SECTOR_COUNT)
+        require(sectorOffset in 0..AnvilRegionFormat.MAX_SECTOR_OFFSET)
+        require(sectorCount in 0..AnvilRegionFormat.MAX_SECTOR_COUNT)
     }
 
     val packed: Int
         get() = (sectorOffset shl Byte.SIZE_BITS) or sectorCount
 
     val byteOffset: Long
-        get() = sectorOffset.toLong() * REGION_SECTOR_BYTES
+        get() = sectorOffset.toLong() * AnvilRegionFormat.SECTOR_BYTES
 
     val allocatedBytes: Int
-        get() = sectorCount * REGION_SECTOR_BYTES
+        get() = sectorCount * AnvilRegionFormat.SECTOR_BYTES
 
     /** Vanilla's compatibility checks when a region handle is opened. */
     fun isUsableAtOpen(fileSize: Long): Boolean =
-        sectorOffset >= REGION_HEADER_SECTORS &&
+        sectorOffset >= AnvilRegionFormat.HEADER_SECTORS &&
                 sectorCount > 0 &&
                 byteOffset <= fileSize
 
@@ -32,7 +32,7 @@ data class RegionLocation(
             } else {
                 RegionLocation(
                     sectorOffset = packed ushr Byte.SIZE_BITS,
-                    sectorCount = packed and REGION_MAX_SECTOR_COUNT,
+                    sectorCount = packed and AnvilRegionFormat.MAX_SECTOR_COUNT,
                 )
             }
     }
@@ -50,8 +50,8 @@ class RegionHeader private constructor(
     private val timestamps: IntArray,
 ) {
     constructor() : this(
-        locations = IntArray(REGION_CHUNK_COUNT),
-        timestamps = IntArray(REGION_CHUNK_COUNT),
+        locations = IntArray(MinecraftCoordinates.REGION_CHUNK_COUNT),
+        timestamps = IntArray(MinecraftCoordinates.REGION_CHUNK_COUNT),
     )
 
     /** Number of non-empty entries in the location table, without inspecting any Chunk record. */
@@ -90,8 +90,8 @@ class RegionHeader private constructor(
         timestamps = timestamps.copyOf(),
     )
 
-    fun encode(): ByteArray = ByteArray(REGION_HEADER_BYTES).also { bytes ->
-        for (index in 0 until REGION_CHUNK_COUNT) {
+    fun encode(): ByteArray = ByteArray(AnvilRegionFormat.HEADER_BYTES).also { bytes ->
+        for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
             writeRegionInt(
                 bytes,
                 index * Int.SIZE_BYTES,
@@ -99,7 +99,7 @@ class RegionHeader private constructor(
             )
             writeRegionInt(
                 bytes,
-                REGION_SECTOR_BYTES + index * Int.SIZE_BYTES,
+                AnvilRegionFormat.SECTOR_BYTES + index * Int.SIZE_BYTES,
                 timestamps[index],
             )
         }
@@ -115,24 +115,24 @@ class RegionHeader private constructor(
 
     companion object {
         fun decode(bytes: ByteArray): RegionHeader {
-            require(bytes.size <= REGION_HEADER_BYTES)
-            val complete = if (bytes.size == REGION_HEADER_BYTES) {
+            require(bytes.size <= AnvilRegionFormat.HEADER_BYTES)
+            val complete = if (bytes.size == AnvilRegionFormat.HEADER_BYTES) {
                 bytes
             } else {
-                ByteArray(REGION_HEADER_BYTES).also {
+                ByteArray(AnvilRegionFormat.HEADER_BYTES).also {
                     bytes.copyInto(it)
                 }
             }
-            val locations = IntArray(REGION_CHUNK_COUNT)
-            val timestamps = IntArray(REGION_CHUNK_COUNT)
-            for (index in 0 until REGION_CHUNK_COUNT) {
+            val locations = IntArray(MinecraftCoordinates.REGION_CHUNK_COUNT)
+            val timestamps = IntArray(MinecraftCoordinates.REGION_CHUNK_COUNT)
+            for (index in 0 until MinecraftCoordinates.REGION_CHUNK_COUNT) {
                 locations[index] = readRegionInt(
                     complete,
                     index * Int.SIZE_BYTES,
                 )
                 timestamps[index] = readRegionInt(
                     complete,
-                    REGION_SECTOR_BYTES + index * Int.SIZE_BYTES,
+                    AnvilRegionFormat.SECTOR_BYTES + index * Int.SIZE_BYTES,
                 )
             }
             return RegionHeader(locations, timestamps)
@@ -156,8 +156,8 @@ class RegionSectorAllocator {
     }
 
     fun allocate(sectorCount: Int): RegionLocation {
-        require(sectorCount in 1..REGION_MAX_SECTOR_COUNT)
-        var start = REGION_HEADER_SECTORS
+        require(sectorCount in 1..AnvilRegionFormat.MAX_SECTOR_COUNT)
+        var start = AnvilRegionFormat.HEADER_SECTORS
         while (true) {
             ensureCapacity(start + sectorCount)
             var available = true
@@ -169,7 +169,7 @@ class RegionSectorAllocator {
                 }
             }
             if (!available) continue
-            if (start > REGION_MAX_SECTOR_OFFSET) {
+            if (start > AnvilRegionFormat.MAX_SECTOR_OFFSET) {
                 throw AnvilFormatException(
                     "Region allocation exceeds location-table range",
                 )
@@ -217,11 +217,11 @@ data class RegionChunkRecordHeader(
 
     fun encode(): ByteArray {
         require(length >= 1)
-        val byteArray = ByteArray(REGION_CHUNK_RECORD_HEADER_BYTES)
+        val byteArray = ByteArray(AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES)
         writeRegionInt(byteArray, 0, length)
         byteArray[Int.SIZE_BYTES] = (
                 compressionId(compression) or
-                        if (external) REGION_EXTERNAL_STREAM_FLAG else 0
+                        if (external) AnvilRegionFormat.EXTERNAL_STREAM_FLAG else 0
                 ).toByte()
         return byteArray
     }
@@ -249,11 +249,11 @@ data class RegionChunkRecordHeader(
             }
 
         fun decode(bytes: ByteArray): RegionChunkRecordHeader {
-            if (bytes.size < REGION_CHUNK_RECORD_HEADER_BYTES) {
+            if (bytes.size < AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES) {
                 throw AnvilFormatException("Truncated region chunk record header")
             }
             val version = bytes[Int.SIZE_BYTES].toInt() and 0xFF
-            val compressionId = version and REGION_EXTERNAL_STREAM_FLAG.inv()
+            val compressionId = version and AnvilRegionFormat.EXTERNAL_STREAM_FLAG.inv()
             val compression = compressionFromId(compressionId)
                 ?: throw AnvilFormatException(
                     "Unknown region compression ID $compressionId",
@@ -261,7 +261,7 @@ data class RegionChunkRecordHeader(
             return RegionChunkRecordHeader(
                 length = readRegionInt(bytes, 0),
                 compression = compression,
-                external = version and REGION_EXTERNAL_STREAM_FLAG != 0,
+                external = version and AnvilRegionFormat.EXTERNAL_STREAM_FLAG != 0,
             )
         }
     }
@@ -283,17 +283,17 @@ class EncodedRegionChunkRecord private constructor(
             forceExternal: Boolean = false,
         ): EncodedRegionChunkRecord {
             val inlineBytes =
-                REGION_CHUNK_RECORD_HEADER_BYTES.toLong() +
+                AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES.toLong() +
                         compressedPayload.size
-            val inlineSectors = regionSectorsForBytes(inlineBytes)
+            val inlineSectors = AnvilRegionFormat.sectorsForBytes(inlineBytes)
             val external = forceExternal ||
-                    inlineSectors >= REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD
+                    inlineSectors >= AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD
             if (external) {
-                val stub = ByteArray(REGION_CHUNK_RECORD_HEADER_BYTES)
+                val stub = ByteArray(AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES)
                 writeRegionInt(stub, 0, 1)
                 stub[Int.SIZE_BYTES] = (
                         RegionChunkRecordHeader.compressionId(compression) or
-                                REGION_EXTERNAL_STREAM_FLAG
+                                AnvilRegionFormat.EXTERNAL_STREAM_FLAG
                         ).toByte()
                 return EncodedRegionChunkRecord(
                     bytes = stub,
@@ -307,7 +307,7 @@ class EncodedRegionChunkRecord private constructor(
             record[Int.SIZE_BYTES] = RegionChunkRecordHeader.compressionId(compression).toByte()
             compressedPayload.copyInto(
                 destination = record,
-                destinationOffset = REGION_CHUNK_RECORD_HEADER_BYTES,
+                destinationOffset = AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
             )
             return EncodedRegionChunkRecord(
                 bytes = record,
@@ -330,23 +330,3 @@ internal fun writeRegionInt(bytes: ByteArray, offset: Int, value: Int) {
     bytes[offset + 2] = (value ushr 8).toByte()
     bytes[offset + 3] = value.toByte()
 }
-
-fun regionSectorsForBytes(byteCount: Long): Int {
-    require(byteCount >= 0)
-    val sectors = if (byteCount == 0L) {
-        0L
-    } else {
-        (byteCount - 1L) / REGION_SECTOR_BYTES + 1L
-    }
-    if (sectors > Int.MAX_VALUE) {
-        throw AnvilFormatException("Region record is too large")
-    }
-    return sectors.toInt()
-}
-
-const val REGION_HEADER_SECTORS: Int = 2
-const val REGION_CHUNK_RECORD_HEADER_BYTES: Int = Int.SIZE_BYTES + 1
-const val REGION_EXTERNAL_STREAM_FLAG: Int = 0x80
-const val REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD: Int = 256
-const val REGION_MAX_SECTOR_COUNT: Int = 0xFF
-const val REGION_MAX_SECTOR_OFFSET: Int = 0xFF_FFFF

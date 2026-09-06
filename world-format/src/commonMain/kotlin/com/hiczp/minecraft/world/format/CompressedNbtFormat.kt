@@ -45,7 +45,7 @@ class CompressedNbtFormat(
         compression: Compression,
         deserializationStrategy: DeserializationStrategy<T>,
     ): T = decodeCompressed(source, compression) {
-        nbtFormat.decodeFromSource(deserializationStrategy, it)
+        nbtFormat.decodeFromSource(it, deserializationStrategy)
     }
 
     /**
@@ -67,7 +67,7 @@ class CompressedNbtFormat(
         sink: Sink,
         serializationStrategy: SerializationStrategy<T>,
     ) = encodeCompressed(compression, sink) {
-        nbtFormat.encodeToSink(serializationStrategy, value, it)
+        nbtFormat.encodeToSink(value, it, serializationStrategy)
     }
 
     /** In-memory adapter over [decodeDocumentFromSource]. */

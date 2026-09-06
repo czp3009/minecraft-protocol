@@ -47,7 +47,7 @@ internal object MetadataPlanner {
         minecraftAssetIndex.objects.values.distinctBy { it.hash.lowercase() }.map { minecraftAssetObject ->
             DownloadSpec(
                 minecraftAssetObject.toDownload(),
-                "assets/objects/${minecraftAssetPath(minecraftAssetObject.hash)}",
+                "assets/objects/${minecraftAssetObject.path}",
             )
         }
 

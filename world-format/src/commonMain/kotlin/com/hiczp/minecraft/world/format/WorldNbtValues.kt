@@ -2,6 +2,8 @@ package com.hiczp.minecraft.world.format
 
 import com.hiczp.minecraft.nbt.*
 
+private const val LIGHT_LAYER_BYTE_COUNT: Int = MinecraftCoordinates.SECTION_BLOCK_COUNT / 2
+
 internal inline fun <reified T : NbtTag> NbtCompound.optionalTag(name: String): T? {
     val nbtTag = this[name] ?: return null
     return nbtTag as? T ?: throw NbtPropertyFormatException("Field $name must be ${T::class.simpleName}")
@@ -61,13 +63,15 @@ internal fun unpackNbtValues(nbtLongArray: NbtLongArray, bits: Int, size: Int): 
     }
 }
 
-internal fun LightLayer.toNbt(): NbtByteArray = NbtByteArray(ByteArray(SECTION_LIGHT_BYTE_COUNT) { index ->
+internal fun LightLayer.toNbt(): NbtByteArray = NbtByteArray(ByteArray(LIGHT_LAYER_BYTE_COUNT) { index ->
     (get(index * 2) or (get(index * 2 + 1) shl 4)).toByte()
 })
 
 internal fun NbtByteArray.toLightLayer(): LightLayer {
-    require(size == SECTION_LIGHT_BYTE_COUNT) { "A light layer must contain $SECTION_LIGHT_BYTE_COUNT packed bytes" }
-    return LightLayer(List(SECTION_BLOCK_COUNT) { index -> get(index / 2).toInt() ushr (index % 2 * 4) and 15 })
+    require(size == LIGHT_LAYER_BYTE_COUNT) { "A light layer must contain $LIGHT_LAYER_BYTE_COUNT packed bytes" }
+    return LightLayer(List(MinecraftCoordinates.SECTION_BLOCK_COUNT) { index ->
+        get(index / 2).toInt() ushr (index % 2 * 4) and 15
+    })
 }
 
 internal fun BlockPosition.toNbt(): NbtIntArray = NbtIntArray(intArrayOf(x, y, z))

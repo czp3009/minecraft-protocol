@@ -124,8 +124,10 @@ spawn and its trailing messages. It applies
 the configured data mappings in order and returns unresolved relation messages, other entity IDs and unrecognized tails
 in `EntityPacketDecodeResult.pendingPackets`. The endpoint registers objects, resolves relations and enqueues bundles.
 
-The `entityPacketReadMappings` and `entityPacketWriteMappings` helpers map semantic attributes and equipment. Attribute
-defaults, sync selection and the persistence flag absent from received modifiers are supplied explicitly.
+The `EntityPacketReadMappings.fromProperties(...)` and `EntityPacketWriteMappings.fromProperties(...)` factories map
+semantic attributes and equipment. Attribute defaults, sync selection and the persistence flag absent from received
+modifiers are supplied explicitly. Their constructors accept individual projections when the application uses another
+property representation.
 `ItemStackPacketEncoder` and `ItemStackPacketDecoder`
 map registry IDs and component patch states; component content projection is explicit in each direction. Packet values
 are temporary representations, with no second mutable property store installed in the domain.
@@ -134,7 +136,8 @@ For a plain Entity round trip, obtain `entity` from `EntityChunk.rootEntities` a
 `EntityPairingData(entityId, passengerEntityIds, vehiclePassengerRelation, leashHolderEntityId)` from the application's
 tracking table; absent external relations use null. `packetCodecContext` comes from negotiation as above. Construct
 `EntityPacketWriteMappings(...)` and `EntityPacketReadMappings(...)` with the four callbacks described above, or use
-the mapping helpers. Construct `EntityPacketRequiredDataProvider(headYaw, passengers)` with callbacks supplying any
+the `fromProperties(...)` factories. Construct `EntityPacketRequiredDataProvider(headYaw, passengers)` with callbacks
+supplying any
 unavailable simulation facts; use `RequirePresent` only after the Entity already contains them. Persisted NBT alone
 does not provide head yaw. `EntityPacketMissingDataProvider { _, _ -> EntityPacketMissingData(DataProperties(), null) }`
 explicitly chooses empty properties and unknown passengers for a receiving application:
@@ -175,7 +178,7 @@ An ItemStack needs only registry and component mappings. Construct
 decodes a received component and supplies non-network properties for each item ID. Pass the encoder's returned packet
 ItemStack to the decoder; null semantic stacks map to the packet's Empty value. These already use direct `encode`/
 `decode`
-methods; the Entity mapping helpers accept these prebuilt codecs for equipment without requesting their registries
+methods; the Entity mapping factories accept these prebuilt codecs for equipment without requesting their registries
 again.
 
 ## Other world data

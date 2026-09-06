@@ -27,12 +27,29 @@ val clientIntentionPacket = ClientIntentionPacket(
     intention = ClientIntent.STATUS,
 )
 val payloadBuffer = Buffer()
-MinecraftPacketPayloadFormat.encodeToSink(ClientIntentionPacket.serializer(), clientIntentionPacket, payloadBuffer)
+MinecraftPacketPayloadFormat.encodeToSink(clientIntentionPacket, payloadBuffer, ClientIntentionPacket.serializer())
 val decodedHandshakePacket = MinecraftPacketPayloadFormat.decodeFromSource(
-    ClientIntentionPacket.serializer(), payloadBuffer, payloadBuffer.size.toInt(),
+    payloadBuffer,
+    payloadBuffer.size.toInt(),
+    ClientIntentionPacket.serializer(),
 )
 check(decodedHandshakePacket == clientIntentionPacket)
 ```
+
+The reified extensions infer the same serializer from the executing format's module. An alternative using the packet
+constructed above is:
+
+```kotlin
+val inferredPayloadBuffer = Buffer()
+MinecraftPacketPayloadFormat.encodeToSink(clientIntentionPacket, inferredPayloadBuffer)
+val inferredHandshakePacket = MinecraftPacketPayloadFormat.decodeFromSource<ClientIntentionPacket>(
+    inferredPayloadBuffer, inferredPayloadBuffer.size.toInt(),
+)
+check(inferredHandshakePacket == clientIntentionPacket)
+```
+
+Custom stream overloads append an explicit strategy after the shared arguments. The inherited `BinaryFormat`
+byte-array methods retain kotlinx.serialization's strategy-first signatures.
 
 `ClientboundStatusResponsePacket` demonstrates the boundary between a logical value and a physical representation. Its
 public field
@@ -43,7 +60,7 @@ encoding.
 
 ## Compose a packet registry
 
-`MinecraftPacketRegistry` is the immutable vanilla base for the repository-selected Minecraft release. Construct a
+`PacketRegistry.vanilla` is the immutable vanilla base for the repository-selected Minecraft release. Construct a
 connection-specific registry with application or loader packet codecs instead of mutating a global table.
 `PacketCodecRegistration.clientboundCustomPayload(...)` constructs a custom registration as shown in
 [protocol-session](../protocol-session/README.md#register-custom-packets). The default empty list uses only vanilla
@@ -54,7 +71,7 @@ fun roundTripPacket(
     packet: Packet,
     extensionCodecs: List<PacketCodecRegistration<out Packet>> = emptyList(),
 ): Packet {
-    val packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, extensionCodecs)
+    val packetRegistry = PacketRegistry(PacketRegistry.vanilla.entries, extensionCodecs)
     val encodedPacketPayload = packetRegistry.encodePayload(packet)
     return packetRegistry.decodePayload(
         connectionState = encodedPacketPayload.packetKey.connectionState,

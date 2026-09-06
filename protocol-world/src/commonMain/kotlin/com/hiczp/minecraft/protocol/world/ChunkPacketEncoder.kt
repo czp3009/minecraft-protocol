@@ -10,7 +10,7 @@ import com.hiczp.minecraft.protocol.serialization.MinecraftChunkSectionPayloadFo
 import com.hiczp.minecraft.world.format.BiomeId
 import com.hiczp.minecraft.world.format.BlockState
 import com.hiczp.minecraft.world.format.Chunk
-import com.hiczp.minecraft.world.format.SECTION_SIDE
+import com.hiczp.minecraft.world.format.MinecraftCoordinates
 import com.hiczp.minecraft.protocol.model.type.HeightmapType as PacketHeightmapType
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer as PacketPalettedContainer
 
@@ -88,7 +88,10 @@ class ChunkPacketEncoder(val chunkPacketEncoderContext: ChunkPacketEncoderContex
             val packetHeightmapType = mappings.heightmapType(heightmapType) ?: return@forEach
             require(!containsKey(packetHeightmapType)) { "Multiple heightmaps map to $packetHeightmapType" }
             val packed =
-                packPacketValues(packetValueBits(chunkLayout.height + 1), (SECTION_SIDE * SECTION_SIDE)) { index ->
+                packPacketValues(
+                    packetValueBits(chunkLayout.height + 1),
+                    (MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)
+                ) { index ->
                     val absolute =
                         heightmap.firstAvailable[index] ?: required.heightmapValue(chunk, heightmapType, index)
                     val relative = absolute.toLong() - chunkLayout.minBlockY

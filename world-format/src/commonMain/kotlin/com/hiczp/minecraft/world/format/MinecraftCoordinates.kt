@@ -10,6 +10,24 @@ import kotlin.math.floor
  * functions to this object.
  */
 object MinecraftCoordinates {
+    /** Region width and depth in Chunks. */
+    const val REGION_SIDE: Int = 32
+
+    /** Chunk width and depth in Blocks; height belongs to the dimension layout. */
+    const val CHUNK_SIDE: Int = 16
+
+    /** Section width, height and depth in Blocks. */
+    const val SECTION_SIDE: Int = 16
+
+    const val SECTION_BLOCK_COUNT: Int = SECTION_SIDE * SECTION_SIDE * SECTION_SIDE
+    const val REGION_CHUNK_COUNT: Int = REGION_SIDE * REGION_SIDE
+
+    /** Width, height and depth of one biome sample in Blocks. */
+    const val BIOME_CELL_SIDE: Int = 4
+
+    const val BIOME_SECTION_SIDE: Int = SECTION_SIDE / BIOME_CELL_SIDE
+    const val SECTION_BIOME_COUNT: Int = BIOME_SECTION_SIDE * BIOME_SECTION_SIDE * BIOME_SECTION_SIDE
+
     /** ChunkPos's long representation preserves two signed 32-bit Chunk coordinates. */
     fun packedChunk(chunkPosition: ChunkPosition): Long =
         (chunkPosition.x.toLong() and 0xffffffffL) or ((chunkPosition.z.toLong() and 0xffffffffL) shl 32)

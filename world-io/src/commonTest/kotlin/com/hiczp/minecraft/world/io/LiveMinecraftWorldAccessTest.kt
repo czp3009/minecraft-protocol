@@ -24,8 +24,8 @@ class LiveMinecraftWorldAccessTest {
         val chunkPosition = ChunkPosition(3, -2)
         val externalChunkPosition = ChunkPosition(4, -2)
         val externalPayload = ByteArray(
-            REGION_EXTERNAL_CHUNK_SECTOR_THRESHOLD * REGION_SECTOR_BYTES -
-                    REGION_CHUNK_RECORD_HEADER_BYTES,
+            AnvilRegionFormat.EXTERNAL_CHUNK_SECTOR_THRESHOLD * AnvilRegionFormat.SECTOR_BYTES -
+                    AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
         ) { index -> (index * 31).toByte() }
         fakeFileSystem.createDirectories(root)
 

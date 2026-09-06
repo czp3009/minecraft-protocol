@@ -12,41 +12,42 @@ import com.hiczp.minecraft.world.format.datapack.ResolvedDataPackStack
 /**
  * Projects an in-memory stack on top of the exact generated vanilla protocol defaults.
  *
- * The release-matched [vanillaDataPackRegistryProjectors] cover ordinary vanilla resources. Caller-supplied projectors
- * replace matching defaults by registry ID and add projectors for custom registries.
+ * The release-matched [VanillaConfigurationData.dataPackRegistryProjectors] cover ordinary vanilla resources.
+ * Caller-supplied projectors replace matching defaults by registry ID and add projectors for custom registries.
  */
 fun DataPackStack.toVanillaConfigurationData(
     dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
     dataPackFormatVersion: DataPackFormatVersion? = VanillaConfigurationData.dataPackFormatVersion,
     enabledFeatureFlags: Set<Identifier> = VanillaConfigurationData.enabledFeatureFlags,
 ): ResolvedConfigurationData =
-    vanillaDataPackConfigurationProjector(dataPackRegistryProjectorOverrides, enabledFeatureFlags)
+    VanillaConfigurationData.dataPackConfigurationProjector(dataPackRegistryProjectorOverrides, enabledFeatureFlags)
         .project(this, dataPackFormatVersion)
 
 /**
  * Projects an already resolved stack on top of the exact generated vanilla protocol defaults.
  *
- * The release-matched [vanillaDataPackRegistryProjectors] cover ordinary vanilla resources. Caller-supplied projectors
- * replace matching defaults by registry ID and add projectors for custom registries.
+ * The release-matched [VanillaConfigurationData.dataPackRegistryProjectors] cover ordinary vanilla resources.
+ * Caller-supplied projectors replace matching defaults by registry ID and add projectors for custom registries.
  */
 fun ResolvedDataPackStack.toVanillaConfigurationData(
     dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
     enabledFeatureFlags: Set<Identifier> = VanillaConfigurationData.enabledFeatureFlags,
-): ResolvedConfigurationData =
-    vanillaDataPackConfigurationProjector(dataPackRegistryProjectorOverrides, enabledFeatureFlags).project(this)
+): ResolvedConfigurationData = VanillaConfigurationData
+    .dataPackConfigurationProjector(dataPackRegistryProjectorOverrides, enabledFeatureFlags)
+    .project(this)
 
 /**
  * Creates the bridge from parsed vanilla-based resources to Configuration protocol data.
  *
- * Caller-supplied projectors replace matching [vanillaDataPackRegistryProjectors] by registry ID and add custom
- * registries. Construct [DataPackConfigurationProjector] directly when every default should be replaced.
+ * Caller-supplied projectors replace matching [VanillaConfigurationData.dataPackRegistryProjectors] by registry ID and
+ * add custom registries. Construct [DataPackConfigurationProjector] directly when every default should be replaced.
  */
-fun vanillaDataPackConfigurationProjector(
+fun VanillaConfigurationData.dataPackConfigurationProjector(
     dataPackRegistryProjectorOverrides: List<DataPackRegistryProjector> = emptyList(),
-    enabledFeatureFlags: Set<Identifier> = VanillaConfigurationData.enabledFeatureFlags,
+    enabledFeatureFlags: Set<Identifier> = this.enabledFeatureFlags,
 ): DataPackConfigurationProjector = DataPackConfigurationProjector(
-    baseConfigurationData = VanillaConfigurationData,
-    dataPackRegistryProjectors = vanillaDataPackRegistryProjectors.withOverrides(dataPackRegistryProjectorOverrides),
+    baseConfigurationData = this,
+    dataPackRegistryProjectors = dataPackRegistryProjectors.withOverrides(dataPackRegistryProjectorOverrides),
     preprojectedDataPackIds = setOf(DataPackId("vanilla")),
     enabledFeatureFlags = enabledFeatureFlags,
 )

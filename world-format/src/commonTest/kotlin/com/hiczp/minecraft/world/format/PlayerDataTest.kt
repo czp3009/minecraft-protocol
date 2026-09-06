@@ -47,8 +47,8 @@ class PlayerDataTest {
             shoulderEntityLeft = NbtCompound(mapOf("id" to NbtString("minecraft:parrot"))),
         )
 
-        val root = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(PlayerData.serializer(), playerData))
-        val decoded = nbtFormat.decodeFromNbtTag(PlayerData.serializer(), root)
+        val root = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(playerData, PlayerData.serializer()))
+        val decoded = nbtFormat.decodeFromNbtTag(root, PlayerData.serializer())
 
         assertEquals(playerData, decoded)
         assertIs<NbtIntArray>(root["UUID"])
@@ -60,13 +60,13 @@ class PlayerDataTest {
 
     @Test
     fun strongStandaloneModelsRemainStrictAtTheirOwnedRoot() {
-        val encoded = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(PlayerData.serializer(), samplePlayerData()))
+        val encoded = assertIs<NbtCompound>(nbtFormat.encodeToNbtTag(samplePlayerData(), PlayerData.serializer()))
 
         assertFailsWith<SerializationException> {
-            nbtFormat.decodeFromNbtTag(PlayerData.serializer(), NbtCompound(encoded.value + ("future" to NbtByte(1))))
+            nbtFormat.decodeFromNbtTag(NbtCompound(encoded.value + ("future" to NbtByte(1))), PlayerData.serializer())
         }
         assertFailsWith<SerializationException> {
-            nbtFormat.decodeFromNbtTag(PlayerData.serializer(), NbtCompound(encoded.value - "Dimension"))
+            nbtFormat.decodeFromNbtTag(NbtCompound(encoded.value - "Dimension"), PlayerData.serializer())
         }
     }
 }

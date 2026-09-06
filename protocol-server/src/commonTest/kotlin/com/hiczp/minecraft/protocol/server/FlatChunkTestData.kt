@@ -23,11 +23,17 @@ internal fun createFlatChunk(
         val terrain = SectionTerrain(chunkContext.defaultBlockState, chunkContext.defaultBiome)
         val surfaceHere = sectionY == groundSectionY && hasSurface
         if (surfaceHere) {
-            repeat(SECTION_SIDE * SECTION_SIDE) { index ->
-                terrain.blockStates[localGroundY * SECTION_SIDE * SECTION_SIDE + index] = surfaceBlockState
+            repeat(MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE) { index ->
+                terrain.blockStates[localGroundY * MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE + index] =
+                    surfaceBlockState
             }
         }
-        terrain.statistics = SectionStatistics(if (surfaceHere) SECTION_SIDE * SECTION_SIDE else 0, 0, 0, 0)
+        terrain.statistics = SectionStatistics(
+            if (surfaceHere) MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE else 0,
+            0,
+            0,
+            0
+        )
         chunk.sections[sectionY] = ChunkSection(
             terrain,
             SectionLighting(

@@ -4,12 +4,12 @@ import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.ByteString
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.wire.VarInt
-import kotlin.test.*
 import kotlinx.io.Buffer
 import kotlinx.io.Sink
 import kotlinx.io.Source
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
+import kotlin.test.*
 
 class ExtensionPacketCodecTest {
     @Test
@@ -21,7 +21,7 @@ class ExtensionPacketCodecTest {
             packetClass = TestNumberPayload::class,
             packetBodyCodec = KotlinxPacketBodyCodec(TestNumberPayload.serializer()),
         )
-        val packetRegistry = PacketRegistry(MinecraftPacketRegistry.entries, listOf(packetCodecRegistration))
+        val packetRegistry = PacketRegistry(PacketRegistry.vanilla.entries, listOf(packetCodecRegistration))
         val testNumberPayload = TestNumberPayload(300)
         val body = Buffer()
 
@@ -48,7 +48,7 @@ class ExtensionPacketCodecTest {
     fun aKnownExtensionNeverDowngradesMalformedBytesToUnknown() {
         val channel = Identifier("test:number")
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             listOf(
                 PacketCodecRegistration.clientboundCustomPayload(
                     ConnectionState.CONFIGURATION,
@@ -90,7 +90,7 @@ class ExtensionPacketCodecTest {
             KotlinxPacketBodyCodec(TestNumberPayload.serializer()),
         )
         assertFailsWith<IllegalArgumentException> {
-            PacketRegistry(MinecraftPacketRegistry.entries, listOf(topLevelCollision))
+            PacketRegistry(PacketRegistry.vanilla.entries, listOf(topLevelCollision))
         }
 
         val channel = Identifier("test:duplicate")
@@ -107,14 +107,14 @@ class ExtensionPacketCodecTest {
             KotlinxPacketBodyCodec(OtherTestNumberPayload.serializer()),
         )
         assertFailsWith<IllegalArgumentException> {
-            PacketRegistry(MinecraftPacketRegistry.entries, listOf(first, second))
+            PacketRegistry(PacketRegistry.vanilla.entries, listOf(first, second))
         }
     }
 
     @Test
     fun immutableBaseCodecsCanBeReindexedForAModdedProtocolTable() {
         val original = requireNotNull(
-            MinecraftPacketRegistry.codec(
+            PacketRegistry.vanilla.codec(
                 ConnectionState.STATUS,
                 PacketDirection.SERVERBOUND,
                 0,
@@ -122,7 +122,7 @@ class ExtensionPacketCodecTest {
         )
         val remappedId = 0x3FFD
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries.map { packetCodec ->
+            PacketRegistry.vanilla.entries.map { packetCodec ->
                 if (packetCodec === original) packetCodec.withPacketId(remappedId) else packetCodec
             },
         )
@@ -158,7 +158,7 @@ class ExtensionPacketCodecTest {
         val statusId = 0x3FFE
         val configurationId = 0x3FFF
         val packetRegistry = PacketRegistry(
-            MinecraftPacketRegistry.entries,
+            PacketRegistry.vanilla.entries,
             listOf(
                 PacketCodecRegistration.clientboundTopLevel(
                     ConnectionState.STATUS,

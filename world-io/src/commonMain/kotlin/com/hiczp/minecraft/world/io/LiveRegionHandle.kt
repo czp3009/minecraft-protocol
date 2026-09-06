@@ -265,7 +265,7 @@ internal class ReadOnlyRegionFile private constructor(
         } else {
             val regionLocation = regionHeader.location(localChunkPosition) ?: return null
             val bufferedSource = fileHandle.source(
-                regionLocation.byteOffset + REGION_CHUNK_RECORD_HEADER_BYTES,
+                regionLocation.byteOffset + AnvilRegionFormat.CHUNK_RECORD_HEADER_BYTES,
             ).limit(regionChunkInfo.compressedByteCount).buffer()
             useResource(bufferedSource, { it.close() }) {
                 readPayload(regionChunkInfo, bufferedSource, block)

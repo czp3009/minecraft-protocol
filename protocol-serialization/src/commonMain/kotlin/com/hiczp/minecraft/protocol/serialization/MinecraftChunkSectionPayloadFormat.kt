@@ -37,11 +37,11 @@ class MinecraftChunkSectionPayloadFormat(
         SectionPayloadSerializer(minecraftChunkSectionPayloadFormatConfiguration.sectionCount)
 
     fun encodeToSink(sections: List<LevelChunkSectionData>, sink: Sink) =
-        minecraftPacketPayloadFormat.encodeToSink(sectionPayloadSerializer, sections, sink)
+        minecraftPacketPayloadFormat.encodeToSink(sections, sink, sectionPayloadSerializer)
 
     /** Consumes exactly [byteCount] bytes and leaves the caller's source open. */
     fun decodeFromSource(source: Source, byteCount: Int): List<LevelChunkSectionData> =
-        minecraftPacketPayloadFormat.decodeFromSource(sectionPayloadSerializer, source, byteCount)
+        minecraftPacketPayloadFormat.decodeFromSource(source, byteCount, sectionPayloadSerializer)
 
     fun encode(sections: List<LevelChunkSectionData>): ByteString {
         val buffer = Buffer()

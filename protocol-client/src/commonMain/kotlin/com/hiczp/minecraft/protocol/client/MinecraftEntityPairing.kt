@@ -14,8 +14,7 @@ val ClientboundBundlePacket.isEntityPairingBundle: Boolean
  * Splits consecutive pairing sequences. Registration occurs before trailing mappings, and unresolved packets reach
  * the caller in received order. Every pending packet is also retained in the corresponding returned result.
  */
-fun decodeEntityPairings(
-    packets: Iterable<ClientboundPacket>,
+fun Iterable<ClientboundPacket>.toEntities(
     entityPacketDecoder: EntityPacketDecoder,
     registerEntity: (Int, Entity) -> Unit = { _, _ -> },
     pendingPacket: (EntityPacketDecodeResult) -> Unit = {},
@@ -23,7 +22,7 @@ fun decodeEntityPairings(
     val results = mutableListOf<EntityPacketDecodeResult>()
     var current: EntityPacketDecodeResult? = null
     var pending = mutableListOf<ClientboundPacket>()
-    packets.forEach { packet ->
+    forEach { packet ->
         if (packet is ClientboundAddEntityPacket) {
             current?.let { results.add(it.copy(pendingPackets = pending)) }
             current = entityPacketDecoder.decode(packet)
@@ -43,8 +42,9 @@ fun decodeEntityPairings(
     return results
 }
 
+/** Decodes this bundle's consecutive Entity pairings with the same ordering as [Iterable.toEntities]. */
 fun ClientboundBundlePacket.toEntities(
     entityPacketDecoder: EntityPacketDecoder,
     registerEntity: (Int, Entity) -> Unit = { _, _ -> },
     pendingPacket: (EntityPacketDecodeResult) -> Unit = {},
-): List<EntityPacketDecodeResult> = decodeEntityPairings(subPackets, entityPacketDecoder, registerEntity, pendingPacket)
+): List<EntityPacketDecodeResult> = subPackets.toEntities(entityPacketDecoder, registerEntity, pendingPacket)

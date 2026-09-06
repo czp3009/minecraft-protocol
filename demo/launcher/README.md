@@ -4,22 +4,100 @@ This repository includes a terminal launcher for Minecraft: Java Edition. It can
 install compatible official game files, manage offline or Microsoft accounts, and launch the official Java client while
 showing its output in the terminal.
 
-The launcher is an integration demo, not a supported or published end-user application. Each install task creates a
-runnable distribution below `demo/launcher/build/install/launcher-<target>`.
+The launcher is an integration demo, not a supported or published end-user application.
+
+## Preview
+
+The home screen provides access to version installation, installed versions, and account management:
+
+![Launcher home screen](docs/images/img.png)
+
+While Minecraft is running, the launcher displays its process output in the TUI:
+
+![Minecraft process output](docs/images/img_1.png)
+
+## Before running
+
+The computer running the launcher must have `java` available on `PATH`, providing at least the Java major required by
+the selected game version. This also applies to native launcher distributions, which still start the Java game client.
+
+Choose one command block below for your platform and start it from the repository root. Each block installs a
+distribution, enters its directory, and starts the launcher. Build a native distribution only on a host supported by
+that Kotlin/Native target.
 
 > [!IMPORTANT]
-> Gradle cannot correctly forward keyboard input to the TUI, so this demo cannot be run as a Gradle task. Install the
-> distribution first, then run the packaged launcher directly.
-
-## Requirements
-
-The computer running the launcher must have `java` available on `PATH`. Run each build command from the repository root.
-The command must provide at least the Java major required by the selected game version. Run a native install task only
-on a host supported by that Kotlin/Native target.
+> Gradle cannot correctly forward keyboard input to the TUI. Install the distribution first, then run the packaged
+> launcher directly as shown below.
 
 The launcher's working directory is its state directory. It creates `auth.json`, `installed.json`, and a `minecraft/`
-directory there, so start it from a dedicated writable directory. Microsoft refresh and Minecraft access tokens are
-stored unencrypted in `auth.json`; use the demo only in a trusted local environment and do not share that file.
+directory there. The examples use the generated distribution directory below `demo/launcher/build/install/`; you can
+instead start the packaged launcher from another dedicated writable directory. Microsoft refresh and Minecraft access
+tokens are stored unencrypted in `auth.json`; use the demo only in a trusted local environment and do not share that
+file.
+
+## Windows
+
+In PowerShell, install and start the JVM launcher:
+
+```powershell
+.\gradlew.bat :demo:launcher:installJvmDist
+Set-Location demo/launcher/build/install/launcher-jvm
+.\bin\launcher.bat
+```
+
+Or install and start the native x64 launcher:
+
+```powershell
+.\gradlew.bat :demo:launcher:installMingwX64Executable
+Set-Location demo/launcher/build/install/launcher-mingwX64
+.\launcher.exe
+```
+
+## Linux
+
+Install and start the JVM launcher:
+
+```shell
+./gradlew :demo:launcher:installJvmDist
+cd demo/launcher/build/install/launcher-jvm
+./bin/launcher
+```
+
+Or install and start the native launcher matching your machine architecture.
+
+For x64:
+
+```shell
+./gradlew :demo:launcher:installLinuxX64Executable
+cd demo/launcher/build/install/launcher-linuxX64
+./launcher.kexe
+```
+
+For ARM64:
+
+```shell
+./gradlew :demo:launcher:installLinuxArm64Executable
+cd demo/launcher/build/install/launcher-linuxArm64
+./launcher.kexe
+```
+
+## macOS
+
+In Terminal, install and start the JVM launcher:
+
+```shell
+./gradlew :demo:launcher:installJvmDist
+cd demo/launcher/build/install/launcher-jvm
+./bin/launcher
+```
+
+Or, on Apple silicon, install and start the native launcher:
+
+```shell
+./gradlew :demo:launcher:installMacosArm64Executable
+cd demo/launcher/build/install/launcher-macosArm64
+./launcher.kexe
+```
 
 ## Supported versions
 
@@ -35,54 +113,3 @@ rules for other operating systems or architectures are skipped. The demo has no 
 Downloaded client, library, logging, and asset files are checked against their declared size and SHA-1 before an
 installation is recorded. Metadata documents are decoded through the shared HTTP client, and the asset index is saved
 as JSON without metadata hash or size checks.
-
-## Interface
-
-The home screen provides access to version installation, installed versions, and account management:
-
-![Launcher home screen](docs/images/img.png)
-
-While Minecraft is running, the launcher displays its process output in the TUI:
-
-![Minecraft process output](docs/images/img_1.png)
-
-## JVM
-
-Install the JVM application distribution:
-
-```shell
-./gradlew :demo:launcher:installJvmDist
-```
-
-Enter the generated application directory and run it on Windows:
-
-```powershell
-Set-Location demo/launcher/build/install/launcher-jvm
-.\bin\launcher.bat
-```
-
-On Linux, use the generated shell script instead:
-
-```shell
-cd demo/launcher/build/install/launcher-jvm
-./bin/launcher
-```
-
-## Native distributions
-
-Run the install task matching your host, then enter the indicated distribution directory and start its executable:
-
-| Host        | Gradle task                                  | Directory below `demo/launcher/build/install/` | Executable        |
-|-------------|----------------------------------------------|------------------------------------------------|-------------------|
-| Windows x64 | `:demo:launcher:installMingwX64Executable`   | `launcher-mingwX64`                            | `.\launcher.exe`  |
-| Linux x64   | `:demo:launcher:installLinuxX64Executable`   | `launcher-linuxX64`                            | `./launcher.kexe` |
-| Linux ARM64 | `:demo:launcher:installLinuxArm64Executable` | `launcher-linuxArm64`                          | `./launcher.kexe` |
-| macOS ARM64 | `:demo:launcher:installMacosArm64Executable` | `launcher-macosArm64`                          | `./launcher.kexe` |
-
-For example, on Windows:
-
-```powershell
-.\gradlew.bat :demo:launcher:installMingwX64Executable
-Set-Location demo/launcher/build/install/launcher-mingwX64
-.\launcher.exe
-```
