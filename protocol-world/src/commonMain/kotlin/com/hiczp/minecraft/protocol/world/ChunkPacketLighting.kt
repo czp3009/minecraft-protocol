@@ -22,7 +22,7 @@ internal fun encodePacketLight(
     val sky = LightAccumulator(bitCount)
     repeat(bitCount) { index ->
         val sectionY = MinecraftCoordinates.offsetSectionCoordinate(chunkLayout.minSectionY, index - 1)
-        val lighting = chunk.sections[sectionY]?.lighting
+        val lighting = chunk.getSection(sectionY)?.lighting
         block.add(index, lighting?.blockLight ?: required.lightLayer(chunk, sectionY, LightKind.BLOCK))
         if (hasSkyLight) {
             sky.add(index, lighting?.skyLight ?: required.lightLayer(chunk, sectionY, LightKind.SKY))
@@ -46,9 +46,7 @@ internal fun decodePacketLight(
             val bytes = updates.getOrNull(updateIndex++)?.bytes?.toByteArray()
                 ?: error("Light mask has more updates than available payloads")
             require(bytes.size == LIGHT_LAYER_BYTE_COUNT) { "A light update needs $LIGHT_LAYER_BYTE_COUNT bytes" }
-            put(sectionY, LightLayer(List(MinecraftCoordinates.SECTION_BLOCK_COUNT) { entry ->
-                bytes[entry / 2].toInt().ushr((entry % 2) * 4) and 15
-            }))
+            put(sectionY, LightLayer(bytes))
         } else if (emptyMask[index]) {
             put(sectionY, LightLayer(0))
         }
@@ -62,14 +60,14 @@ private class LightAccumulator(bitCount: Int) {
 
     fun add(index: Int, lightLayer: LightLayer?) {
         if (lightLayer == null) return
-        if (lightLayer.all { it == 0 }) {
+        val data = lightLayer.data
+        require(data == null || data.size == LIGHT_LAYER_BYTE_COUNT) { "A light layer needs $LIGHT_LAYER_BYTE_COUNT bytes" }
+        require(data != null || lightLayer.uniformValue in 0..15) { "Light values must be in 0..15" }
+        if (lightLayer.isEmpty()) {
             set(emptyWords, index)
         } else {
             set(updateWords, index)
-            val bytes = ByteArray(LIGHT_LAYER_BYTE_COUNT) { offset ->
-                (lightLayer[offset * 2] or (lightLayer[offset * 2 + 1] shl 4)).toByte()
-            }
-            updates.add(LightDataLayer(ByteString(bytes)))
+            updates.add(LightDataLayer(ByteString(data ?: lightLayer.toByteArray())))
         }
     }
 

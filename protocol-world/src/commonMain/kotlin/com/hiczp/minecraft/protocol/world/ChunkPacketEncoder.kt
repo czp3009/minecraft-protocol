@@ -50,7 +50,7 @@ class ChunkPacketEncoder(val chunkPacketEncoderContext: ChunkPacketEncoderContex
     }
 
     private fun encodeSection(chunk: Chunk, sectionY: Int): LevelChunkSectionData {
-        val terrain = chunk.sections[sectionY]?.terrain
+        val terrain = chunk.getSection(sectionY)?.terrain
         terrain?.requireShape()
         val statistics = terrain?.statistics
         return LevelChunkSectionData(
@@ -77,7 +77,7 @@ class ChunkPacketEncoder(val chunkPacketEncoderContext: ChunkPacketEncoderContex
     }
 
     private fun blockStateId(blockState: BlockState): Int =
-        packetCodecContext.blockState(Identifier(blockState.blockId.value), blockState.properties.toMap())?.id
+        packetCodecContext.blockState(Identifier(blockState.blockId.value), blockState.properties.asMap())?.id
             ?: error("Block state $blockState is absent from the packet registry")
 
     private fun biomeId(biomeId: BiomeId): Int =
@@ -93,7 +93,7 @@ class ChunkPacketEncoder(val chunkPacketEncoderContext: ChunkPacketEncoderContex
                     (MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)
                 ) { index ->
                     val absolute =
-                        heightmap.firstAvailable[index] ?: required.heightmapValue(chunk, heightmapType, index)
+                        heightmap[index] ?: required.heightmapValue(chunk, heightmapType, index)
                     val relative = absolute.toLong() - chunkLayout.minBlockY
                     require(relative in 0..chunkLayout.height.toLong()) { "Heightmap value $absolute is outside the encoded height range" }
                     relative.toInt()

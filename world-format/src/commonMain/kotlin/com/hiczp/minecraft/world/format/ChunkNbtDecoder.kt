@@ -131,10 +131,16 @@ private class ChunkReader(private val context: ChunkNbtDecoderContext) : WorldNb
                 }
             }
             val chunk = Chunk(
-                position, context.chunkContext, sections, blockEntities, heightmaps, ChunkLighting(lightCorrect, null),
+                position,
+                context.chunkContext,
+                arrayOfNulls(chunkLayout.sectionCount + 2),
+                blockEntities,
+                heightmaps,
+                ChunkLighting(lightCorrect, null),
                 blockTicks, fluidTicks, structures, postProcessing,
                 requireNotNull(status) { "Missing Chunk Status" }, inhabitedTime, upgradeData, blendingData, properties,
             )
+            sections.forEach { (y, section) -> chunk.setSection(y, section) }
             return ChunkNbtDecodeResult(
                 chunk, ChunkNbtMetadata(requireNotNull(dataVersion) { "Missing Chunk DataVersion" }, lastUpdateTime),
             )

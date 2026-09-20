@@ -27,6 +27,37 @@ class ChunkPacketTest {
         { _, _, _ -> null })
 
     @Test
+    fun encodingReadsAliasedSectionsLightAndHeightArraysAfterReplacement() {
+        val chunk = Chunk(position, context)
+        val sections = arrayOfNulls<ChunkSection>(2)
+        chunk.sections = sections
+        chunk.sectionMinY = -1
+        val terrain = SectionTerrain(air, plains)
+        val packed = ByteArray(2048)
+        sections[0] = ChunkSection(terrain, SectionLighting(blockLight = LightLayer(packed)), DataProperties())
+        terrain.blockStates[0] = stone
+        packed[0] = 0x75
+        val heights = IntArray(256) { -16 }
+        chunk.heightmaps.maps = linkedMapOf(HeightmapType.WorldSurface to Heightmap(heights))
+        heights[0] = 2
+        val encoder = ChunkPacketEncoder(
+            ChunkPacketEncoderContext(
+                context.dimensionTypeLayout.chunkLayout, context.dimensionTypeLayout.hasSkyLight, air, plains,
+                registry, noUpdateTags, missingCounts,
+            )
+        )
+        val decoded = decoder(registry).decode(encoder.encode(chunk))
+        assertEquals(stone, decoded.getBlockState(0, -16, 0))
+        assertEquals(5, decoded.getSection(-1)!!.lighting.blockLight!![0])
+        assertEquals(7, decoded.getSection(-1)!!.lighting.blockLight!![1])
+        assertEquals(2, decoded.heightmaps.maps.getValue(HeightmapType.WorldSurface)[0])
+        sections[0] = null
+        val cleared = decoder(registry).decode(encoder.encode(chunk))
+        assertEquals(air, cleared.getBlockState(0, -16, 0))
+        assertNull(cleared.getSection(-1)!!.lighting.blockLight)
+    }
+
+    @Test
     fun blockEntityUpdateTagsReuseCanonicalComponentAndScopedPropertyMappings() {
         val componentId = ComponentId("minecraft:counter")
         val blockEntityTypeId = BlockEntityTypeId("example:machine")
@@ -73,11 +104,11 @@ class ChunkPacketTest {
         val chunk = Chunk(position, context)
         val local = ChunkBlockPosition(15, -15, 2)
         chunk.setBlockState(local, stone)
-        val terrain = assertNotNull(chunk.sections[-1]?.terrain)
+        val terrain = assertNotNull(chunk.getSection(-1)?.terrain)
         terrain.statistics.nonEmptyBlockCount = 17
         terrain.statistics.fluidCount = 3
-        chunk.sections.getValue(-1).lighting.blockLight = LightLayer(0)
-        chunk.sections[-2] = ChunkSection(null, SectionLighting(skyLight = LightLayer(7)), DataProperties())
+        chunk.getSection(-1)!!.lighting.blockLight = LightLayer(0)
+        chunk.setSection(-2, ChunkSection(null, SectionLighting(skyLight = LightLayer(7)), DataProperties()))
         val blockEntity = BlockEntity(BlockEntityTypeId("example:machine"), DataComponentMap(), DataProperties())
         blockEntity.properties[PropertyKey("visible", PropertyTypes.String)] = "hello"
         blockEntity.properties[PropertyKey("secret", PropertyTypes.String)] = "server-only"
@@ -133,13 +164,13 @@ class ChunkPacketTest {
         assertEquals("example:client", decoded.status)
         assertEquals(91, decoded.inhabitedTime)
         assertEquals(stone, decoded.getBlockState(local))
-        assertEquals(17, decoded.sections[-1]?.terrain?.statistics?.nonEmptyBlockCount)
-        assertEquals(3, decoded.sections[-1]?.terrain?.statistics?.fluidCount)
-        assertNull(decoded.sections[-1]?.terrain?.statistics?.tickingBlockCount)
-        assertEquals(0, decoded.sections[-1]?.lighting?.blockLight?.get(0))
-        assertNull(decoded.sections[0]?.lighting?.blockLight)
-        assertEquals(7, decoded.sections[-2]?.lighting?.skyLight?.get(4095))
-        assertNull(decoded.sections[-2]?.terrain)
+        assertEquals(17, decoded.getSection(-1)?.terrain?.statistics?.nonEmptyBlockCount)
+        assertEquals(3, decoded.getSection(-1)?.terrain?.statistics?.fluidCount)
+        assertNull(decoded.getSection(-1)?.terrain?.statistics?.tickingBlockCount)
+        assertEquals(0, decoded.getSection(-1)?.lighting?.blockLight?.get(0))
+        assertNull(decoded.getSection(0)?.lighting?.blockLight)
+        assertEquals(7, decoded.getSection(-2)?.lighting?.skyLight?.get(4095))
+        assertNull(decoded.getSection(-2)?.terrain)
         val received = decoded.blockEntities.getValue(position.block(local))
         assertEquals("hello", received.properties.require(PropertyKey("visible", PropertyTypes.String)))
         assertNull(received.properties["secret"])
@@ -175,8 +206,8 @@ class ChunkPacketTest {
     fun requiredProvidersRunOnlyForUnknownFieldsAndNeverWriteTheirResultsBack() {
         val chunk = Chunk(position, context)
         chunk.setBlockState(ChunkBlockPosition(0, -16, 0), air)
-        val heightmap = Heightmap(ColumnData<Int?>(null))
-        heightmap.firstAvailable[0] = -16
+        val heightmap = Heightmap()
+        heightmap[0] = -16
         chunk.heightmaps.maps[HeightmapType.WorldSurface] = heightmap
         var heights = 0
         var counts = 0
@@ -202,10 +233,10 @@ class ChunkPacketTest {
         val decoded = decoder(registry).decode(encoder.encode(chunk))
         assertEquals(4, counts)
         assertEquals(255, heights)
-        assertNull(chunk.sections[-1]?.terrain?.statistics?.nonEmptyBlockCount)
-        assertNull(heightmap.firstAvailable[1])
-        assertEquals(-16, decoded.heightmaps.maps.getValue(HeightmapType.WorldSurface).firstAvailable[0])
-        assertEquals(-8, decoded.heightmaps.maps.getValue(HeightmapType.WorldSurface).firstAvailable[255])
+        assertNull(chunk.getSection(-1)?.terrain?.statistics?.nonEmptyBlockCount)
+        assertNull(heightmap[1])
+        assertEquals(-16, decoded.heightmaps.maps.getValue(HeightmapType.WorldSurface)[0])
+        assertEquals(-8, decoded.heightmaps.maps.getValue(HeightmapType.WorldSurface)[255])
         assertFailsWith<IllegalStateException> {
             ChunkPacketEncoder(encoder.chunkPacketEncoderContext.copy(chunkPacketRequiredDataProvider = ChunkPacketRequiredDataProvider.RequirePresent)).encode(
                 chunk
@@ -223,7 +254,7 @@ class ChunkPacketTest {
         val terrain = SectionTerrain(air, plains)
         states.forEachIndexed { index, state -> terrain.blockStates[index] = state }
         biomes.forEachIndexed { index, biome -> terrain.biomes[index] = biome }
-        chunk.sections[-1] = ChunkSection(terrain, SectionLighting(), DataProperties())
+        chunk.setSection(-1, ChunkSection(terrain, SectionLighting(), DataProperties()))
         val packet = ChunkPacketEncoder(
             ChunkPacketEncoderContext(
                 context.dimensionTypeLayout.chunkLayout, context.dimensionTypeLayout.hasSkyLight, air, plains,
@@ -237,10 +268,10 @@ class ChunkPacketTest {
         assertIs<PacketPalettedContainer.Direct>(sections[0].states)
         assertIs<PacketPalettedContainer.Direct>(sections[0].biomes)
         val decoded = decoder(registry).decode(packet)
-        val actual = assertNotNull(decoded.sections[-1]?.terrain)
+        val actual = assertNotNull(decoded.getSection(-1)?.terrain)
         states.forEachIndexed { index, state -> assertEquals(state, actual.blockStates[index]) }
         biomes.forEachIndexed { index, biome -> assertEquals(biome, actual.biomes[index]) }
-        assertEquals(300, terrain.blockStates.paletteSnapshot().values.size - 1)
+        assertEquals(300, terrain.blockStates.paletteInfo().values.size - 1)
     }
 
     private fun decoder(packetCodecContext: PacketCodecContext) = ChunkPacketDecoder(

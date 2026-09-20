@@ -41,7 +41,9 @@ class ChunkPacketDecoder(val chunkPacketDecoderContext: ChunkPacketDecoderContex
                     ) { id ->
                         val state = packetCodecContext.blockState(id)
                             ?: error("Block-state registry ID $id has no installed entry")
-                        BlockState(BlockId(state.block.value), StateProperties(state.properties))
+                        val blockId = BlockId(state.block.value)
+                        chunkContext.blockStateDefinitions.getOrPut(blockId) { BlockStateDefinition(blockId) }
+                            .state(StateProperties(state.properties))
                     },
                     decodePacketPalette(
                         section.biomes,
@@ -79,10 +81,10 @@ class ChunkPacketDecoder(val chunkPacketDecoderContext: ChunkPacketDecoderContex
                 (MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)
             )
             missing.heightmaps.maps[mappings.heightmapType(type)] =
-                Heightmap(ColumnData(List((MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)) { index ->
+                Heightmap(IntArray(MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE) { index ->
                     require(values[index] <= chunkLayout.height) { "Packet heightmap exceeds the encoded height range" }
                     MinecraftCoordinates.offsetBlockCoordinate(chunkLayout.minBlockY, values[index])
-                }))
+                })
         }
         val blockEntities = linkedMapOf<BlockPosition, BlockEntity>()
         packet.chunkData.blockEntitiesData.forEach { info ->
@@ -95,9 +97,14 @@ class ChunkPacketDecoder(val chunkPacketDecoderContext: ChunkPacketDecoderContex
             blockEntities[blockPosition] = BlockEntity(blockEntityTypeId, contents.components, contents.properties)
         }
         return Chunk(
-            chunkPosition, chunkContext, sections, blockEntities, missing.heightmaps, missing.lighting,
+            chunkPosition,
+            chunkContext,
+            arrayOfNulls(chunkLayout.sectionCount + 2),
+            blockEntities,
+            missing.heightmaps,
+            missing.lighting,
             missing.blockTicks, missing.fluidTicks, missing.structures, missing.postProcessing, missing.status,
             missing.inhabitedTime, missing.upgradeData, missing.blendingData, missing.properties,
-        )
+        ).also { chunk -> sections.forEach { (y, section) -> chunk.setSection(y, section) } }
     }
 }

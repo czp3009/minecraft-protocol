@@ -43,10 +43,19 @@ data class NbtPropertyReadMappings(val fields: Map<NbtPropertyPath, NbtPropertyR
         is NbtString -> PropertyValue(PropertyTypes.String, nbtTag.value)
         is NbtCompound -> PropertyValue(
             PropertyTypes.Properties,
-            DataProperties(nbtTag.value.mapValuesTo(linkedMapOf()) { (_, value) -> readValue(value) }),
+            DataProperties(linkedMapOf<String, PropertyValue<*>>().also { entries ->
+                nbtTag.forEachEntry { name, value -> entries[name] = readValue(value) }
+            }),
         )
 
-        is NbtList -> PropertyValue(PropertyTypes.List, PropertyList(nbtTag.value.mapTo(mutableListOf(), ::readValue)))
+        is NbtList -> PropertyValue(
+            PropertyTypes.List,
+            PropertyList(mutableListOf<PropertyValue<*>>().also { values -> nbtTag.forEach { values.add(readValue(it)) } })
+        )
+
+        is NbtByteArray -> PropertyValue(PropertyTypes.ByteArray, nbtTag.value)
+        is NbtIntArray -> PropertyValue(PropertyTypes.IntArray, nbtTag.value)
+        is NbtLongArray -> PropertyValue(PropertyTypes.LongArray, nbtTag.value)
         else -> PropertyValue(PropertyTypes.Nbt, nbtTag)
     }
 }
@@ -63,12 +72,13 @@ class NbtPropertyValueWriter<T : Any>(
 class NbtPropertyWriteMappings private constructor(
     val fields: Map<NbtPropertyPath, NbtPropertyWriter>,
     val types: List<NbtPropertyValueWriter<*>>,
-    private val ancestors: List<PropertyWriteVisit>,
+    private val ancestors: PropertyWriteVisit?,
+    private val writersByType: Map<PropertyType<*>, NbtPropertyValueWriter<*>>,
 ) {
     constructor(
         fields: Map<NbtPropertyPath, NbtPropertyWriter> = emptyMap(),
         types: List<NbtPropertyValueWriter<*>> = emptyList(),
-    ) : this(fields, types, emptyList()) {
+    ) : this(fields, types, null, types.associateBy { it.propertyType }) {
         require(types.map { it.propertyType }
             .distinct().size == types.size) { "A property type has multiple NBT writers" }
     }
@@ -84,7 +94,7 @@ class NbtPropertyWriteMappings private constructor(
     /** Callbacks use the supplied mappings to encode children; the operation's cycle path follows those calls. */
     fun writeValue(propertyValue: PropertyValue<*>): NbtTag {
         val nestedMappings = descend(propertyValue.value, propertyValue.propertyType)
-        types.firstOrNull { it.propertyType === propertyValue.propertyType }?.let {
+        writersByType[propertyValue.propertyType]?.let {
             return it.write(propertyValue, nestedMappings)
         }
         return when (propertyValue.propertyType) {
@@ -107,18 +117,25 @@ class NbtPropertyWriteMappings private constructor(
                 NbtList(list.values.map(nestedMappings::writeValue))
             }
 
+            PropertyTypes.ByteArray -> NbtByteArray(propertyValue.get(PropertyTypes.ByteArray))
+            PropertyTypes.IntArray -> NbtIntArray(propertyValue.get(PropertyTypes.IntArray))
+            PropertyTypes.LongArray -> NbtLongArray(propertyValue.get(PropertyTypes.LongArray))
             PropertyTypes.Nbt -> propertyValue.get(PropertyTypes.Nbt)
             else -> throw NbtPropertyFormatException("No NBT mapping for property type ${propertyValue.propertyType.name}")
         }
     }
 
     private fun descend(value: Any, mapping: Any): NbtPropertyWriteMappings {
-        require(ancestors.none { it.value === value && it.mapping == mapping }) { "A property graph contains a cycle" }
-        return NbtPropertyWriteMappings(fields, types, ancestors + PropertyWriteVisit(value, mapping))
+        var ancestor = ancestors
+        while (ancestor != null) {
+            require(ancestor.value !== value || ancestor.mapping != mapping) { "A property graph contains a cycle" }
+            ancestor = ancestor.parent
+        }
+        return NbtPropertyWriteMappings(fields, types, PropertyWriteVisit(value, mapping, ancestors), writersByType)
     }
 }
 
-private data class PropertyWriteVisit(val value: Any, val mapping: Any)
+private class PropertyWriteVisit(val value: Any, val mapping: Any, val parent: PropertyWriteVisit?)
 
 class NbtPropertyFormatException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
 

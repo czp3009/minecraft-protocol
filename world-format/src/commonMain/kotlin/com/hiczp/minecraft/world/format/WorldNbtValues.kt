@@ -39,12 +39,15 @@ internal fun NbtTag.long(): Long =
 internal fun NbtTag.string(): String =
     (this as? NbtString)?.value ?: throw NbtPropertyFormatException("Expected an NBT String")
 
-internal fun packNbtValues(values: IntArray, bits: Int): NbtLongArray {
+internal fun packNbtValues(values: IntArray, bits: Int): NbtLongArray = packNbtValues(values.size, bits) { values[it] }
+
+internal inline fun packNbtValues(size: Int, bits: Int, valueAt: (Int) -> Int): NbtLongArray {
     require(bits in 1..32) { "Packed value width must be in 1..32" }
     val valuesPerLong = Long.SIZE_BITS / bits
-    val packed = LongArray((values.size + valuesPerLong - 1) / valuesPerLong)
+    val packed = LongArray((size + valuesPerLong - 1) / valuesPerLong)
     val mask = (1L shl bits) - 1
-    values.forEachIndexed { index, value ->
+    repeat(size) { index ->
+        val value = valueAt(index)
         require(value.toLong() in 0..mask) { "Packed value $value does not fit $bits bits" }
         val cell = index / valuesPerLong
         packed[cell] = packed[cell] or (value.toLong() shl (index % valuesPerLong * bits))
@@ -63,15 +66,16 @@ internal fun unpackNbtValues(nbtLongArray: NbtLongArray, bits: Int, size: Int): 
     }
 }
 
-internal fun LightLayer.toNbt(): NbtByteArray = NbtByteArray(ByteArray(LIGHT_LAYER_BYTE_COUNT) { index ->
-    (get(index * 2) or (get(index * 2 + 1) shl 4)).toByte()
-})
+internal fun LightLayer.toNbt(): NbtByteArray {
+    val bytes = data
+    require(bytes == null || bytes.size == LIGHT_LAYER_BYTE_COUNT) { "A light layer must contain $LIGHT_LAYER_BYTE_COUNT packed bytes" }
+    require(bytes != null || uniformValue in 0..15) { "Light values must be in 0..15" }
+    return NbtByteArray(bytes ?: toByteArray())
+}
 
 internal fun NbtByteArray.toLightLayer(): LightLayer {
     require(size == LIGHT_LAYER_BYTE_COUNT) { "A light layer must contain $LIGHT_LAYER_BYTE_COUNT packed bytes" }
-    return LightLayer(List(MinecraftCoordinates.SECTION_BLOCK_COUNT) { index ->
-        get(index / 2).toInt() ushr (index % 2 * 4) and 15
-    })
+    return LightLayer(value)
 }
 
 internal fun BlockPosition.toNbt(): NbtIntArray = NbtIntArray(intArrayOf(x, y, z))

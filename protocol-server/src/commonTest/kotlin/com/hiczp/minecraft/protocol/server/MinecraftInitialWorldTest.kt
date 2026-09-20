@@ -37,16 +37,16 @@ class MinecraftInitialWorldTest {
             )
         )
         val decoded = decoder.decode(received)
-        assertEquals(chunk.sections.keys, decoded.sections.keys)
+        assertEquals(chunk.sectionEntries().map { it.first }.toSet(), decoded.sectionEntries().map { it.first }.toSet())
         assertEquals(BlockId("minecraft:grass_block"), decoded.getBlockState(ChunkBlockPosition(0, 64, 0)).blockId)
         assertEquals(BlockId("minecraft:air"), decoded.getBlockState(ChunkBlockPosition(0, 65, 0)).blockId)
-        assertEquals(256, decoded.sections.values.sumOf { it.terrain?.statistics?.nonEmptyBlockCount ?: 0 })
-        assertTrue(decoded.sections.values.all { it.lighting.blockLight?.all { light -> light == 0 } == true })
-        assertTrue(decoded.sections.values.all { it.lighting.skyLight?.all { light -> light == 15 } == true })
+        assertEquals(256, decoded.sections.filterNotNull().sumOf { it.terrain?.statistics?.nonEmptyBlockCount ?: 0 })
+        assertTrue(decoded.sections.filterNotNull().all { it.lighting.blockLight?.all { light -> light == 0 } == true })
+        assertTrue(decoded.sections.filterNotNull().all { it.lighting.skyLight?.all { light -> light == 15 } == true })
         chunk.setBlockState(ChunkBlockPosition(1, 65, 2), chunk.getBlockState(ChunkBlockPosition(0, 64, 0)))
         val changed = decoder.decode(encoder.encode(chunk))
         assertEquals(BlockId("minecraft:grass_block"), changed.getBlockState(ChunkBlockPosition(1, 65, 2)).blockId)
-        assertEquals(256, changed.sections.values.sumOf { it.terrain?.statistics?.nonEmptyBlockCount ?: 0 })
+        assertEquals(256, changed.sections.filterNotNull().sumOf { it.terrain?.statistics?.nonEmptyBlockCount ?: 0 })
     }
 
     @Test

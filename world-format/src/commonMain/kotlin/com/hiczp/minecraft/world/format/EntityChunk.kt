@@ -21,7 +21,7 @@ data class EntityChunk(
 }
 
 /** No owner, reverse vehicle link, UUID index or mutation tracking is installed on this object. */
-data class Entity(
+class Entity(
     var entityTypeId: EntityTypeId,
     var uuid: Uuid,
     var position: EntityVector3d,
@@ -36,14 +36,28 @@ data class Entity(
     val regionPosition: RegionPosition get() = blockPosition.regionPosition
 
     /** Visits each occurrence. Cycles are reported by this traversal, without changing the graph. */
-    fun allEntities(): Sequence<Entity> = traverseEntities(this, emptyList())
+    fun allEntities(): Sequence<Entity> = traverseEntities(this)
 }
 
-private fun traverseEntities(entity: Entity, ancestors: List<Entity>): Sequence<Entity> = sequence {
-    require(ancestors.none { it === entity }) { "An Entity passenger graph contains a cycle" }
-    yield(entity)
-    val path = ancestors + entity
-    entity.passengers?.forEach { passenger -> yieldAll(traverseEntities(passenger, path)) }
+private fun traverseEntities(entity: Entity): Sequence<Entity> = sequence {
+    val path = HashSet<Entity>()
+    val stack = ArrayDeque<Pair<Entity, Iterator<Entity>>>()
+    var current: Entity? = entity
+    while (current != null || stack.isNotEmpty()) {
+        if (current != null) {
+            val next = current
+            require(path.add(next)) { "An Entity passenger graph contains a cycle" }
+            yield(next)
+            stack.addLast(next to next.passengers.orEmpty().iterator())
+            current = null
+        } else {
+            val (parent, children) = stack.last()
+            if (children.hasNext()) current = children.next() else {
+                stack.removeLast()
+                path.remove(parent)
+            }
+        }
+    }
 }
 
 data class EntityVector3d(val x: Double, val y: Double, val z: Double) {

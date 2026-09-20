@@ -58,7 +58,7 @@ internal abstract class WorldNbtWriter<T> : SerializationStrategy<T> {
 
     abstract fun fields(value: T): List<WorldNbtField<*>>
 
-    final override fun serialize(encoder: Encoder, value: T) {
+    override fun serialize(encoder: Encoder, value: T) {
         val fields = fields(value)
         val compositeEncoder = encoder.beginCollection(descriptor, fields.size)
         fields.forEachIndexed { index, field -> field.write(compositeEncoder, index) }

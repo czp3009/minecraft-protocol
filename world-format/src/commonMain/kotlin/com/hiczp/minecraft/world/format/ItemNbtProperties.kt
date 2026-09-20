@@ -27,7 +27,7 @@ internal fun writeItemStack(value: ItemStack, mappings: NbtPropertyWriteMappings
 }
 
 internal fun readItemSlots(nbtList: NbtList, slotCount: Int, mappings: NbtPropertyReadMappings): ItemSlots {
-    val slots = MutableList<ItemStack?>(slotCount) { null }
+    val slots = arrayOfNulls<ItemStack>(slotCount)
     nbtList.forEach { tag ->
         val item = tag.compound()
         val slot = item.requiredTag<NbtByte>("Slot").value.toInt() and 255

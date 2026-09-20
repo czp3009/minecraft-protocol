@@ -189,9 +189,9 @@ class EntityRegionHandleTest {
                     entityChunkNbtDecoder
                 )?.entityChunk?.rootEntities?.single()
             assertNotNull(decodedExternalEntity)
-            assertEquals(
-                NbtByteArray(externalBytes),
-                decodedExternalEntity.properties["test:payload"]?.get(PropertyTypes.Nbt)
+            assertContentEquals(
+                externalBytes,
+                decodedExternalEntity.properties["test:payload"]?.get(PropertyTypes.ByteArray)
             )
             assertEquals(typedNbt, liveEntityRegionHandle.readChunkNbt<LevelDat>(localChunkPosition = typedLocal))
             var escapedLiveEntityRegionReadScope: DecodedEntityRegionReadScope? = null

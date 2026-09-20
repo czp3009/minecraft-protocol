@@ -40,7 +40,7 @@ private class PoiChunkReader(private val context: PoiChunkNbtDecoderContext) :
     override fun begin(): WorldNbtReadState<PoiChunkNbtDecodeResult> =
         object : WorldNbtReadState<PoiChunkNbtDecodeResult> {
             private var dataVersion: Int? = null
-            private var sections: MutableMap<Int, PoiSection>? = null
+            private var sections: Array<PoiSection?>? = null
             private val properties = DataProperties()
 
             override fun read(name: String, worldNbtFieldInput: WorldNbtFieldInput) {
@@ -65,20 +65,22 @@ private class PoiChunkReader(private val context: PoiChunkNbtDecoderContext) :
 }
 
 private class PoiSectionsReader(private val context: PoiChunkNbtDecoderContext) :
-    WorldNbtReader<MutableMap<Int, PoiSection>>() {
-    override fun begin(): WorldNbtReadState<MutableMap<Int, PoiSection>> =
-        object : WorldNbtReadState<MutableMap<Int, PoiSection>> {
-            private val sections = linkedMapOf<Int, PoiSection>()
+    WorldNbtReader<Array<PoiSection?>>() {
+    override fun begin(): WorldNbtReadState<Array<PoiSection?>> =
+        object : WorldNbtReadState<Array<PoiSection?>> {
+            private val sections = arrayOfNulls<PoiSection>(context.poiChunkContext.chunkLayout.sectionCount)
 
             override fun read(name: String, worldNbtFieldInput: WorldNbtFieldInput) {
                 val y = name.toInt()
                 require(y in context.poiChunkContext.chunkLayout) { "POI Section Y $y is outside the dimension" }
                 val section = decodePoiSection(worldNbtFieldInput.tag().compound(), context.nbtPropertyReadMappings)
                 section.records.keys.forEach { requirePoiPosition(it, y, context.chunkPosition) }
-                require(sections.put(y, section) == null) { "Duplicate POI Section Y $y" }
+                val index = y - context.poiChunkContext.chunkLayout.minSectionY
+                require(sections[index] == null) { "Duplicate POI Section Y $y" }
+                sections[index] = section
             }
 
-            override fun finish(): MutableMap<Int, PoiSection> = sections
+            override fun finish(): Array<PoiSection?> = sections
         }
 }
 

@@ -104,12 +104,14 @@ internal fun decodeUpgradeData(
     chunkLayout: ChunkLayout,
     mappings: NbtPropertyReadMappings
 ): UpgradeData {
-    val indices = linkedMapOf<Int, MutableList<LocalBlockPosition>>()
+    val indices = arrayOfNulls<IntArray>(chunkLayout.sectionCount)
     nbtCompound.optionalTag<NbtCompound>("Indices")?.forEachEntry { key, tag ->
         val index = key.toInt()
         require(index in 0 until chunkLayout.sectionCount) { "Upgrade Section index $index is outside the dimension" }
         val array = tag as? NbtIntArray ?: throw NbtPropertyFormatException("Upgrade indices must be NBT Int Arrays")
-        indices[chunkLayout.minSectionY + index] = array.value.mapTo(mutableListOf(), LocalBlockPosition::fromIndex)
+        val values = array.value
+        require(values.all { it in 0 until MinecraftCoordinates.SECTION_BLOCK_COUNT }) { "Upgrade block index is outside the Section" }
+        indices[index] = values
     }
     val sides = when (val tag = nbtCompound["Sides"]) {
         null -> 0
@@ -130,6 +132,7 @@ internal fun decodeUpgradeData(
             FluidId::parse
         ),
         mappings.readProperties(nbtCompound, NbtPropertyScope("upgrade_data"), UPGRADE_NBT_FIELDS),
+        chunkLayout.minSectionY,
     )
 }
 
@@ -140,10 +143,17 @@ internal fun encodeUpgradeData(
 ): NbtCompound {
     val fields = mappings.writeProperties(value.properties, NbtPropertyScope("upgrade_data"), UPGRADE_NBT_FIELDS)
     fields["Sides"] = NbtByte(value.sides.fold(0) { mask, direction -> mask or (1 shl direction.ordinal) }.toByte())
-    if (value.indices.isNotEmpty()) fields["Indices"] = NbtCompound(value.indices.entries.associate { (y, positions) ->
-        require(y in chunkLayout) { "Upgrade Section Y $y is outside the dimension" }
-        (y - chunkLayout.minSectionY).toString() to NbtIntArray(positions.map { it.index }.toIntArray())
-    })
+    val indices = buildMap<String, NbtTag> {
+        value.indices.forEachIndexed { index, positions ->
+            if (positions != null) {
+                val y = value.sectionMinY + index
+                require(y in chunkLayout) { "Upgrade Section Y $y is outside the dimension" }
+                require(positions.all { it in 0 until MinecraftCoordinates.SECTION_BLOCK_COUNT }) { "Upgrade block index is outside the Section" }
+                put((y - chunkLayout.minSectionY).toString(), NbtIntArray(positions))
+            }
+        }
+    }
+    if (indices.isNotEmpty()) fields["Indices"] = NbtCompound(indices)
     if (value.neighborBlockTicks.isNotEmpty()) fields["neighbor_block_ticks"] =
         encodeSavedTicks(value.neighborBlockTicks, mappings, BlockId::toString)
     if (value.neighborFluidTicks.isNotEmpty()) fields["neighbor_fluid_ticks"] =
@@ -152,25 +162,31 @@ internal fun encodeUpgradeData(
 }
 
 internal fun decodeBlendingData(nbtCompound: NbtCompound, mappings: NbtPropertyReadMappings): BlendingData {
-    val heights = nbtCompound.optionalTag<NbtList>("heights")?.value?.mapTo(mutableListOf()) { tag ->
-        val value =
-            (tag as? NbtDouble)?.value ?: throw NbtPropertyFormatException("Blending heights must be NBT Doubles")
-        value.takeUnless { it == Double.MAX_VALUE }
-    } ?: MutableList<Double?>(BLENDING_COLUMN_COUNT) { null }
-    require(heights.size == BLENDING_COLUMN_COUNT) { "Blending data needs $BLENDING_COLUMN_COUNT height columns" }
+    val heights = DoubleArray(BLENDING_COLUMN_COUNT)
+    val known = BooleanArray(BLENDING_COLUMN_COUNT)
+    nbtCompound.optionalTag<NbtList>("heights")?.let { list ->
+        require(list.size == BLENDING_COLUMN_COUNT) { "Blending data needs $BLENDING_COLUMN_COUNT height columns" }
+        repeat(list.size) { index ->
+            val value = (list[index] as? NbtDouble)?.value
+                ?: throw NbtPropertyFormatException("Blending heights must be NBT Doubles")
+            if (value != Double.MAX_VALUE) {
+                heights[index] = value; known[index] = true
+            }
+        }
+    }
     return BlendingData(
         nbtCompound.int("min_section"), nbtCompound.int("max_section"), heights, null, null,
-        mappings.readProperties(nbtCompound, NbtPropertyScope("blending_data"), BLENDING_NBT_FIELDS)
+        mappings.readProperties(nbtCompound, NbtPropertyScope("blending_data"), BLENDING_NBT_FIELDS), known,
     )
 }
 
 internal fun encodeBlendingData(value: BlendingData, mappings: NbtPropertyWriteMappings): NbtCompound {
-    require(value.heights.size == BLENDING_COLUMN_COUNT) { "Blending data needs $BLENDING_COLUMN_COUNT height columns" }
+    require(value.heights.size == BLENDING_COLUMN_COUNT && value.knownHeights.size == BLENDING_COLUMN_COUNT) { "Blending data needs $BLENDING_COLUMN_COUNT height columns" }
     val fields = mappings.writeProperties(value.properties, NbtPropertyScope("blending_data"), BLENDING_NBT_FIELDS)
     fields["min_section"] = NbtInt(value.minSection)
     fields["max_section"] = NbtInt(value.maxSection)
-    if (value.heights.any { it != null }) fields["heights"] =
-        NbtList(value.heights.map { NbtDouble(it ?: Double.MAX_VALUE) })
+    if (value.knownHeights.any { it }) fields["heights"] =
+        NbtList(List(value.heights.size) { NbtDouble(if (value.knownHeights[it]) value.heights[it] else Double.MAX_VALUE) })
     return NbtCompound(fields)
 }
 

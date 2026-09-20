@@ -166,7 +166,7 @@ class UserWorldSimulationTest {
             assertEquals(12L, loaded.chunk.blockEntities.getValue(chestPosition).properties.require(energy))
 
             // Counts are runtime results absent from saved Sections. The application computes them before sending.
-            val terrain = assertNotNull(loaded.chunk.sections[0]?.terrain)
+            val terrain = assertNotNull(loaded.chunk.getSection(0)?.terrain)
             assertNull(terrain.statistics.nonEmptyBlockCount)
             terrain.statistics.nonEmptyBlockCount = terrain.blockStates.count { it != air }
             terrain.statistics.fluidCount = 0
@@ -176,7 +176,7 @@ class UserWorldSimulationTest {
             val clientChunk = chunkPacketDecoder.decode(receivedChunkPacket)
             assertEquals(chest, clientChunk.getBlockState(chestPosition))
             assertEquals(hopper, clientChunk.getBlockState(hopperPosition))
-            assertEquals(2, clientChunk.sections[0]?.terrain?.statistics?.nonEmptyBlockCount)
+            assertEquals(2, clientChunk.getSection(0)?.terrain?.statistics?.nonEmptyBlockCount)
             val clientChest = clientChunk.blockEntities.getValue(chestPosition)
             assertNull(clientChest.properties[itemsKey])
             assertNull(clientChest.properties[energy])
@@ -189,7 +189,7 @@ class UserWorldSimulationTest {
                 itemStackPacketEncoder.encode(null),
             )
             val receivedContents = assertIs<ClientboundContainerSetContentPacket>(transmit(contents))
-            val clientMenu = ItemSlots(receivedContents.items.mapTo(mutableListOf(), itemStackPacketDecoder::decode))
+            val clientMenu = ItemSlots(receivedContents.items.map(itemStackPacketDecoder::decode).toTypedArray())
             assertEquals(63, clientMenu.size)
             assertEquals(6, clientMenu[0]?.count)
             assertEquals(serverInventory.slots[2], clientMenu[2])
@@ -240,7 +240,7 @@ class UserWorldSimulationTest {
             assertEquals(air, loaded.getBlockState(chestPosition))
             assertEquals(9, view.slots[4]?.count)
 
-            val terrain = assertNotNull(chunk.sections[0]?.terrain)
+            val terrain = assertNotNull(chunk.getSection(0)?.terrain)
             terrain.statistics.nonEmptyBlockCount = 1
             terrain.statistics.fluidCount = 0
             val clientChunk = chunkPacketDecoder.decode(

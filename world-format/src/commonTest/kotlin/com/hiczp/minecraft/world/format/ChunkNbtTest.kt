@@ -27,6 +27,38 @@ class ChunkNbtTest {
     )
 
     @Test
+    fun encodingReadsReplacedArraysAndNestedAliases() {
+        val chunk = Chunk(ChunkPosition(0, 0), context)
+        val packed = ByteArray(2048)
+        val light = LightLayer(packed)
+        chunk.sections = arrayOf(ChunkSection(null, SectionLighting(blockLight = light), DataProperties()))
+        chunk.sectionMinY = 0
+        val samples = intArrayOf(1, 2)
+        val values = mutableListOf(PropertyValue(PropertyTypes.IntArray, samples))
+        val propertyList = PropertyList(values.toMutableList())
+        chunk.properties["samples"] = PropertyValue(PropertyTypes.List, propertyList)
+        samples[1] = 99
+        packed[0] = 0x73
+        val heights = IntArray(256) { 10 }
+        chunk.heightmaps.maps[HeightmapType.WorldSurface] = Heightmap(heights)
+        heights[4] = 22
+        val decoded = decoder.decodeDocument(encoder.encodeDocument(chunk)).chunk
+        assertEquals(3, decoded.getSection(0)!!.lighting.blockLight!![0])
+        assertEquals(7, decoded.getSection(0)!!.lighting.blockLight!![1])
+        assertEquals(22, decoded.heightmaps.maps.getValue(HeightmapType.WorldSurface)[4])
+        val saved = decoded.properties["samples"]!!.get(PropertyTypes.List)
+        assertContentEquals(intArrayOf(1, 99), saved.values[0].get(PropertyTypes.IntArray))
+        propertyList.values[0] = PropertyValue(PropertyTypes.IntArray, intArrayOf(42))
+        light.data = ByteArray(2048) { 0x11 }
+        val replaced = decoder.decodeDocument(encoder.encodeDocument(chunk)).chunk
+        assertEquals(1, replaced.getSection(0)!!.lighting.blockLight!![0])
+        assertContentEquals(
+            intArrayOf(42),
+            replaced.properties["samples"]!!.get(PropertyTypes.List).values[0].get(PropertyTypes.IntArray)
+        )
+    }
+
+    @Test
     fun binaryTreeAndCompressedPathsShareTheDomainConversion() {
         val chunk = Chunk(ChunkPosition(-25, 43), context)
         val stone = BlockState(BlockId.parse("stone"))
@@ -64,8 +96,8 @@ class ChunkNbtTest {
         )
         val chunk = Chunk(ChunkPosition(0, 0), context)
         chunk.properties["fabric:attachments"] = readMappings.readValue(NbtCompound(mapOf("example:counter" to nested)))
-        chunk.sections[-5] = ChunkSection(null, SectionLighting(skyLight = LightLayer(0)), DataProperties())
-        chunk.sections.getValue(-5).properties["example:section"] = readMappings.readValue(nested)
+        chunk.setSection(-5, ChunkSection(null, SectionLighting(skyLight = LightLayer(0)), DataProperties()))
+        chunk.getSection(-5)!!.properties["example:section"] = readMappings.readValue(nested)
         val position = BlockPosition(1, 2, 3)
         chunk.blockEntities[position] = BlockEntity(
             BlockEntityTypeId.parse("example:machine"),
@@ -100,7 +132,7 @@ class ChunkNbtTest {
         )
         val result = decoder.decodeDocument(document)
         assertFalse(result.chunk.isFullyGenerated)
-        assertTrue(result.chunk.sections.isEmpty())
+        assertTrue(result.chunk.sections.all { it == null })
         assertEquals(42, result.chunkNbtMetadata.dataVersion)
         assertFalse("carving_mask" in result.chunk.properties.entries)
         val output = encoder.encodeDocument(result.chunk)
@@ -207,25 +239,36 @@ class ChunkNbtTest {
     @Test
     fun auxiliaryStateKeepsAbsoluteHeightsLightBoundariesAndPositionOrders() {
         val chunk = Chunk(ChunkPosition(0, 0), context)
-        val firstAvailable = ColumnData<Int?>(-64)
+        val firstAvailable = Heightmap(-64)
         firstAvailable[2, 3] = 100
-        chunk.heightmaps.maps[HeightmapType.MotionBlocking] = Heightmap(firstAvailable)
+        chunk.heightmaps.maps[HeightmapType.MotionBlocking] = firstAvailable
         val layer = LightLayer(0)
         layer[LocalBlockPosition(1, 2, 3)] = 15
-        chunk.sections[-5] = ChunkSection(null, SectionLighting(blockLight = layer), DataProperties())
-        chunk.postProcessing.positions[-4] = mutableListOf(LocalBlockPosition(1, 2, 3), LocalBlockPosition(1, 2, 3))
+        chunk.setSection(-5, ChunkSection(null, SectionLighting(blockLight = layer), DataProperties()))
+        chunk.postProcessing.positions[0] = mutableListOf(LocalBlockPosition(1, 2, 3), LocalBlockPosition(1, 2, 3))
         chunk.upgradeData = UpgradeData(
-            linkedSetOf(Direction8.NORTH_WEST), linkedMapOf(-4 to mutableListOf(LocalBlockPosition(1, 2, 3))),
-            mutableListOf(), mutableListOf()
+            linkedSetOf(Direction8.NORTH_WEST),
+            arrayOfNulls<IntArray>(context.dimensionTypeLayout.chunkLayout.sectionCount).also {
+                it[0] = intArrayOf(LocalBlockPosition(1, 2, 3).index)
+            },
+            mutableListOf(),
+            mutableListOf(),
+            sectionMinY = -4
         )
-        chunk.blendingData = BlendingData(-4, 0, MutableList(16) { if (it == 0) 3.0 else null }, null, null)
+        chunk.blendingData = BlendingData(
+            -4,
+            0,
+            DoubleArray(16) { if (it == 0) 3.0 else 0.0 },
+            null,
+            null,
+            knownHeights = BooleanArray(16) { it == 0 })
         val output = encoder.encodeDocument(chunk)
         assertEquals(NbtShort(0x321), output.root.requiredTag<NbtList>("PostProcessing")[0].list()[0])
         val result = decoder.decodeDocument(output).chunk
-        assertEquals(100, result.heightmaps.maps.getValue(HeightmapType.MotionBlocking).firstAvailable[2, 3])
-        assertEquals(-64, result.heightmaps.maps.getValue(HeightmapType.MotionBlocking).firstAvailable[0, 0])
-        assertNull(result.sections.getValue(-5).terrain)
-        assertEquals(15, result.sections.getValue(-5).lighting.blockLight?.get(LocalBlockPosition(1, 2, 3)))
+        assertEquals(100, result.heightmaps.maps.getValue(HeightmapType.MotionBlocking)[2, 3])
+        assertEquals(-64, result.heightmaps.maps.getValue(HeightmapType.MotionBlocking)[0, 0])
+        assertNull(result.getSection(-5)!!.terrain)
+        assertEquals(15, result.getSection(-5)!!.lighting.blockLight?.get(LocalBlockPosition(1, 2, 3)))
         assertEquals(chunk.postProcessing, result.postProcessing)
         assertEquals(chunk.upgradeData, result.upgradeData)
         assertEquals(chunk.blendingData, result.blendingData)

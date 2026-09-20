@@ -14,7 +14,8 @@ internal fun decodeHeightmaps(
             val values =
                 unpackNbtValues(tag, bits, MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE)
             require(values.all { it in 0..chunkLayout.height }) { "Heightmap values exceed the dimension height" }
-            heightmaps.maps[HeightmapType(name)] = Heightmap(ColumnData(values.map { it + chunkLayout.minBlockY }))
+            heightmaps.maps[HeightmapType(name)] =
+                Heightmap(IntArray(values.size) { values[it] + chunkLayout.minBlockY })
         } else {
             heightmaps.properties[name] = mappings.read(NbtPropertyScope("heightmaps"), name, tag)
         }
@@ -33,7 +34,7 @@ internal fun encodeHeightmaps(
     heightmaps.maps.forEach { (type, heightmap) ->
         val values = IntArray(MinecraftCoordinates.SECTION_SIDE * MinecraftCoordinates.SECTION_SIDE) { index ->
             val y =
-                requireNotNull(heightmap.firstAvailable[index]) { "Heightmap ${type.serializationKey} column $index is unknown" }
+                requireNotNull(heightmap[index]) { "Heightmap ${type.serializationKey} column $index is unknown" }
             val height = y.toLong() - chunkLayout.minBlockY
             require(height in 0..chunkLayout.height.toLong()) { "Heightmap Y $y exceeds the dimension bounds" }
             height.toInt()
@@ -100,23 +101,26 @@ internal fun <T : Any> encodeScheduledTicks(
 
 internal fun decodePostProcessing(nbtList: NbtList, chunkLayout: ChunkLayout): ChunkPostProcessing {
     require(nbtList.size <= chunkLayout.sectionCount) { "PostProcessing exceeds the dimension Section count" }
-    return ChunkPostProcessing(linkedMapOf<Int, MutableList<LocalBlockPosition>>().also { positions ->
-        nbtList.value.forEachIndexed { index, tag ->
-            val values = tag.list().value.mapTo(mutableListOf()) { position ->
-                val packed = (position as? NbtShort)?.value?.toInt()
-                    ?: throw NbtPropertyFormatException("PostProcessing positions must be NBT Shorts")
-                // ChunkAccess.packOffsetCoordinates uses X, Y, Z nibbles, unlike the palette's X, Z, Y order.
-                LocalBlockPosition(packed and 15, packed shr 4 and 15, packed shr 8 and 15)
-            }
-            if (values.isNotEmpty()) positions[chunkLayout.minSectionY + index] = values
+    val positions = arrayOfNulls<MutableList<LocalBlockPosition>>(chunkLayout.sectionCount)
+    repeat(nbtList.size) { index ->
+        val values = mutableListOf<LocalBlockPosition>()
+        nbtList[index].list().forEach { position ->
+            val packed = (position as? NbtShort)?.value?.toInt()
+                ?: throw NbtPropertyFormatException("PostProcessing positions must be NBT Shorts")
+            values.add(LocalBlockPosition(packed and 15, packed shr 4 and 15, packed shr 8 and 15))
         }
-    })
+        if (values.isNotEmpty()) positions[index] = values
+    }
+    return ChunkPostProcessing(chunkLayout.minSectionY, positions)
 }
 
 internal fun encodePostProcessing(value: ChunkPostProcessing, chunkLayout: ChunkLayout): NbtList {
-    require(value.positions.keys.all { it in chunkLayout }) { "PostProcessing contains an out-of-range Section" }
+    value.positions.forEachIndexed { index, positions ->
+        require(positions.isNullOrEmpty() || value.sectionMinY + index in chunkLayout) { "PostProcessing contains an out-of-range Section" }
+    }
     return NbtList(List(chunkLayout.sectionCount) { index ->
-        NbtList(value.positions[chunkLayout.minSectionY + index].orEmpty().map { position ->
+        NbtList(
+            value.positions.getOrNull(chunkLayout.minSectionY + index - value.sectionMinY).orEmpty().map { position ->
             NbtShort((position.x or (position.y shl 4) or (position.z shl 8)).toShort())
         })
     })

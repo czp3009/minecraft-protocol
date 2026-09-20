@@ -255,7 +255,7 @@ class EntityPacketTest {
 
     @Test
     fun missingEntityFactsAreProvidedWhileSpawnDataIsAlwaysProjected() {
-        val entity = entity(3).copy(passengers = null)
+        val entity = entity(3).also { it.passengers = null }
         val pairing = EntityPairingData(1, emptyMap(), null, null)
         assertFailsWith<IllegalStateException> { encoder.encode(entity, pairing) }
         val calls = mutableListOf<String>()

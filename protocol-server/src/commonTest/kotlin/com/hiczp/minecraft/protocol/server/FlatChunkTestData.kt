@@ -34,18 +34,20 @@ internal fun createFlatChunk(
             0,
             0
         )
-        chunk.sections[sectionY] = ChunkSection(
+        chunk.setSection(
+            sectionY, ChunkSection(
             terrain,
             SectionLighting(
                 LightLayer(0),
                 if (chunkContext.dimensionTypeLayout.hasSkyLight) LightLayer(if (fullBrightSky) 15 else 0) else null,
             ),
             DataProperties(),
+            )
         )
     }
     val height = if (hasSurface) groundY + 1 else chunkLayout.minBlockY
-    chunk.heightmaps.maps[HeightmapType.WorldSurface] = Heightmap(ColumnData<Int?>(height))
-    chunk.heightmaps.maps[HeightmapType.MotionBlocking] = Heightmap(ColumnData<Int?>(height))
+    chunk.heightmaps.maps[HeightmapType.WorldSurface] = Heightmap(height)
+    chunk.heightmaps.maps[HeightmapType.MotionBlocking] = Heightmap(height)
     chunk.lighting.isLightCorrect = true
     return chunk
 }

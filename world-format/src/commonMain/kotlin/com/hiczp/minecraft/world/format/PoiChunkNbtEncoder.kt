@@ -32,14 +32,14 @@ private class PoiChunkWriter(private val context: PoiChunkNbtEncoderContext) : W
     override fun fields(value: PoiChunk): List<WorldNbtField<*>> = buildList {
         val chunkPosition = value.chunkPosition
         add(nbtField("DataVersion", NbtInt(context.poiChunkNbtMetadata.dataVersion)))
-        add(WorldNbtField("Sections", object : WorldNbtWriter<MutableMap<Int, PoiSection>>() {
-            override fun fields(value: MutableMap<Int, PoiSection>): List<WorldNbtField<*>> =
-                value.entries.sortedBy { it.key }.map { (y, section) ->
+        add(WorldNbtField("Sections", object : WorldNbtWriter<PoiChunk>() {
+            override fun fields(value: PoiChunk): List<WorldNbtField<*>> =
+                value.sectionEntries().map { (y, section) ->
                     require(y in context.chunkLayout) { "POI Section Y $y is outside the dimension" }
                     section.records.keys.forEach { requirePoiPosition(it, y, chunkPosition) }
                     nbtField(y.toString(), encodePoiSection(section, context.nbtPropertyWriteMappings))
-                }
-        }, value.sections))
+                }.toList()
+        }, value))
         context.nbtPropertyWriteMappings.writeProperties(
             value.properties,
             NbtPropertyScope.PoiChunk,

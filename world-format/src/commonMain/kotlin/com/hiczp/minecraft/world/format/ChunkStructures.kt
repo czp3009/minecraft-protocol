@@ -37,7 +37,18 @@ data class StructurePiece(
     var properties: DataProperties = DataProperties(),
 )
 
-data class ChunkPostProcessing(var positions: MutableMap<Int, MutableList<LocalBlockPosition>> = linkedMapOf())
+/** Ordered local positions per Section; slot zero has absolute [sectionMinY]. Arrays and lists remain caller-owned. */
+data class ChunkPostProcessing(
+    var sectionMinY: Int = 0,
+    var positions: Array<MutableList<LocalBlockPosition>?> = emptyArray(),
+) {
+    override fun equals(other: Any?): Boolean =
+        other is ChunkPostProcessing &&
+                sectionMinY == other.sectionMinY &&
+                positions.contentEquals(other.positions)
+
+    override fun hashCode(): Int = 31 * sectionMinY + positions.contentHashCode()
+}
 
 enum class TickPriority(val value: Int) {
     EXTREMELY_HIGH(-3), VERY_HIGH(-2), HIGH(-1), NORMAL(0), LOW(1), VERY_LOW(2), EXTREMELY_LOW(3),
@@ -62,14 +73,33 @@ data class SavedTick<T : Any>(
 
 data class UpgradeData(
     var sides: MutableSet<Direction8>,
-    var indices: MutableMap<Int, MutableList<LocalBlockPosition>>,
+    var indices: Array<IntArray?>,
     var neighborBlockTicks: MutableList<SavedTick<BlockId>>,
     var neighborFluidTicks: MutableList<SavedTick<FluidId>>,
     var properties: DataProperties = DataProperties(),
-)
+    var sectionMinY: Int = 0,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is UpgradeData &&
+                sides == other.sides &&
+                indices.contentDeepEquals(other.indices) &&
+                neighborBlockTicks == other.neighborBlockTicks &&
+                neighborFluidTicks == other.neighborFluidTicks &&
+                properties == other.properties &&
+                sectionMinY == other.sectionMinY
+
+    override fun hashCode(): Int {
+        var result = sides.hashCode()
+        result = 31 * result + indices.contentDeepHashCode()
+        result = 31 * result + neighborBlockTicks.hashCode()
+        result = 31 * result + neighborFluidTicks.hashCode()
+        result = 31 * result + properties.hashCode()
+        return 31 * result + sectionMinY
+    }
+}
 
 /**
- * The old-generation vertical interval is [minSection, maxSection). Null height samples mean NO_VALUE.
+ * The old-generation vertical interval is [minSection, maxSection). Unknown height samples have a false entry in knownHeights.
  * Biome and density columns are runtime data and remain null until supplied by the caller.
  *
  * Official BlendingData uses 16 perimeter columns in quart coordinates. For indices 0..6, x = max(3 - i, 0)
@@ -79,13 +109,33 @@ data class UpgradeData(
  *
  * A biome column has (maxSection - minSection) * 4 entries indexed by absolute quart Y - minSection * 4.
  * A density column has (maxSection - minSection) * 2 entries, spaced eight blocks apart; its index is absolute
- * density-cell Y - (minSection * 2 + 1). Null columns mean unavailable samples, independently of null heights.
+ * density-cell Y - (minSection * 2 + 1). Null columns mean unavailable samples, independently of unknown heights.
  */
 data class BlendingData(
     var minSection: Int,
     var maxSection: Int,
-    var heights: MutableList<Double?>,
-    var biomes: MutableList<MutableList<BiomeId>?>?,
-    var densities: MutableList<MutableList<Double>?>?,
+    var heights: DoubleArray,
+    var biomes: Array<MutableList<BiomeId>?>?,
+    var densities: Array<DoubleArray?>?,
     var properties: DataProperties = DataProperties(),
-)
+    var knownHeights: BooleanArray = BooleanArray(heights.size) { true },
+) {
+    override fun equals(other: Any?): Boolean =
+        other is BlendingData &&
+                minSection == other.minSection &&
+                maxSection == other.maxSection &&
+                heights.contentEquals(other.heights) &&
+                biomes.contentDeepEquals(other.biomes) &&
+                densities.contentDeepEquals(other.densities) &&
+                properties == other.properties &&
+                knownHeights.contentEquals(other.knownHeights)
+
+    override fun hashCode(): Int {
+        var result = 31 * minSection + maxSection
+        result = 31 * result + heights.contentHashCode()
+        result = 31 * result + biomes.contentDeepHashCode()
+        result = 31 * result + densities.contentDeepHashCode()
+        result = 31 * result + properties.hashCode()
+        return 31 * result + knownHeights.contentHashCode()
+    }
+}

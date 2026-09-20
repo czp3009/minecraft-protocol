@@ -11,16 +11,33 @@ sealed interface ComponentPatchEntry {
     data object Removed : ComponentPatchEntry
 }
 
-data class ItemStack(
+/**
+ * Editable stack contents with no inventory owner. Constructors retain references; [copy] explicitly detaches mutable
+ * built-in children. Equality compares current contents, so mutable stacks must not be used as stable hash keys.
+ */
+class ItemStack(
     var itemId: ItemId,
     var count: Int,
     var components: DataComponentPatch = DataComponentPatch(),
     var properties: DataProperties = DataProperties(),
-)
+) {
+    /** Copies mutable built-in values directly; custom values need an explicit copier, never an NBT round trip. */
+    fun copy(count: Int = this.count, propertyCopyContext: PropertyCopyContext = PropertyCopyContext()): ItemStack =
+        propertyCopyContext.copyItemStack(this).also { it.count = count }
+
+    override fun equals(other: Any?): Boolean = other is ItemStack && itemId == other.itemId && count == other.count &&
+            components == other.components && properties == other.properties
+
+    override fun hashCode(): Int =
+        31 * (31 * (31 * itemId.hashCode() + count) + components.hashCode()) + properties.hashCode()
+}
 
 /** Fixed slot meaning belongs to the enclosing inventory. A null entry is an empty slot. */
-data class ItemSlots(var items: MutableList<ItemStack?>) {
-    constructor(slotCount: Int) : this(MutableList(slotCount) { null })
+data class ItemSlots(var items: Array<ItemStack?>) {
+    constructor(slotCount: Int) : this(arrayOfNulls<ItemStack>(slotCount))
+
+    override fun equals(other: Any?): Boolean = other is ItemSlots && items.contentEquals(other.items)
+    override fun hashCode(): Int = items.contentHashCode()
 
     val size: Int get() = items.size
 

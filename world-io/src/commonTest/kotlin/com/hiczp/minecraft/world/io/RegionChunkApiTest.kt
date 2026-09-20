@@ -78,7 +78,7 @@ class RegionChunkApiTest {
             assertEquals(firstPosition, decoded.chunk.chunkPosition)
             assertEquals(STONE, decoded.chunk.getBlockState(ChunkBlockPosition(15, TEST_LAYOUT.minBlockY, 0)))
             assertEquals(STONE, decoded.chunk.getBlockState(absoluteBlock))
-            assertTrue(decoded.chunk.sections.containsKey(absoluteBlock.sectionPosition.y))
+            assertTrue(decoded.chunk.getSection(absoluteBlock.sectionPosition.y) != null)
             assertEquals(
                 BiomeId("example:crystal_caves"),
                 decoded.chunk.getBiome(ChunkBlockPosition(12, TEST_LAYOUT.minBlockY, 12))

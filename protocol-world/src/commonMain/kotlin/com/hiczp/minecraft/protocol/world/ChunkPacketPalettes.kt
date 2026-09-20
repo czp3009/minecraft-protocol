@@ -11,8 +11,8 @@ internal fun <T : Any> encodePacketPalette(
     maximumIndirectBits: Int,
     rawId: (T) -> Int,
 ): PacketPalettedContainer {
-    val palette = palettedContainer.compactSnapshot()
-    val registryIds = palette.values.map(rawId)
+    val palette = palettedContainer.compactCopy()
+    val registryIds = palette.paletteInfo().values.map(rawId)
     if (registryIds.size == 1) return PacketPalettedContainer.Single(registryIds.single())
     val logicalBits = packetValueBits(registryIds.size)
     return if (logicalBits <= maximumIndirectBits) {
@@ -20,11 +20,11 @@ internal fun <T : Any> encodePacketPalette(
         PacketPalettedContainer.Indirect(
             bits,
             registryIds,
-            packPacketValues(bits, palette.entryCount) { palette.ids[it] })
+            packPacketValues(bits, palette.size) { palette.paletteIndex(it) })
     } else {
         require(registrySize > 0) { "A direct palette requires a non-empty registry" }
         PacketPalettedContainer.Direct(
-            packPacketValues(packetValueBits(registrySize), palette.entryCount) { registryIds[palette.ids[it]] },
+            packPacketValues(packetValueBits(registrySize), palette.size) { registryIds[palette.paletteIndex(it)] },
         )
     }
 }
@@ -44,10 +44,12 @@ internal fun <T : Any> decodePacketPalette(
     is PacketPalettedContainer.Direct -> {
         val registryIds = unpackPacketValues(packetPalettedContainer.data, packetValueBits(registrySize), entryCount)
         val palette = mutableListOf<T>()
-        val indices = mutableMapOf<T, Int>()
+        val indices = HashMap<Int, Int>()
         val ids = IntArray(entryCount) { index ->
-            val resolved = value(registryIds[index])
-            indices.getOrPut(resolved) { palette.add(resolved); palette.lastIndex }
+            indices.getOrPut(registryIds[index]) {
+                palette.add(value(registryIds[index]))
+                palette.lastIndex
+            }
         }
         PalettedContainer.fromPalette(palette, ids)
     }

@@ -31,26 +31,46 @@
 
 ## Mutable domain values
 
-- `Chunk`, `EntityChunk` and `PoiChunk` retain absolute Chunk positions. Section Y, Block Entity/POI positions and
-  named definition identities belong to enclosing map keys, not duplicate entry fields. Absolute helpers validate
-  membership and delegate to local operations.
+- `Chunk`, `EntityChunk` and `PoiChunk` retain absolute Chunk positions. Terrain/POI Sections use nullable arrays
+  with independently stored absolute origins; replacing a context does not remap array slots. Block Entity/POI
+  positions and named definition identities belong to enclosing map keys, not duplicate entry fields.
 - `Chunk` models completed data, without `ProtoChunk` progression. NBT decoding attempts the completed schema even
   for a nonterminal `status`, which it exposes for caller decisions. It neither rejects by status nor preserves all
   unfinished generation data; lossless preservation of that input requires raw NBT. The exact saved `DUMMY` Block
   Entity ID is a generation placeholder: omit it without constructing game content or weakening content-ID validation.
 - Full constructors retain supplied mutable references; empty constructors allocate empty data. Deletion changes
-  reachability only. Do not add detach tracking, hidden indexes, invalidation or graph ownership.
-- `ChunkContext` contains raw-ID-free dimension/layout and default block/biome facts. Its reference on a Chunk is
-  replaceable. A decoder attaches its context's same reference; an encoder uses only its explicitly supplied context.
+  reachability only. These graphs are not thread-safe; callers coordinate mutations and related data. Do not add
+  detach tracking, derived-data invalidation or graph ownership. Dense data uses arrays/primitive storage; sparse
+  identifiers use standard maps. Evaluate common official access/update paths before adding specialized containers.
+- `ChunkContext` contains raw-ID-free dimension/layout, default block/biome facts and caller-scoped state families.
+  Its reference on a Chunk is replaceable. A decoder attaches its context's same reference; an encoder uses only its
+  explicitly supplied context.
 - `DataProperties.entries` is the single dynamic store. Typed keys check token identity and share values with named
-  access; mappings and wrappers keep no second copy. `BlockState` and its canonical string properties are immutable.
+  access; same-token typed writes reuse mutable cells. NBT array properties use mutable primitive arrays. Mappings
+  and wrappers keep no second copy. `BlockState` and its canonical string properties are immutable, with scoped
+  sharing/transition lookup; never use mutable values as palette hash keys. `Entity` has reference identity.
+- `ItemStack.copy` detaches built-in mutable property/component trees without serialization; custom tokens require
+  explicit copy callbacks. It copies each mutable occurrence independently and rejects cycles. Ordinary constructor
+  aliasing and shallow data-class copies remain separate contracts.
 - Preserve primitive NBT widths and unknown nested fields at each open owner. Structural field names cannot also
   appear in that owner's properties. Custom writers pass the supplied mapping to child writes so operation-local
   cycle detection covers callbacks without installing ownership on the graph.
 - Missing counts, individual height samples, light layers, passenger knowledge and materialized attributes differ from
   known empty values. Shared attribute defaults and POI definitions remain separate from current instances.
-- Palette mutation preserves stable indices, which are not registry IDs. Encoding uses a non-mutating compact
-  snapshot; `compact()` is the explicit mutating operation.
+- Palette mutation preserves stable indices, which are not registry IDs. `compact()` changes the container in place
+  and replaces historical collection capacity. `copy()` preserves current storage/history in an independent container;
+  `compactCopy()` directly builds an editable compact container and is the non-mutating encoding path. Both share
+  elements. Keep compaction/copying on `PalettedContainer`, without a separate public compact-snapshot representation.
+  `paletteInfo()` is diagnostics only; `paletteIndex()` reads current local IDs. Ordinary writes, including fill,
+  intentionally retain history; do not add automatic compaction. Applications may compact
+  before taking a detached copy for background saving, but codecs never require or perform that lifecycle policy.
+  Keep uniform storage allocation-free per cell and avoid palette-size linear searches on each update or encoding
+  sample. Only coupled palette/state internals are encapsulated;
+  plain arrays, maps and lists remain replaceable and encoders read their current contents.
+
+- Weigh precomputation against object count and retained memory: shared immutable layouts may retain derived bounds
+  and ranges; do not add equivalent caches to every coordinate or mutable graph node. Open generic scalar properties
+  may box values; cell reuse is not a zero-allocation guarantee and does not require specialized scalar storage.
 
 ## Domain NBT codecs
 

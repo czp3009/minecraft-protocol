@@ -95,15 +95,19 @@ private fun readEffectState(nbtCompound: NbtCompound, mappings: NbtPropertyReadM
 
 internal fun writeEntityEffects(value: EntityEffects, mappings: NbtPropertyWriteMappings): NbtList =
     NbtList(value.entries.map { (id, effect) ->
-        NbtCompound(writeEffectState(effect, mappings, emptyList()).value + ("id" to NbtString(id.toString())))
+        NbtCompound(writeEffectState(effect, mappings, null).value + ("id" to NbtString(id.toString())))
     })
 
 private fun writeEffectState(
     value: EffectState,
     mappings: NbtPropertyWriteMappings,
-    ancestors: List<EffectState>
+    ancestors: EffectVisit?
 ): NbtCompound {
-    require(ancestors.none { it === value }) { "An effect's hidden-effect chain contains a cycle" }
+    var current = ancestors
+    while (current != null) {
+        require(current.value !== value) { "An effect's hidden-effect chain contains a cycle" }
+        current = current.parent
+    }
     require(value.amplifier in 0..255) { "Effect amplifier must be in 0..255" }
     val fields = mappings.writeProperties(value.properties, NbtPropertyScope("effect"), EFFECT_FIELDS)
     if (value.amplifier != 0) fields["amplifier"] = NbtByte(value.amplifier.toByte())
@@ -111,9 +115,11 @@ private fun writeEffectState(
     if (value.ambient) fields["ambient"] = NbtByte(1)
     if (!value.visible) fields["show_particles"] = NbtByte(0)
     fields["show_icon"] = NbtByte(if (value.showIcon) 1 else 0)
-    value.hiddenEffect?.let { fields["hidden_effect"] = writeEffectState(it, mappings, ancestors + value) }
+    value.hiddenEffect?.let { fields["hidden_effect"] = writeEffectState(it, mappings, EffectVisit(value, ancestors)) }
     return NbtCompound(fields)
 }
+
+private class EffectVisit(val value: EffectState, val parent: EffectVisit?)
 
 private val ATTRIBUTE_FIELDS = setOf("id", "base", "modifiers")
 private val MODIFIER_FIELDS = setOf("id", "amount", "operation")

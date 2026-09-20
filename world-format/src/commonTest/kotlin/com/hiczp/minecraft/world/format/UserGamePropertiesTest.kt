@@ -12,7 +12,7 @@ class UserGamePropertiesTest {
         assertFailsWith<IllegalArgumentException> { UserGameProperties.writeMappings.writeValue(value) }
 
         itemStack.properties.entries.clear()
-        val slots = ItemSlots(mutableListOf(itemStack, itemStack))
+        val slots = ItemSlots(arrayOf(itemStack, itemStack))
         val output =
             UserGameProperties.writeMappings.writeValue(PropertyValue(PropertyTypes.ItemSlots, slots)) as NbtList
         assertEquals(2, output.size)

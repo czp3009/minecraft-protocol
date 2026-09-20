@@ -37,8 +37,8 @@ class PoiRegionHandleTest {
         val poiChunk = PoiChunk(
             chunkPosition = chunkPosition,
             poiChunkContext = poiChunkContext,
-            sections = linkedMapOf(
-                4 to PoiSection(
+            sections = arrayOf(
+                PoiSection(
                     isValid = true,
                     records = linkedMapOf(
                         BlockPosition(chunkPosition.x * 16 + 1, 65, chunkPosition.z * 16 + 2) to
@@ -48,6 +48,7 @@ class PoiRegionHandleTest {
                 ),
             ),
             properties = DataProperties(),
+            sectionMinY = 4,
         )
         val poiDocument = poiChunkNbtEncoder.encodeDocument(poiChunk)
         val minecraftWorldAccess = MinecraftWorldAccess.create(minecraftWorldPaths, fakeFileSystem)
@@ -70,10 +71,10 @@ class PoiRegionHandleTest {
                 assertEquals(levelDat, readChunkNbt(typedLocalChunkPosition, LevelDat.serializer()))
                 assertEquals(levelDat, readChunkNbt<LevelDat>(typedChunkPosition))
             }
-            assertEquals(1, poiRegionHandle.readChunk(poiChunkNbtDecoder)?.poiChunk?.sections?.get(4)?.records?.size)
+            assertEquals(1, poiRegionHandle.readChunk(poiChunkNbtDecoder)?.poiChunk?.getSection(4)?.records?.size)
             assertEquals(
                 1,
-                poiRegionHandle.withReadScope { readChunk(poiChunkNbtDecoder) }?.poiChunk?.sections?.get(4)?.records?.size
+                poiRegionHandle.withReadScope { readChunk(poiChunkNbtDecoder) }?.poiChunk?.getSection(4)?.records?.size
             )
             assertEquals(12345, poiRegionHandle.readChunk(poiChunkNbtDecoder)?.poiChunkNbtMetadata?.dataVersion)
         }
@@ -90,12 +91,12 @@ class PoiRegionHandleTest {
             assertEquals(levelDat, livePoiRegionHandle.readChunkNbt<LevelDat>(typedLocalChunkPosition))
             assertEquals(
                 1,
-                livePoiRegionHandle.readChunk(poiChunkNbtDecoder)?.poiChunk?.sections?.get(4)?.records?.size
+                livePoiRegionHandle.readChunk(poiChunkNbtDecoder)?.poiChunk?.getSection(4)?.records?.size
             )
             livePoiRegionHandle.withReadScope({ selectedPosition ->
                 PoiChunkNbtDecoder(poiChunkNbtDecoder.poiChunkNbtDecoderContext.copy(chunkPosition = selectedPosition))
             }) {
-                assertEquals(1, readChunk(localChunkPosition)?.poiChunk?.sections?.get(4)?.records?.size)
+                assertEquals(1, readChunk(localChunkPosition)?.poiChunk?.getSection(4)?.records?.size)
                 assertEquals(levelDat, readChunkNbt(typedLocalChunkPosition, LevelDat.serializer()))
                 assertEquals(levelDat, readChunkNbt<LevelDat>(typedChunkPosition))
             }

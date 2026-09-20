@@ -201,9 +201,11 @@ data class RegistryIdMap(
         }
     }
 
+    private val maximumRawId = entries.maxOfOrNull(RegistryIdMapping::rawId)
+
     val size: Int
         get() {
-            val maximumRawId = entries.maxOfOrNull(RegistryIdMapping::rawId) ?: return 0
+            val maximumRawId = maximumRawId ?: return 0
             check(maximumRawId < Int.MAX_VALUE) { "Protocol registry $id is too large to expose an Int size" }
             return maximumRawId + 1
         }
@@ -224,7 +226,10 @@ data class BlockStateIdMapping(
     }
 }
 
-/** Registry view used by one connection's physical codecs. */
+/**
+ * Registry view used by one connection's physical codecs. Inputs are retained and indexed once;
+ * callers must keep registry entries, block mappings and their property maps stable for this context's lifetime.
+ */
 class PacketCodecContext private constructor(
     val registries: Map<Identifier, RegistryIdMap>,
     val blockStates: List<BlockStateIdMapping>,
@@ -241,6 +246,11 @@ class PacketCodecContext private constructor(
     )
 
     private val blockStatesById: Map<Int, BlockStateIdMapping> = blockStates.associateBy(BlockStateIdMapping::id)
+    private val blockStatesByBlock = blockStates.groupBy(BlockStateIdMapping::block)
+    private val blockStatesByProperties = blockStatesByBlock.mapValues { (_, states) ->
+        buildMap { states.forEach { state -> if (!containsKey(state.properties)) put(state.properties, state) } }
+    }
+    private val maximumBlockStateId = blockStates.maxOfOrNull(BlockStateIdMapping::id)
 
     init {
         require(blockStatesById.size == blockStates.size) {
@@ -253,7 +263,7 @@ class PacketCodecContext private constructor(
 
     val blockStateRegistrySize: Int
         get() {
-            val maximumBlockStateId = blockStates.maxOfOrNull(BlockStateIdMapping::id) ?: return 0
+            val maximumBlockStateId = maximumBlockStateId ?: return 0
             check(maximumBlockStateId < Int.MAX_VALUE) {
                 "The block-state registry is too large to expose an Int size"
             }
@@ -285,7 +295,7 @@ class PacketCodecContext private constructor(
             ?.entry(block)
             ?.id
             ?: block
-        return blockStates.filter { blockStateIdMapping -> blockStateIdMapping.block == resolved }
+        return blockStatesByBlock[resolved].orEmpty()
     }
 
     fun defaultBlockState(block: Identifier): BlockStateIdMapping? =
@@ -299,8 +309,9 @@ class PacketCodecContext private constructor(
     fun blockState(
         block: Identifier,
         properties: Map<String, String>,
-    ): BlockStateIdMapping? = blockStates(block).firstOrNull { blockStateIdMapping ->
-        blockStateIdMapping.properties == properties
+    ): BlockStateIdMapping? {
+        val resolved = registry(StaticRegistrySchema.BLOCK_REGISTRY)?.entry(block)?.id ?: block
+        return blockStatesByProperties[resolved]?.get(properties)
     }
 
     fun registrySize(id: Identifier): Int? =

@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import kotlinx.io.Sink
+import kotlinx.serialization.encoding.Encoder
 
 /** NBT format, property mappings and output DataVersion; Entity encoding requires no domain layout. */
 data class EntityChunkNbtEncoderContext(
@@ -49,11 +50,19 @@ private class EntityChunkWriter(private val context: EntityChunkNbtEncoderContex
 
 internal class EntityNbtWriter(
     private val mappings: NbtPropertyWriteMappings,
-    private val ancestors: List<Entity> = emptyList(),
+    private val ancestors: MutableSet<Entity> = hashSetOf(),
     private val vehicle: Entity? = null,
 ) : WorldNbtWriter<Entity>() {
+    override fun serialize(encoder: Encoder, value: Entity) {
+        require(ancestors.add(value)) { "An Entity passenger graph contains a cycle" }
+        try {
+            super.serialize(encoder, value)
+        } finally {
+            ancestors.remove(value)
+        }
+    }
+
     override fun fields(value: Entity): List<WorldNbtField<*>> {
-        require(ancestors.none { it === value }) { "An Entity passenger graph contains a cycle" }
         val passengers = requireNotNull(value.passengers) { "Entity ${value.uuid} has unknown passenger relationships" }
         // Entity.saveWithoutId persists the vehicle's X/Z and this passenger's Y, without moving either object.
         val position = vehicle?.let { EntityVector3d(it.position.x, value.position.y, it.position.z) } ?: value.position
@@ -72,7 +81,7 @@ internal class EntityNbtWriter(
                 add(
                     WorldNbtField(
                         "Passengers",
-                        WorldNbtListWriter(EntityNbtWriter(mappings, ancestors + value, value)),
+                        WorldNbtListWriter(EntityNbtWriter(mappings, ancestors, value)),
                         passengers
                     )
                 )

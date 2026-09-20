@@ -16,8 +16,10 @@ fact. It does not authorize a decoder to reconstruct it from an unrelated defaul
 `DataProperties.entries: MutableMap<String, PropertyValue<*>>` is the only dynamic store. `PropertyType<T>` is an
 identity
 token, and `PropertyKey<T>` combines that token with a field name. Typed and name-based access return the same value.
-`PropertyList.values` contains nested property values; `OptionalValue(null)` represents explicit absence. NBT arrays and
-other explicitly retained trees use `PropertyTypes.Nbt`. Generic mapping preserves primitive NBT widths.
+`PropertyList.values` contains nested property values; `OptionalValue(null)` represents explicit absence.
+Generic NBT arrays use editable primitive arrays with `PropertyTypes.ByteArray`, `IntArray` and `LongArray`;
+`PropertyTypes.Nbt` explicitly retains immutable tags. Generic mapping preserves primitive NBT widths.
+`PropertyValue.value` is mutable; same-token typed assignment reuses the cell, while named assignment replaces it.
 
 An unregistered field follows the generic mapping at its current owner. A registered reader may choose a semantic
 token; its writer must describe the inverse representation or explicitly omit the field. A custom semantic Kotlin
@@ -34,7 +36,7 @@ acyclic values. Custom callbacks use the mappings passed to them when encoding c
 |---------------------------------------------------------|----------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
 | `Chunk.chunkPosition`                                   | Authoritative `xPos`, `zPos` Ints                              | Packet `x`, `z`                                                                               |
 | `chunkContext`                                          | Supplied dimension ID, layout, default state and biome         | Supplied complete directional context; never encoded                                          |
-| `sections: MutableMap<Int, ChunkSection>`               | `sections` List; each key becomes `Y` Byte                     | Ordered terrain payload plus boundary light masks; Section Y derives from explicit layout     |
+| `sections: Array<ChunkSection?>`, `sectionMinY`         | `sections` List; origin + array index becomes `Y` Byte         | Ordered terrain payload plus boundary light masks; Section Y derives from explicit layout     |
 | `blockEntities: MutableMap<BlockPosition, BlockEntity>` | `block_entities` List; map key becomes `x`, `y`, `z`           | Packed local X/Z, Y, raw type ID and explicitly selected update tag                           |
 | `heightmaps`                                            | `Heightmaps` Compound                                          | Selected client heightmaps; additional maps/properties supplied by missing-data provider      |
 | `lighting.isLightCorrect`                               | `isLightOn` Byte, absent means false                           | Absent; supplied by missing-data provider                                                     |
@@ -63,21 +65,22 @@ unsupported generation data. An empty constructor chooses full status but perfor
 | `SectionStatistics`          | Nullable non-empty, fluid, ticking-block and ticking-fluid counts   | NBT carries none; packet carries the first two; absent required counts need explicit provider results         |
 | `SectionLighting`            | Nullable `blockLight` and `skyLight`, each 4096 values in 0..15     | NBT nibble arrays; network mask/update arrays; absent is unknown, present zero is darkness                    |
 | `ChunkSection.properties`    | Open Section-owned data                                             | Preserved by NBT; absent from vanilla Section payload                                                         |
-| `PalettedContainer`          | Logical values, mutable through indexed access                      | Internal palette IDs do not define identity; encoding compacts an independent representation                  |
+| `PalettedContainer`          | Logical values, mutable through indexed access                      | Internal palette IDs do not define identity; encoding uses an independently editable compact copy             |
 
-Palette and light indexes use X fastest, then Z, then Y. Biomes use four-block quart cells. Section keys are absolute
-Section Y. Reads within build height do not allocate missing terrain; writes allocate the needed Section/terrain.
+Palette and light indexes use X fastest, then Z, then Y. Biomes use four-block quart cells. Section array indexes are
+relative to the independently stored absolute `sectionMinY`. Reads within build height do not allocate missing terrain;
+writes allocate the needed Section/terrain.
 Mutation does not recalculate counts, remove Block Entities, rebuild heights/light, schedule ticks or update POI.
 
 ## Block Entities, components and inventories
 
-| Value                | Fields                                                                       | NBT and network contract                                                                                                                                                          |
-|----------------------|------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `BlockEntity`        | Type ID, `DataComponentMap`, properties                                      | Structural `id`, coordinates and `components`; other data at the same compound. Position belongs solely to the parent map. Network update tags are a separate explicit projection |
-| `DataComponentMap`   | Mutable component-ID to property-value map                                   | Complete current component map; component-specific NBT mapping may be installed                                                                                                   |
-| `DataComponentPatch` | Mutable component-ID to `SetValue` or `Removed`                              | Missing inherits defaults; `!id: {}` removes in NBT; packet patch preserves all three states                                                                                      |
-| `ItemStack`          | Item ID, count, component patch, properties                                  | NBT `id`, `count`, `components`, plus open fields. Packet omits generic item properties; decoder receives a provider for them                                                     |
-| `ItemSlots`          | Replaceable mutable list of nullable ItemStacks; indexed read/write and size | Sparse saved `Items` list with unsigned Byte `Slot`; null is an empty slot. Slot count must be supplied because trailing empties are absent from NBT                              |
+| Value                | Fields                                                       | NBT and network contract                                                                                                                                                          |
+|----------------------|--------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `BlockEntity`        | Type ID, `DataComponentMap`, properties                      | Structural `id`, coordinates and `components`; other data at the same compound. Position belongs solely to the parent map. Network update tags are a separate explicit projection |
+| `DataComponentMap`   | Mutable component-ID to property-value map                   | Complete current component map; component-specific NBT mapping may be installed                                                                                                   |
+| `DataComponentPatch` | Mutable component-ID to `SetValue` or `Removed`              | Missing inherits defaults; `!id: {}` removes in NBT; packet patch preserves all three states                                                                                      |
+| `ItemStack`          | Item ID, count, component patch, properties                  | NBT `id`, `count`, `components`, plus open fields. Packet omits generic item properties; decoder receives a provider for them                                                     |
+| `ItemSlots`          | Replaceable `Array<ItemStack?>`; indexed read/write and size | Sparse saved `Items` list with unsigned Byte `Slot`; null is an empty slot. Slot count must be supplied because trailing empties are absent from NBT                              |
 
 An inventory's maximum stack size, recipes, slot roles, transfer order and cooldown rules belong to the application or
 shared definitions. Plain ItemStacks may temporarily hold intermediate counts. The NBT item representation validates
@@ -93,20 +96,20 @@ for menu slots and entity equipment. A client menu and a client Block Entity are
 
 ## Heights, light sources, ticks and structures
 
-| Value                               | Fields and missing meaning                                                       | NBT                                                                                                                                |
-|-------------------------------------|----------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
-| `ChunkHeightmaps`                   | Map of open `HeightmapType` keys plus properties                                 | Each LongArray is a packed map; non-array extension fields remain properties                                                       |
-| `Heightmap.firstAvailable`          | 256 nullable absolute Y values in Z-major column order                           | Relative to minimum Y, with enough bits for height + 1. Null cannot be silently encoded as zero; minimum Y is a known empty column |
-| `ChunkSkyLightSources.lowestSource` | 256 nullable `AtY`/`BelowWorld` boundaries                                       | Runtime-only; null means unavailable                                                                                               |
-| `ScheduledTick<T>`                  | Type, absolute position, trigger tick, priority, sub-tick order, properties      | `i`, `x/y/z`, relative Int `t`, priority `p`; order is encoded in the saved list                                                   |
-| `SavedTick<T>`                      | Type, position, relative Int delay, priority, properties                         | Used by upgrade neighbor ticks without an implied scheduling epoch                                                                 |
-| `ChunkPostProcessing.positions`     | Section-Y map of local block positions                                           | Outer list is relative to minimum Section; packed Shorts use X, Y, Z nibbles                                                       |
-| `UpgradeData`                       | Sides, Section-relative positions, neighbor block/fluid saved ticks, properties  | `Sides`, `Indices`, `neighbor_block_ticks`, `neighbor_fluid_ticks`, open fields                                                    |
-| `BlendingData`                      | Min/max Section, 16 nullable heights, nullable biome/density columns, properties | Bounds/heights saved; biome/density samples are runtime-only and decode as unavailable                                             |
-| `ChunkStructures`                   | Start map, reference sets, properties                                            | `starts`, `References`; reference coordinates are packed Longs                                                                     |
-| `StructureStart.Invalid`            | Explicit invalid start                                                           | Official invalid marker                                                                                                            |
-| `StructureStart.Valid`              | Origin Chunk, reference count, pieces, properties                                | Origin/count/`Children`, with structure ID supplied by parent key                                                                  |
-| `StructurePiece`                    | Piece type, bounding box, nullable orientation, generation depth, properties     | `id`, `BB`, `O`, `GD`; concrete piece-specific fields remain open                                                                  |
+| Value                           | Fields and missing meaning                                                                          | NBT                                                                                                                                |
+|---------------------------------|-----------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| `ChunkHeightmaps`               | Map of open `HeightmapType` keys plus properties                                                    | Each LongArray is a packed map; non-array extension fields remain properties                                                       |
+| `Heightmap.values`, `known`     | 256 primitive absolute Y samples plus Boolean presence bits in Z-major column order                 | Relative to minimum Y, with enough bits for height + 1. Null cannot be silently encoded as zero; minimum Y is a known empty column |
+| `ChunkSkyLightSources`          | 256 primitive Y samples, Boolean presence and below-world arrays                                    | Runtime-only; null means unavailable                                                                                               |
+| `ScheduledTick<T>`              | Type, absolute position, trigger tick, priority, sub-tick order, properties                         | `i`, `x/y/z`, relative Int `t`, priority `p`; order is encoded in the saved list                                                   |
+| `SavedTick<T>`                  | Type, position, relative Int delay, priority, properties                                            | Used by upgrade neighbor ticks without an implied scheduling epoch                                                                 |
+| `ChunkPostProcessing.positions` | Nullable array of local-position lists with an absolute Section origin                              | Outer list is relative to minimum Section; packed Shorts use X, Y, Z nibbles                                                       |
+| `UpgradeData`                   | Sides, Section-origin-indexed `Array<IntArray?>`, neighbor saved ticks, properties                  | `Sides`, `Indices`, `neighbor_block_ticks`, `neighbor_fluid_ticks`, open fields                                                    |
+| `BlendingData`                  | Min/max Section, 16 primitive heights with presence bits, nullable biome/density arrays, properties | Bounds/heights saved; biome/density samples are runtime-only and decode as unavailable                                             |
+| `ChunkStructures`               | Start map, reference sets, properties                                                               | `starts`, `References`; reference coordinates are packed Longs                                                                     |
+| `StructureStart.Invalid`        | Explicit invalid start                                                                              | Official invalid marker                                                                                                            |
+| `StructureStart.Valid`          | Origin Chunk, reference count, pieces, properties                                                   | Origin/count/`Children`, with structure ID supplied by parent key                                                                  |
+| `StructurePiece`                | Piece type, bounding box, nullable orientation, generation depth, properties                        | `id`, `BB`, `O`, `GD`; concrete piece-specific fields remain open                                                                  |
 
 Tick decoding adds the explicit batch `tickBase` to the saved delay and restores sub-tick order from list order.
 Encoding sorts by that order, subtracts the explicit tick base as a Long, then performs official Int narrowing,
@@ -150,13 +153,13 @@ lists. Unknown Entity types remain canonical identifiers; a network encoder need
 
 ## POI Chunk
 
-| Value                 | Fields                                                        | NBT / missing meaning                                                                                               |
-|-----------------------|---------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
-| `PoiChunk`            | Position, dimension/layout context, Section-Y map, properties | `Sections` and open root fields; NBT has no Chunk position, so decoder context supplies the selected Chunk position |
-| `PoiSection`          | Validity, position-keyed records, properties                  | `Valid`, `Records`, open fields; missing Section, invalid Section and valid empty Section remain distinct           |
-| `PoiRecord`           | POI type ID, free tickets, properties                         | `type`, `free_tickets`, `pos` from parent map key; no second stored position                                        |
-| `PoiType`             | Matching states, maximum tickets, valid range                 | Caller-supplied shared definition; never confused with a record's current free-ticket count                         |
-| `PoiChunkNbtMetadata` | Data version                                                  | Separate `DataVersion`, not mutable domain state                                                                    |
+| Value                 | Fields                                                                                     | NBT / missing meaning                                                                                               |
+|-----------------------|--------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `PoiChunk`            | Position, dimension/layout context, nullable Section array and absolute origin, properties | `Sections` and open root fields; NBT has no Chunk position, so decoder context supplies the selected Chunk position |
+| `PoiSection`          | Validity, position-keyed records, properties                                               | `Valid`, `Records`, open fields; missing Section, invalid Section and valid empty Section remain distinct           |
+| `PoiRecord`           | POI type ID, free tickets, properties                                                      | `type`, `free_tickets`, `pos` from parent map key; no second stored position                                        |
+| `PoiType`             | Matching states, maximum tickets, valid range                                              | Caller-supplied shared definition; never confused with a record's current free-ticket count                         |
+| `PoiChunkNbtMetadata` | Data version                                                                               | Separate `DataVersion`, not mutable domain state                                                                    |
 
 There is no standard POI Chunk packet. Debug subscriptions and particular gameplay messages are separate projections.
 Applications select candidates, decrement or release tickets, maintain validity, and synchronize any chosen display.
@@ -175,3 +178,42 @@ codec samples. `ServerComputationTest` demonstrates furnace and villager/POI cal
 world-io exercises chest/hopper computation, actual MCA bytes, packet bytes, client Chunk construction and separate menu
 updates. These scenarios validate their stated paths; they are not an implementation of every gameplay algorithm or a
 promise that a received Chunk can reconstruct untransmitted server state.
+
+## Storage decisions and official counterparts
+
+The model is a computation-facing data graph. Encoders read current reachable references on every call; they never
+cache a mutable Chunk's encoded result. All mutable data is unsynchronized. Direct changes can temporarily leave
+statistics, arrays, positions or related values inconsistent; applications restore the invariants needed by the next
+operation. Only palette internals, immutable state values and explicit detached snapshots enforce coupled storage.
+
+| Data / official counterpart                                     | Chosen storage and reason for the difference                                                                                                                                                                                                                               |
+|-----------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ChunkAccess.sections`                                          | Nullable Section array with an explicit origin. This library permits absent terrain and light-only Sections, including boundary/outlying light slots, without importing a Level owner.                                                                                     |
+| `PoiManager` / `SectionStorage`                                 | Per-Chunk nullable Section array. Official storage indexes Sections across many Chunks; that global owner and its lifecycle belong to the application. `PoiSection.records` remains a standard position map for sparse direct access.                                      |
+| `PalettedContainer`, `BitStorage`                               | Uniform value or packed `LongArray`, standard reverse HashMap and explicit compaction/copy operations. Official registry/direct modes cannot define the raw-ID-free domain; disk/network palettes are projected separately. Values require stable equality and hash codes. |
+| `StateDefinition` / `StateHolder`                               | Caller-scoped shared immutable states and lazy transition maps. Official finite schemas precompute legal combinations; this library also admits custom property names/values without installing a schema.                                                                  |
+| `DataLayer`                                                     | Uniform light or mutable packed nibble `ByteArray`, matching the official storage granularity.                                                                                                                                                                             |
+| `Heightmap`, `ChunkSkyLightSources`                             | Primitive samples and Boolean presence/boundary arrays. Official packed heights assume complete runtime knowledge; this domain can represent individual unknown samples and expose efficient direct computation without a dimension-coupled bit container.                 |
+| `ChunkAccess.postProcessing`, `UpgradeData`, `BlendingData`     | Section-indexed arrays, primitive upgrade/density/height samples, ordinary variable-length position/biome lists. Sparse null entries allocate no child collection.                                                                                                         |
+| Block Entities, attributes, effects, component maps, structures | Standard maps for sparse identity lookup. No repeated linear list search or secondary owner-maintained index. Official specialized maps are not reproduced.                                                                                                                |
+| Equipment and heightmap kinds                                   | Standard maps keyed by open identifiers, unlike official closed EnumMaps; applications and mods can add kinds without changing a library enum or dense ordinal mapping. These maps are small.                                                                              |
+| Inventories / `NonNullList<ItemStack>`                          | Replaceable nullable slot array. Null represents empty without shared mutable EMPTY state; slot roles and size changes remain application concerns.                                                                                                                        |
+| `ItemStack.copy`                                                | Explicit detached copy of built-in mutable trees, because this domain's component/property values are editable. Custom types provide copy callbacks. Immutable state/NBT values are shared; repeated mutable occurrences are copied independently.                         |
+| `Entity`                                                        | Reference identity and iterative passenger traversal. Official identity uses a runtime entity ID; that connection/runtime-local identity is not a domain field. UUID remains mutable data, not hash identity or a hidden index.                                            |
+| Scheduled ticks / official tick containers                      | Ordinary ordered lists of tick data. Priority queues, ticking indexes and scheduling ownership are gameplay/runtime mechanisms outside this library.                                                                                                                       |
+| Dynamic properties                                              | One open map with mutable typed cells and primitive arrays. Content-specific fields remain application bindings instead of a hierarchy of concrete game classes.                                                                                                           |
+
+Palette writes use expected constant-time value lookup; packed-width growth repacks cells when necessary.
+Compaction is linear in cell count plus palette size and replaces retained palette/index capacity. Ordinary writes
+and `fill` keep historical entries intentionally; callers can compact before creating a detached background-save copy.
+Encoders never impose that policy or compact the live value. `fill` and uniform copies need no per-cell ID array.
+Open generic numeric properties may still box values despite reusing their outer cells. Shared immutable layout
+bounds/ranges are precomputed; mutable graph state and numerous coordinate values do not acquire derived caches.
+`BlockState.with` reuses cached transitions after the first encountered change. Encoding block-state IDs uses
+connection-context indexes, and direct-palette decoding resolves each encountered raw ID once per palette.
+`copy()` preserves history, cell IDs and packed width in independent mutable storage; `compactCopy()` directly builds
+an editable compact container without a historical clone or dense temporary cell-ID array. Both share elements.
+`paletteInfo()` is detached diagnostics, while `paletteIndex()` exposes read-only local IDs, invalidated by compaction.
+These are algorithm/storage properties, not a measured end-to-end throughput claim. Portable regression tests cover
+palette lookup work, packed-width transitions, deep passenger traversal, detached copying and alias mutation through
+both NBT and packet conversions.

@@ -55,7 +55,7 @@ object SurfaceProjectionPolicy {
             if (unresolvedColumnCount == 0) break
             val sectionY = MinecraftCoordinates.sectionCoordinate(blockY)
             val localY = MinecraftCoordinates.blockCoordinateInSection(blockY)
-            val chunkSection = chunk.sections[sectionY]
+            val chunkSection = chunk.getSection(sectionY)
             for (cellIndex in 0 until SURFACE_CELL_COUNT) {
                 if (resolved[cellIndex]) continue
                 val blockState = chunkSection.block(cellIndex, localY, chunk.chunkContext.defaultBlockState)

@@ -13,7 +13,11 @@ internal fun decodeSection(
     val terrain = if (blockStates == null && biomes == null) null else {
         require(y in chunkContext.dimensionTypeLayout.chunkLayout) { "Section terrain Y $y is outside the build range" }
         SectionTerrain(
-            blockStates?.let { decodeNbtPalette(it, MinecraftCoordinates.SECTION_BLOCK_COUNT, 4, ::decodeBlockState) }
+            blockStates?.let {
+                decodeNbtPalette(it, MinecraftCoordinates.SECTION_BLOCK_COUNT, 4) { tag ->
+                    decodeBlockState(tag, chunkContext.blockStateDefinitions)
+                }
+            }
                 ?: PalettedContainer(MinecraftCoordinates.SECTION_BLOCK_COUNT, chunkContext.defaultBlockState),
             biomes?.let {
                 decodeNbtPalette(
@@ -56,13 +60,19 @@ internal fun encodeSection(
     return NbtCompound(fields)
 }
 
-internal fun decodeBlockState(nbtTag: NbtTag): BlockState {
+internal fun decodeBlockState(nbtTag: NbtTag): BlockState = decodeBlockState(nbtTag, null)
+
+private fun decodeBlockState(
+    nbtTag: NbtTag,
+    definitions: MutableMap<BlockId, BlockStateDefinition>?,
+): BlockState {
     val nbtCompound = nbtTag.compound()
-    return BlockState(
-        BlockId.parse(nbtCompound.string("Name")),
-        StateProperties(nbtCompound.optionalTag<NbtCompound>("Properties")?.value?.mapValues { (_, tag) -> tag.string() }
-            .orEmpty()),
-    )
+    val blockId = BlockId.parse(nbtCompound.string("Name"))
+    val properties = StateProperties(buildMap {
+        nbtCompound.optionalTag<NbtCompound>("Properties")?.forEachEntry { name, tag -> put(name, tag.string()) }
+    })
+    return if (definitions == null) BlockState(blockId, properties) else
+        definitions.getOrPut(blockId) { BlockStateDefinition(blockId) }.state(properties)
 }
 
 internal fun encodeBlockState(blockState: BlockState): NbtCompound = NbtCompound(buildMap {
@@ -90,11 +100,15 @@ private fun <T : Any> encodeNbtPalette(
     minimumBits: Int,
     encode: (T) -> NbtTag,
 ): NbtCompound {
-    val compactPalette = palettedContainer.compactSnapshot()
+    val compacted = palettedContainer.compactCopy()
+    val paletteInfo = compacted.paletteInfo()
     return NbtCompound(buildMap {
-        put("palette", NbtList(compactPalette.values.map(encode)))
-        if (compactPalette.values.size > 1) {
-            put("data", packNbtValues(compactPalette.rawIds, maxOf(minimumBits, compactPalette.bitsPerEntry)))
+        put("palette", NbtList(paletteInfo.values.map(encode)))
+        if (paletteInfo.values.size > 1) {
+            put(
+                "data",
+                packNbtValues(compacted.size, maxOf(minimumBits, paletteInfo.bitsPerEntry), compacted::paletteIndex)
+            )
         }
     })
 }

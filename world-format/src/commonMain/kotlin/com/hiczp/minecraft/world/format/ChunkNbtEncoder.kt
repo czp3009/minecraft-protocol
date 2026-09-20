@@ -57,10 +57,11 @@ private class ChunkWriter(private val context: ChunkNbtEncoderContext) : WorldNb
             add(
                 WorldNbtField(
                     "sections",
-                    WorldNbtListWriter(WorldNbtCompoundValueWriter { entry: Map.Entry<Int, ChunkSection> ->
-                        encodeSection(entry.key, entry.value, chunkLayout, mappings)
+                    WorldNbtListWriter(WorldNbtCompoundValueWriter { entry: Pair<Int, ChunkSection> ->
+                        encodeSection(entry.first, entry.second, chunkLayout, mappings)
                     }),
-                    value.sections.entries.sortedBy { it.key })
+                    value.sectionEntries().toList()
+                )
             )
             add(
                 WorldNbtField(

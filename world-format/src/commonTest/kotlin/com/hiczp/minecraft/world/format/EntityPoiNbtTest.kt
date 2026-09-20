@@ -4,9 +4,9 @@ import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.nbt.serialization.NbtFormatConfiguration
 import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
+import kotlinx.io.Buffer
 import kotlin.test.*
 import kotlin.uuid.Uuid
-import kotlinx.io.Buffer
 
 class EntityPoiNbtTest {
     private val nbtFormat = NbtFormat(NbtFormatConfiguration(nbtRootEncoding = NbtRootEncoding.UNNAMED))
@@ -143,25 +143,25 @@ class EntityPoiNbtTest {
         val result = poiDecoder.decodeDocument(document)
         assertEquals(-321, result.poiChunkNbtMetadata.dataVersion)
         assertSame(poiContext, result.poiChunk.poiChunkContext)
-        val section = result.poiChunk.sections.getValue(0)
+        val section = result.poiChunk.getSection(0)!!
         assertFalse(section.isValid)
         assertEquals(0, section.records.values.single().freeTickets)
         assertEquals(document, poiEncoder.encodeDocument(result.poiChunk))
         section.isValid = true
         section.records.values.single().freeTickets = -7
         val decoded = result.poiChunk.toCompressedChunk(poiEncoder, Compression.ZLIB).toPoiChunk(poiDecoder).poiChunk
-        assertEquals(-7, decoded.sections.getValue(0).records.values.single().freeTickets)
+        assertEquals(-7, decoded.getSection(0)!!.records.values.single().freeTickets)
         section.records.clear()
         assertTrue(section.isValid)
         val afterRemoval = poiDecoder.decodeDocument(poiEncoder.encodeDocument(result.poiChunk)).poiChunk
-        assertTrue(afterRemoval.sections.getValue(0).records.isEmpty())
-        assertEquals(section.properties, afterRemoval.sections.getValue(0).properties)
+        assertTrue(afterRemoval.getSection(0)!!.records.isEmpty())
+        assertEquals(section.properties, afterRemoval.getSection(0)!!.properties)
     }
 
     @Test
     fun poiEncodingChecksTheCurrentGraphRatherThanInstallingAnOwner() {
         val section = PoiSection(true)
-        val poiChunk = PoiChunk(poiPosition, poiContext, linkedMapOf(0 to section), DataProperties())
+        val poiChunk = PoiChunk(poiPosition, poiContext, arrayOf(section), DataProperties(), sectionMinY = 0)
         section.records[BlockPosition(32, 0, 0)] = PoiRecord(PoiTypeId.parse("home"), 1)
         assertFailsWith<PoiChunkNbtFormatException> { poiEncoder.encodeDocument(poiChunk) }
         section.records.clear()

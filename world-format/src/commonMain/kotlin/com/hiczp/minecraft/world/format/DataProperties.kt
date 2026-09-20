@@ -13,7 +13,31 @@ class PropertyType<T : Any>(val name: String) {
 /** A property name paired with the exact type token used by typed access to the shared dynamic store. */
 data class PropertyKey<T : Any>(val name: String, val propertyType: PropertyType<T>)
 
-data class PropertyValue<T : Any>(val propertyType: PropertyType<T>, val value: T) {
+data class PropertyValue<T : Any>(val propertyType: PropertyType<T>, var value: T) {
+    internal fun <V : Any> update(propertyType: PropertyType<V>, value: V): Boolean {
+        if (this.propertyType !== propertyType) return false
+        @Suppress("UNCHECKED_CAST")
+        (this as PropertyValue<V>).value = value
+        return true
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is PropertyValue<*> &&
+                propertyType === other.propertyType &&
+                when (val current = value) {
+                    is ByteArray -> other.value is ByteArray && current.contentEquals(other.value as ByteArray)
+                    is IntArray -> other.value is IntArray && current.contentEquals(other.value as IntArray)
+                    is LongArray -> other.value is LongArray && current.contentEquals(other.value as LongArray)
+                    else -> current == other.value
+                }
+
+    override fun hashCode(): Int = 31 * propertyType.hashCode() + when (val current = value) {
+        is ByteArray -> current.contentHashCode()
+        is IntArray -> current.contentHashCode()
+        is LongArray -> current.contentHashCode()
+        else -> current.hashCode()
+    }
+
     /** The identity check establishes the association erased by a heterogeneous collection. */
     fun <V : Any> get(propertyType: PropertyType<V>): V {
         require(this.propertyType === propertyType) {
@@ -36,7 +60,9 @@ data class DataProperties(var entries: MutableMap<String, PropertyValue<*>> = li
         entries[propertyKey.name]?.get(propertyKey.propertyType)
 
     operator fun <T : Any> set(propertyKey: PropertyKey<T>, value: T) {
-        entries[propertyKey.name] = PropertyValue(propertyKey.propertyType, value)
+        if (entries[propertyKey.name]?.update(propertyKey.propertyType, value) != true) {
+            entries[propertyKey.name] = PropertyValue(propertyKey.propertyType, value)
+        }
     }
 
     fun <T : Any> require(propertyKey: PropertyKey<T>): T =
@@ -63,6 +89,9 @@ object PropertyTypes {
     val Uuid: PropertyType<Uuid> = PropertyType("uuid")
     val Properties: PropertyType<DataProperties> = PropertyType("properties")
     val List: PropertyType<PropertyList> = PropertyType("list")
+    val ByteArray: PropertyType<ByteArray> = PropertyType("byte_array")
+    val IntArray: PropertyType<IntArray> = PropertyType("int_array")
+    val LongArray: PropertyType<LongArray> = PropertyType("long_array")
     val Nbt: PropertyType<NbtTag> = PropertyType("nbt")
     val BlockState: PropertyType<BlockState> = PropertyType("block_state")
     val ItemStack: PropertyType<ItemStack> = PropertyType("item_stack")

@@ -50,14 +50,14 @@ class ChunkDomainTest {
         val chunk = Chunk(ChunkPosition(-1, -2), context)
         val position = BlockPosition(-1, -17, -17)
         assertEquals(context.defaultBlockState, chunk.getBlockState(position))
-        assertTrue(chunk.sections.isEmpty())
+        assertTrue(chunk.sections.all { it == null })
         val light = LightLayer(4)
         val properties = DataProperties()
         val section = ChunkSection(null, SectionLighting(blockLight = light), properties)
-        chunk.sections[-2] = section
+        chunk.setSection(-2, section)
         val stone = BlockState(BlockId.parse("stone"))
         assertEquals(context.defaultBlockState, chunk.setBlockState(position, stone))
-        assertSame(section, chunk.sections[-2])
+        assertSame(section, chunk.getSection(-2))
         assertSame(light, section.lighting.blockLight)
         assertSame(properties, section.properties)
         assertEquals(stone, section.terrain?.blockStates?.get(LocalBlockPosition(15, 15, 15).index))
@@ -74,15 +74,15 @@ class ChunkDomainTest {
         val position = BlockPosition(0, 0, 0)
         val blockEntity = BlockEntity(BlockEntityTypeId.parse("chest"))
         val entities = linkedMapOf(position to blockEntity)
-        val sections = linkedMapOf<Int, ChunkSection>()
-        val complete = chunk.copy(sections = sections, blockEntities = entities)
+        val sections = arrayOfNulls<ChunkSection>(chunk.sections.size)
+        val complete = chunk.also { it.sections = sections; it.blockEntities = entities }
         assertSame(sections, complete.sections)
         assertSame(entities, complete.blockEntities)
         complete.setBlockState(position, BlockState(BlockId.parse("stone")))
         assertSame(blockEntity, complete.blockEntities[position])
-        complete.sections.getValue(0).terrain!!.statistics.nonEmptyBlockCount = 47
+        complete.getSection(0)!!.terrain!!.statistics.nonEmptyBlockCount = 47
         complete.setBlockState(position, complete.chunkContext.defaultBlockState)
-        assertEquals(47, complete.sections.getValue(0).terrain!!.statistics.nonEmptyBlockCount)
+        assertEquals(47, complete.getSection(0)!!.terrain!!.statistics.nonEmptyBlockCount)
         complete.blockEntities.remove(position)
         blockEntity.properties["old_reference"] = PropertyValue(PropertyTypes.Int, 1)
         assertTrue(complete.blockEntities.isEmpty())
@@ -96,13 +96,13 @@ class ChunkDomainTest {
         palette[0] = "stone"
         palette[1] = "unused"
         palette[1] = "stone"
-        val before = palette.paletteSnapshot()
+        val before = palette.paletteInfo()
         assertEquals(listOf("air", "stone", "unused"), before.values)
-        val compact = palette.compactSnapshot()
-        assertEquals(listOf("stone", "air"), compact.values)
-        assertEquals(before, palette.paletteSnapshot())
+        val compact = palette.compactCopy()
+        assertEquals(listOf("stone", "air"), compact.paletteInfo().values)
+        assertEquals(before, palette.paletteInfo())
         palette.compact()
-        assertEquals(compact.values, palette.paletteSnapshot().values)
+        assertEquals(compact.paletteInfo().values, palette.paletteInfo().values)
         assertEquals("stone", palette[0])
         assertEquals("stone", palette[1])
         assertEquals("air", palette[2])
@@ -115,7 +115,14 @@ class ChunkDomainTest {
             EntityVector3d.ZERO, EntityRotation.ZERO, mutableListOf()
         )
         val passengers = mutableListOf(passenger)
-        val entity = passenger.copy(uuid = Uuid.fromLongs(0, 1), passengers = passengers)
+        val entity = Entity(
+            passenger.entityTypeId,
+            Uuid.fromLongs(0, 1),
+            passenger.position,
+            passenger.deltaMovement,
+            passenger.entityRotation,
+            passengers
+        )
         val rootEntities = mutableListOf(entity)
         val entityChunk =
             EntityChunk(ChunkPosition(0, 0), EntityChunkContext(DimensionId.Overworld), rootEntities, DataProperties())

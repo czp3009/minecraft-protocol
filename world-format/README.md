@@ -15,12 +15,19 @@ use throughout server or client computation.
 
 Full constructors retain the supplied references. Empty constructors allocate empty containers and do no generation
 or simulation. Every mutable field and collection can be replaced; a property's typed and dynamic access paths reach
-the same value. `copy()` is shallow. Removing an entry changes the current graph; references previously taken by the
-application remain ordinary usable references. Encoding visits the graph that is currently reachable from the root.
+the same value. Removing an entry changes the current graph; references previously taken by the application remain
+ordinary usable references. Encoding visits the graph that is currently reachable from the root. There is no thread
+safety, owner tracking or automatic derived-data maintenance; applications coordinate concurrent access.
+
+`Chunk`, `PoiChunk` and `Entity` have reference identity. Ordinary data-class copies are shallow.
+`ItemStack.copy(count = ...)` explicitly detaches built-in mutable component/property trees without serialization;
+immutable values are shared. A `PropertyCopyContext` supplies copy callbacks for application-defined property tokens.
+Each mutable occurrence is copied independently, and cycles fail instead of creating a partially copied graph.
 
 Each root receives its own domain context. `ChunkContext` contains dimension identity/layout and the default canonical
-block state and biome. `EntityChunkContext` contains dimension identity; `PoiChunkContext` contains dimension identity
-and Chunk layout. Contexts contain no codecs, network raw IDs, world owner or lifecycle state.
+block state and biome, plus caller-scoped `BlockStateDefinition` families for sharing immutable states.
+`EntityChunkContext` contains dimension identity; `PoiChunkContext` contains dimension identity and Chunk layout.
+Contexts contain no codecs, network raw IDs, world owner or lifecycle state.
 
 Construct `ChunkPosition(x, z)` from absolute Chunk coordinates. Construct
 `ChunkContext(dimensionId, dimensionTypeLayout, defaultBlockState, defaultBiome)` using the world's dimension definition
@@ -49,12 +56,19 @@ does not generate terrain. Use the raw NBT path when unfinished generation data 
 
 ## Read and modify terrain
 
-Section map keys are absolute Section Y. Fixed geometry is available through `MinecraftCoordinates`, including
+`Chunk.sections` and `PoiChunk.sections` are replaceable nullable arrays. Slot `i` has absolute Section Y
+`sectionMinY + i`; `getSection(y)` and `setSection(y, value)` use absolute Y. Replacing a context does not move those
+slots. A terrain Chunk initially includes one boundary light slot at each end; `Chunk.setSection` expands the array
+for an outlying Section. Expansion replaces the array, so an existing alias still refers to the old array.
+POI assignment uses the represented interval; callers can replace its array and origin together when changing it.
+
+Fixed geometry is available through `MinecraftCoordinates`, including
 `CHUNK_SIDE`, `SECTION_BLOCK_COUNT` and `SECTION_BIOME_COUNT`. A terrain Section contains 4096 block cells and 64 biome
 samples. Block states hold canonical `BlockId` and immutable `StateProperties`; biome cells hold `BiomeId`. Palette
 indexes and synchronized registry raw IDs do not participate in their identity.
 
-`getBlockState`/`setBlockState` and `getBiome`/`setBiome` accept absolute `BlockPosition` or `ChunkBlockPosition`.
+`getBlockState`/`setBlockState` and `getBiome`/`setBiome` accept absolute `BlockPosition`, `ChunkBlockPosition`, or
+scalar local X/Z and absolute Y. Dense computation can use the scalar overloads or a Section's indexed palettes.
 Inside the construction height, a missing Section or terrain reads as the context's defaults without materializing
 data. Writing materializes the required terrain. Boundary light-only Sections need no terrain. Use the `Chunk` from
 `emptyChunkColumn(...).first`, a `BlockPosition(x, y, z)` within that Chunk, and a replacement such as
@@ -75,15 +89,60 @@ Section statistics distinguish missing counts from known zero. Heightmaps contai
 null is unknown and the dimension's minimum Y is a known empty column. Light layers distinguish absent data from a
 present all-zero layer. Ordinary mutation does not invalidate any of these values automatically.
 
+`Heightmap.values` is an `IntArray` and `known` is a `BooleanArray`, both indexed by `z * 16 + x`.
+`heightmap[index]` provides nullable access; dense loops can access the arrays directly without boxed height values.
+`LightLayer.data` is a replaceable packed 2048-byte nibble array, or null for `uniformValue`. Indexed access uses X,
+then Z, then Y. `fill` restores uniform storage without allocating an array; direct byte edits are visible immediately.
+Palettes use uniform storage or packed primitive words, with indexed value lookup and stable palette IDs until
+`compact()`. Their elements must have stable equality/hash codes. [The data inventory](CHUNK-DATA.md) records the
+remaining containers and the intentional differences from official runtime classes.
+
+Normal palette writes, including `fill`, retain historical entries to keep updates inexpensive. Applications choose
+when to call `compact()` in place. A typical save workflow compacts the live palettes under application-coordinated
+access, creates a detached copy, then saves that copy on a worker thread. `compact()` replaces historical internal
+collection capacity as well as removing unused entries. This is a usage strategy, not a required save policy:
+encoders work from compact copies without mutating the live palettes. `PalettedContainer.copy()` independently copies
+its mutable storage while preserving palette history, local IDs and packed width. `compactCopy()` directly constructs
+an independently editable compact container without first copying that history. Both share element references.
+Ordinary data-class `copy()` elsewhere remains shallow.
+
+The three operations have distinct purposes: `compact()` modifies this container, `copy()` copies its current storage,
+and `compactCopy()` produces a compact copy while preserving the original. For example, given a `PalettedContainer`
+from `chunk.getSection(y)?.terrain?.blockStates`, the application can choose either operation sequence:
+
+```kotlin
+// Application code: the caller coordinates access to this container.
+fun prepareForSave(blockStates: PalettedContainer<BlockState>): PalettedContainer<BlockState> {
+    blockStates.compact()
+    return blockStates.copy()
+}
+
+// Application code: retain the live container's history and compact only the detached result.
+fun copyForSave(blockStates: PalettedContainer<BlockState>): PalettedContainer<BlockState> =
+    blockStates.compactCopy()
+```
+
+`paletteInfo()` returns detached diagnostics: palette entries, logical bit width and cell count, not a complete copy
+of the cells. `paletteIndex(index)` reads a cell's current local ID for indexing that table. Compaction may renumber
+IDs; writes preserve existing IDs but can append entries beyond a previously obtained diagnostics table.
+
+Share immutable `ChunkLayout` instances through dimension contexts. Their bounds and ranges are computed once;
+block/Section membership checks compare stored integers without constructing temporary ranges.
+
 ## Dynamic properties and typed views
 
 `DataProperties.entries` is the single mutable property store. `PropertyKey<T>` combines a name and an identity-checked
 `PropertyType<T>`. Name-based access exposes `PropertyValue<*>`; typed access checks its token before returning the
-same stored value. A token's diagnostic name is not proof of type equality.
+same stored value. Reassigning a typed key with the same token updates its existing `PropertyValue.value` cell;
+name-based assignment replaces the cell. A token's diagnostic name is not proof of type equality.
+Generic numeric values can still require boxing; reusing the cell avoids replacing that wrapper, not all allocations.
+The open typed/dynamic contract is retained instead of imposing specialized scalar containers. Dense numeric data
+uses the primitive arrays described above.
 
 An application-defined wrapper holds the property reference and adds its own operations. For example, this `Chest`
 belongs to the application; the library does not define its field name, size or inventory rules. `ItemStack` holds
-item identity, count, a component patch and properties. `ItemSlots(size)` allocates slots whose null entries mean empty.
+item identity, count, a component patch and properties. `ItemSlots(size)` allocates a replaceable
+`Array<ItemStack?>` whose null entries mean empty.
 The wrapper takes the `DataProperties` reference exposed by `chunk.getBlockEntity(blockPosition)?.properties`. Its
 `Items` property must already hold an `ItemSlots` value; constructing the wrapper does not decode or initialize it.
 
@@ -111,11 +170,16 @@ class Chest(val dataProperties: DataProperties) {
 ```
 
 Nested `DataProperties`, `PropertyList`, semantic values and explicitly retained NBT values use the same store.
+Generic NBT arrays decode to editable `ByteArray`, `IntArray` and `LongArray` property values. Their tokens preserve
+the NBT array kind; callers can still explicitly retain immutable tags with `PropertyTypes.Nbt`.
 Missing entries are not automatically interpreted as empty or zero; initialization belongs to the application.
 `OptionalValue(null)` can express an explicit known absence where needed.
 
 `StateProperties` is immutable and stores canonical name/value strings once. `StateProperty<T>` supplies an explicit
-legal name/value correspondence for typed access; `BlockState.with` returns a new state. `DataComponentMap` is a current
+legal name/value correspondence for typed access. `BlockState.with` returns a shared immutable state, reusing the
+same instance for an unchanged value or a repeated transition. `BlockStateDefinition(blockId).state(properties)`
+provides an explicit family; standalone states create a family lazily. Families accept custom properties, retain
+encountered combinations for their lifetime, and contain no network IDs. `DataComponentMap` is a current
 component map, while `DataComponentPatch` distinguishes an inherited entry, explicit removal and explicit replacement.
 
 ## Decode and encode NBT
@@ -313,7 +377,8 @@ The corresponding convenience calls use the same codecs or complete contexts:
 | `poiChunkNbtDecoder.decodeDocument(nbtDocument)`            | `nbtDocument.toPoiChunk(poiChunkNbtDecoder)`               |
 | `poiChunkNbtEncoder.encodeDocument(decoded.poiChunk)`       | `decoded.poiChunk.toNbtDocument(poiChunkNbtEncoder)`       |
 
-POI Section map keys provide Section Y; `PoiSection.records` keys provide absolute block positions. Each record contains
+POI array indexes plus `sectionMinY` provide absolute Section Y; `PoiSection.records` keys provide absolute block
+positions. Each record contains
 its type ID, current free-ticket count and properties. `PoiType` holds separately supplied matching states, maximum
 tickets and valid range. The model does not claim/release tickets, validate settlements, discover POI from terrain or
 subscribe to block changes on the application's behalf.

@@ -5,7 +5,8 @@ package com.hiczp.minecraft.world.format
  * The vertical Section layout of one dimension.
  *
  * This value has no release-wide default: servers can synchronize different vanilla, datapack, or modded dimension
- * types with different minimum Y coordinates and heights.
+ * types with different minimum Y coordinates and heights. Share layouts across Chunks; immutable bounds and ranges
+ * are computed and validated once at construction, so membership checks need no temporary range or conversion.
  */
 data class ChunkLayout(
     val minSectionY: Int,
@@ -13,10 +14,6 @@ data class ChunkLayout(
 ) {
     init {
         require(sectionCount > 0) { "A Chunk layout must contain at least one Section" }
-        val maximumSectionY = MinecraftCoordinates.offsetSectionCoordinate(minSectionY, sectionCount - 1)
-        MinecraftCoordinates.sectionBlockCoordinate(minSectionY, 0)
-        MinecraftCoordinates.sectionBlockCoordinate(maximumSectionY, MinecraftCoordinates.SECTION_SIDE - 1)
-        MinecraftCoordinates.blockCountForSections(sectionCount)
     }
 
     companion object {
@@ -35,25 +32,19 @@ data class ChunkLayout(
         }
     }
 
-    val maxSectionY: Int
-        get() = MinecraftCoordinates.offsetSectionCoordinate(minSectionY, sectionCount - 1)
+    val maxSectionY: Int = MinecraftCoordinates.offsetSectionCoordinate(minSectionY, sectionCount - 1)
 
-    val sectionYRange: IntRange
-        get() = minSectionY..maxSectionY
+    val sectionYRange: IntRange = minSectionY..maxSectionY
 
-    val minBlockY: Int
-        get() = MinecraftCoordinates.sectionBlockCoordinate(minSectionY, 0)
+    val minBlockY: Int = MinecraftCoordinates.sectionBlockCoordinate(minSectionY, 0)
 
-    val height: Int
-        get() = MinecraftCoordinates.blockCountForSections(sectionCount)
+    val height: Int = MinecraftCoordinates.blockCountForSections(sectionCount)
 
-    val maxBlockY: Int
-        get() = MinecraftCoordinates.sectionBlockCoordinate(maxSectionY, MinecraftCoordinates.SECTION_SIDE - 1)
+    val maxBlockY: Int = MinecraftCoordinates.sectionBlockCoordinate(maxSectionY, MinecraftCoordinates.SECTION_SIDE - 1)
 
-    val blockYRange: IntRange
-        get() = minBlockY..maxBlockY
+    val blockYRange: IntRange = minBlockY..maxBlockY
 
-    operator fun contains(sectionY: Int): Boolean = sectionY in minSectionY..maxSectionY
+    operator fun contains(sectionY: Int): Boolean = sectionY >= minSectionY && sectionY <= maxSectionY
 
-    fun containsBlockY(y: Int): Boolean = y in blockYRange
+    fun containsBlockY(y: Int): Boolean = y >= minBlockY && y <= maxBlockY
 }

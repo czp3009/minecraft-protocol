@@ -4,6 +4,30 @@ import kotlin.test.*
 
 class PacketCodecContextTest {
     @Test
+    fun indexedBlockLookupsPreserveAliasesFirstMatchAndMissingValues() {
+        val block = Identifier("test:block")
+        val alias = Identifier("test:alias")
+        val first = BlockStateIdMapping(7, block, mapOf("mode" to "a"), true)
+        val duplicate = first.copy(id = 9, isDefault = false)
+        val second = BlockStateIdMapping(3, block, mapOf("mode" to "b"), false)
+        val context = PacketCodecContext(
+            listOf(
+                RegistryIdMap(
+                    StaticRegistrySchema.BLOCK_REGISTRY,
+                    listOf(RegistryIdMapping(block, 0, setOf(alias)))
+                )
+            ), listOf(first, duplicate, second)
+        )
+        assertSame(first, context.blockState(alias, mapOf("mode" to "a")))
+        assertSame(second, context.blockState(block, mapOf("mode" to "b")))
+        assertSame(first, context.defaultBlockState(alias))
+        assertSame(context.blockStates(block), context.blockStates(alias))
+        assertNull(context.blockState(block, mapOf("mode" to "missing")))
+        assertTrue(context.blockStates(Identifier("test:missing")).isEmpty())
+        assertEquals(10, context.blockStateRegistrySize)
+    }
+
+    @Test
     fun remoteBlockOrderDefinesGlobalStateIds() {
         val first = Identifier("test:first")
         val second = Identifier("test:second")

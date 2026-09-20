@@ -85,10 +85,11 @@ class ServerComputationTest {
         val jobSite = BlockPosition(10, 4, 3)
         val poiType = PoiType(setOf(BlockState(BlockId("minecraft:composter"))), maxTickets = 1, validRange = 1)
         val poiRecord = PoiRecord(PoiTypeId("minecraft:farmer"), poiType.maxTickets)
-        poiChunk.sections[0] = PoiSection(true).apply { records[jobSite] = poiRecord }
+        poiChunk.setSection(0, PoiSection(true).apply { records[jobSite] = poiRecord })
 
         // Selection, claiming, navigation and scheduling belong to this application's simulation.
-        val available = poiChunk.sections.values.flatMap { it.records.entries }.first { it.value.freeTickets > 0 }
+        val available =
+            poiChunk.sections.filterNotNull().flatMap { it.records.entries }.first { it.value.freeTickets > 0 }
         available.value.freeTickets--
         brain.memories["minecraft:job_site"] = MemorySlot(
             PropertyValue(
@@ -149,6 +150,6 @@ class ServerComputationTest {
             )
         )
         val reloadedPoi = poiDecoder.decodeDocument(poiEncoder.encodeDocument(poiChunk)).poiChunk
-        assertEquals(0, reloadedPoi.sections.getValue(0).records.getValue(jobSite).freeTickets)
+        assertEquals(0, reloadedPoi.getSection(0)!!.records.getValue(jobSite).freeTickets)
     }
 }
