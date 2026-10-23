@@ -442,6 +442,7 @@ internal object OfficialVanillaConfigurationCapture {
             |spawn-protection=0
             |sync-chunk-writes=false
             |view-distance=2
+            |white-list=false
             """.trimMargin(),
         )
     }

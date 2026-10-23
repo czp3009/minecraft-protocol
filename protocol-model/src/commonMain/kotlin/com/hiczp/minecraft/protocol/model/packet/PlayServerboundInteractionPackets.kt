@@ -12,7 +12,7 @@ import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(
-    0x3E,
+    0x3F,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "spectator_action",
@@ -24,14 +24,12 @@ data class ServerboundSpectatorActionPacket(
 
 @Serializable
 @PacketInfo(
-    0x3F,
+    0x2E,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
-    officialName = "swing",
+    officialName = "punch",
 )
-data class ServerboundSwingPacket(
-    val hand: InteractionHand,
-) : PlayStatePacket, ServerboundPacket
+data object ServerboundPunchPacket : PlayStatePacket, ServerboundPacket
 
 @Serializable
 @PacketInfo(
@@ -69,7 +67,7 @@ data class ServerboundTestInstanceBlockActionPacket(
     }
 }
 
-@Serializable(with = ServerboundUseItemOnPacketSerializer::class)
+@Serializable
 @PacketInfo(
     0x42,
     ConnectionState.PLAY,
@@ -77,8 +75,9 @@ data class ServerboundTestInstanceBlockActionPacket(
     officialName = "use_item_on",
 )
 data class ServerboundUseItemOnPacket(
-    val blockHit: BlockHitResult,
+    @ZeroFallbackEnum
     val hand: InteractionHand,
+    val hitResult: BlockHitResult,
     @VarInt
     val sequence: Int,
 ) : PlayStatePacket, ServerboundPacket
@@ -91,6 +90,7 @@ data class ServerboundUseItemOnPacket(
     officialName = "use_item",
 )
 data class ServerboundUseItemPacket(
+    @ZeroFallbackEnum
     val hand: InteractionHand,
     @VarInt
     val sequence: Int,

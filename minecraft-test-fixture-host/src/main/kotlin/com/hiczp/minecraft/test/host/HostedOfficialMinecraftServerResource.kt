@@ -358,6 +358,7 @@ private fun writeProperties(
         "spawn-protection" to "0",
         "sync-chunk-writes" to "false",
         "view-distance" to "2",
+        "white-list" to "false",
     )
     overrides.forEach { (name, value) ->
         require(

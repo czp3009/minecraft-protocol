@@ -294,7 +294,12 @@ class RegionChunkApiTest {
             DimensionId.Overworld, DimensionTypeLayout(-16, 32, 32, true, false), AIR, BiomeId("minecraft:plains"),
         )
         val TEST_DECODER = ChunkNbtDecoder(
-            ChunkNbtDecoderContext(TEST_CONTEXT, NbtFormat, NbtPropertyReadMappings(), 0),
+            ChunkNbtDecoderContext(
+                TEST_CONTEXT,
+                NbtFormat,
+                NbtPropertyReadMappings(),
+                0,
+                BlockStateNbtDecoder { StateProperties() }),
         )
         val TEST_ENCODER = ChunkNbtEncoder(
             ChunkNbtEncoderContext(

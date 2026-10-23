@@ -67,7 +67,14 @@ class UserWorldSimulationTest {
             inventoryPath("minecraft:hopper") to NbtPropertyReaders.itemSlots(5),
         )
     )
-    private val chunkNbtDecoder = ChunkNbtDecoder(ChunkNbtDecoderContext(chunkContext, NbtFormat, nbtReadMappings, 100))
+    private val chunkNbtDecoder = ChunkNbtDecoder(
+        ChunkNbtDecoderContext(
+            chunkContext,
+            NbtFormat,
+            nbtReadMappings,
+            100,
+            BlockStateNbtDecoder { StateProperties() })
+    )
     private val chunkPacketEncoder = ChunkPacketEncoder(
         ChunkPacketEncoderContext(
             chunkContext.dimensionTypeLayout.chunkLayout, chunkContext.dimensionTypeLayout.hasSkyLight, air, plains,

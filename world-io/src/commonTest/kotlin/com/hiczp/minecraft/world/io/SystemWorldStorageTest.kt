@@ -295,10 +295,10 @@ class SystemWorldStorageTest {
         val levelDat = testLevelDat()
         val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         )
         val playerAdvancements = PlayerAdvancements(
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
             advancements = mapOf(
                 "minecraft:story/root" to PlayerAdvancements.Progress(
                     criteria = mapOf("crafting_table" to "2026-08-18 00:00:00 +0000"),

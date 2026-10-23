@@ -368,6 +368,7 @@ internal object HeadlessClientEndToEndRunner {
             Identifier("entity.experience_orb.pickup"),
         )
         val simpleParticle = ParticleOptions.Simple(ParticleType.FLAME)
+        val grassBlockStateId = VanillaRegistryData.vanillaBlockStateRegistry.default(Identifier("grass_block")).rawId
         val blockTypeId = VanillaRegistryData
             .requireRegistry(Identifier("block"))
             .requireRawId(Identifier("grass_block"))
@@ -392,6 +393,8 @@ internal object HeadlessClientEndToEndRunner {
             blockUpdates = emptyList(),
         )
         val packets = listOf(
+            ClientboundPostEffectsPacket(emptyList()),
+            ClientboundAddTransientBlockPacket(BlockPosition(0, 65, 0), grassBlockStateId),
             ClientboundSetExperiencePacket(
                 experienceProgress = 0.5f,
                 experienceLevel = 5,
@@ -443,19 +446,19 @@ internal object HeadlessClientEndToEndRunner {
             ),
             ClientboundMoveEntityPacket.Pos(
                 entityId = pigEntityId,
-                xa = 64,
-                ya = 0,
-                za = -64,
+                delta = VecDelta.Linear(64, 0, -64),
                 onGround = true,
             ),
             ClientboundEntityPositionSyncPacket(
                 id = pigEntityId,
-                values = PositionMoveRotation(
-                    position = Vector3d(3.75, 65.0, 3.25),
-                    deltaMovement = Vector3d(0.0, 0.0, 0.0),
-                    yaw = 30.0f,
-                    pitch = 0.0f,
+                position = PositionPath.Stepped(
+                    listOf(
+                        PositionStep(Vector3d(3.5, 65.0, 3.5), 1),
+                        PositionStep(Vector3d(3.75, 65.0, 3.25), 2),
+                    ),
                 ),
+                yRot = 30.0f,
+                xRot = 0.0f,
                 onGround = true,
             ),
             ClientboundCustomReportDetailsPacket(
@@ -468,9 +471,10 @@ internal object HeadlessClientEndToEndRunner {
             ),
             ClientboundServerLinksPacket(emptyList()),
             ClientboundClearDialogPacket,
-            ClientboundAnimatePacket(
-                id = pigEntityId,
-                action = 0,
+            ClientboundSwingAnimationPacket(
+                pigEntityId,
+                InteractionHand.MAIN_HAND,
+                SwingAnimation(SwingAnimationType.WHACK, 6)
             ),
             ClientboundAwardStatsPacket(emptyList()),
             ClientboundBlockChangedAckPacket(sequence = 0),
@@ -626,6 +630,7 @@ internal object HeadlessClientEndToEndRunner {
                     Identifier("entity.generic.explode"),
                 ),
                 blockParticles = emptyList(),
+                playSound = true,
             ),
             ClientboundGameTestHighlightPosPacket(
                 absolutePos = BlockPosition(0, 65, 0),
@@ -666,15 +671,16 @@ internal object HeadlessClientEndToEndRunner {
                 xDist = 0.0f,
                 yDist = 0.0f,
                 zDist = 0.0f,
-                maxSpeed = 0.0f,
+                xMaxSpeed = 0.0f,
+                yMaxSpeed = 0.0f,
+                zMaxSpeed = 0.0f,
+                randomizationType = ClientboundLevelParticlesPacket.RandomizationType.DEFAULT,
                 count = 1,
                 particle = simpleParticle,
             ),
             ClientboundMoveEntityPacket.PosRot(
                 entityId = pigEntityId,
-                xa = 16,
-                ya = 0,
-                za = 16,
+                delta = VecDelta.Stepped(listOf(VecDelta.Stepped.DeltaStep(16, 0, 16, 1))),
                 yRot = Angle.fromDegrees(45.0f),
                 xRot = Angle.fromDegrees(5.0f),
                 onGround = true,
@@ -685,11 +691,7 @@ internal object HeadlessClientEndToEndRunner {
                 xRot = Angle.fromDegrees(0.0f),
                 onGround = true,
             ),
-            ClientboundMoveVehiclePacket(
-                position = Vector3d(0.5, 65.0, 0.5),
-                yRot = 0.0f,
-                xRot = 0.0f,
-            ),
+            ClientboundMoveVehiclePacket(PositionAndRotation(Vector3d(0.5, 65.0, 0.5), 0.0f, 0.0f)),
             ClientboundMoveMinecartPacket(
                 entityId = vehicleEntityId,
                 lerpSteps = listOf(
@@ -944,7 +946,7 @@ internal object HeadlessClientEndToEndRunner {
                 replace = false,
             ),
             ClientboundUpdateAdvancementsPacket(
-                reset = false,
+                shouldReset = false,
                 added = emptyList(),
                 removed = emptySet(),
                 progress = emptyMap(),

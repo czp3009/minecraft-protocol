@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.model.packet
 import com.hiczp.minecraft.protocol.model.type.BlockFace
 import com.hiczp.minecraft.protocol.model.type.BlockPosition
 import com.hiczp.minecraft.protocol.model.type.PlayerInput
-import com.hiczp.minecraft.protocol.model.type.Vector3d
+import com.hiczp.minecraft.protocol.model.type.PositionAndRotation
 import com.hiczp.minecraft.protocol.model.wire.EnumEncoding
 import com.hiczp.minecraft.protocol.model.wire.EnumEncodingKind
 import com.hiczp.minecraft.protocol.model.wire.VarInt
@@ -18,9 +18,7 @@ import kotlinx.serialization.Serializable
     officialName = "move_vehicle",
 )
 data class ServerboundMoveVehiclePacket(
-    val position: Vector3d,
-    val yRot: Float,
-    val xRot: Float,
+    val movingTo: PositionAndRotation,
     val onGround: Boolean,
 ) : PlayStatePacket, ServerboundPacket
 
@@ -119,6 +117,7 @@ data class ServerboundPlayerActionPacket(
     @Serializable
     enum class Action {
         START_DESTROY_BLOCK,
+        CHANGE_DESTROY_DIRECTION,
         ABORT_DESTROY_BLOCK,
         STOP_DESTROY_BLOCK,
         DROP_ALL_ITEMS,

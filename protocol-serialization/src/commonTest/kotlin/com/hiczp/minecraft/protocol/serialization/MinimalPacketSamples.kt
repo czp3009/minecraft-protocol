@@ -65,7 +65,7 @@ private class MinimalPacketValueDecoder(
         "minecraft.UntrustedItemStack",
             -> 0
 
-        "minecraft.RecipeDisplay" -> 0
+        "minecraft.RecipeDisplay", "minecraft.PositionPath" -> 0
         else -> 1
     }
 

@@ -3,6 +3,7 @@ package com.hiczp.minecraft.protocol.model.packet
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.wire.MaxLength
 import com.hiczp.minecraft.protocol.model.wire.VarInt
+import com.hiczp.minecraft.protocol.model.wire.ZeroFallbackEnum
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -53,6 +54,7 @@ data class ClientboundCooldownPacket(
     officialName = "custom_chat_completions",
 )
 data class ClientboundCustomChatCompletionsPacket(
+    @ZeroFallbackEnum
     val action: Action,
     @MaxLength(32_767)
     val entries: List<String>,

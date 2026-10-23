@@ -184,7 +184,14 @@ class ChunkPacketTest {
                 ChunkNbtMetadata(12345, 400)
             )
         )
-        val nbtDecoder = ChunkNbtDecoder(ChunkNbtDecoderContext(context, NbtFormat, NbtPropertyReadMappings(), 100))
+        val nbtDecoder = ChunkNbtDecoder(
+            ChunkNbtDecoderContext(
+                context,
+                NbtFormat,
+                NbtPropertyReadMappings(),
+                100,
+                BlockStateNbtDecoder { StateProperties() })
+        )
         val stored = decoded.toCompressedChunk(nbtEncoder, Compression.NONE).toChunk(nbtDecoder)
         assertEquals("example:client", stored.chunk.status)
         assertEquals(400, stored.chunkNbtMetadata.lastUpdateTime)

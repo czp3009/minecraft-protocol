@@ -2,16 +2,17 @@ package com.hiczp.minecraft.world.io
 
 import com.hiczp.minecraft.nbt.NbtIntArray
 import com.hiczp.minecraft.world.format.LevelDat
+import com.hiczp.minecraft.world.format.MinecraftWorldFormat
 
 internal fun testLevelDat(levelName: String = "typed-world"): LevelDat = LevelDat(
     data = LevelDat.Data(
-        dataVersion = 4_903,
+        dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         lastPlayed = 1_786_958_771_250,
         levelName = levelName,
         gameType = 0,
         time = 2,
         version = 19_133,
-        versionInfo = LevelDat.Data.Version(4_903, "26.2", "main", false),
+        versionInfo = LevelDat.Data.Version(MinecraftWorldFormat.WORLD_VERSION, "test-release", "main", false),
         serverBrands = listOf("vanilla"),
         wasModded = false,
         allowCommands = false,

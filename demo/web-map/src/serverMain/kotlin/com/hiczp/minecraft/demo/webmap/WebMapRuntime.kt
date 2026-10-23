@@ -3,13 +3,11 @@ package com.hiczp.minecraft.demo.webmap
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
 import com.hiczp.minecraft.protocol.configuration.resolveWorldChunkContexts
 import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaConfigurationData
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaRegistryData
 import com.hiczp.minecraft.protocol.configuration.vanilla.toVanillaConfigurationData
 import com.hiczp.minecraft.protocol.model.MinecraftProtocol
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.world.format.*
-import com.hiczp.minecraft.world.format.DimensionId
-import com.hiczp.minecraft.world.format.RegionPosition
-import com.hiczp.minecraft.world.format.SavedDataId
 import com.hiczp.minecraft.world.format.data.SavedDataFile
 import com.hiczp.minecraft.world.format.data.WorldGenSettingsData
 import com.hiczp.minecraft.world.format.datapack.vanilla.toVanillaDataPackStack
@@ -53,9 +51,18 @@ class WebMapRuntime(
             val worldChunkContexts = resolvedConfigurationData.resolveWorldChunkContexts(
                 worldGenSettingsData, BlockState(BlockId("minecraft:air")), BiomeId("minecraft:plains"),
             )
+            val blockStateNbtDecoder = VanillaRegistryData.vanillaBlockStateRegistry.createBlockStateNbtDecoder()
             // Surface projection does not execute saved ticks; all map reads use the same explicit origin.
             val chunkNbtDecoders = worldChunkContexts.dimensions.mapValues { (_, chunkContext) ->
-                ChunkNbtDecoder(ChunkNbtDecoderContext(chunkContext, NbtFormat(), NbtPropertyReadMappings(), 0L))
+                ChunkNbtDecoder(
+                    ChunkNbtDecoderContext(
+                        chunkContext,
+                        NbtFormat,
+                        NbtPropertyReadMappings(),
+                        0L,
+                        blockStateNbtDecoder
+                    ),
+                )
             }
             val surfaceRegionReader = LiveSurfaceRegionReader(
                 liveMinecraftWorldAccess = liveMinecraftWorldAccess,

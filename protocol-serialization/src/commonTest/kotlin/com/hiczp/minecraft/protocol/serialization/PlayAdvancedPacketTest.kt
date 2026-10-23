@@ -28,7 +28,7 @@ class PlayAdvancedPacketTest {
         assertBytes(
             ParticleOptions.Color(ParticleType.TINTED_LEAVES, 0x11223344),
             ParticleOptions.serializer(),
-            "2b11223344",
+            "2e11223344",
         )
     }
 
@@ -126,7 +126,7 @@ class PlayAdvancedPacketTest {
         assertBytes(
             FilterMask.PartiallyFiltered(BitSet(longArrayOf(5))),
             FilterMask.serializer(),
-            "02010000000000000005",
+            "020105",
         )
 
         val clientboundTrackedWaypointPacket = ClientboundTrackedWaypointPacket(

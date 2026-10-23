@@ -35,7 +35,7 @@ sealed interface SlotDisplay {
 
     data class ItemStackValue(val stack: ItemStackTemplate) : SlotDisplay
 
-    data class Tag(val tag: Identifier) : SlotDisplay
+    data class Tag(val tag: RegistryHolderSet) : SlotDisplay
 
     data class Dyed(
         val dye: SlotDisplay,
@@ -163,7 +163,7 @@ private data class ItemSlotPayload(
 private data class ItemStackSlotPayload(val stack: ItemStackTemplate)
 
 @Serializable
-private data class TagSlotPayload(val tag: Identifier)
+private data class TagSlotPayload(val tag: RegistryHolderSet)
 
 @Serializable
 private data class PairSlotPayload(

@@ -13,7 +13,7 @@ import org.gradle.api.tasks.TaskAction
  * version; the remaining platform versions stay independently fixed.
  */
 object MinecraftTarget {
-    const val MINECRAFT_VERSION: String = "26.2"
+    const val MINECRAFT_VERSION: String = "26.3"
 }
 
 abstract class PrintMinecraftVersionTask : DefaultTask() {

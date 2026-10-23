@@ -194,7 +194,8 @@ class EntityPacketTest {
         )
         val nbtReadMappings = NbtPropertyReadMappings(
             mapOf(
-                NbtPropertyPath(NbtPropertyScope("entity"), carriedState.name) to NbtPropertyReaders.blockState,
+                NbtPropertyPath(NbtPropertyScope("entity"), carriedState.name) to NbtPropertyReaders.blockState(
+                    BlockStateNbtDecoder { StateProperties() }),
                 NbtPropertyPath(NbtPropertyScope("entity"), "attributes") to NbtPropertyReaders.entityAttributes,
             )
         )

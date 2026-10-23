@@ -6,6 +6,7 @@ internal fun decodeSection(
     nbtCompound: NbtCompound,
     chunkContext: ChunkContext,
     mappings: NbtPropertyReadMappings,
+    blockStateNbtDecoder: BlockStateNbtDecoder,
 ): Pair<Int, ChunkSection> {
     val y = nbtCompound.optionalTag<NbtByte>("Y")?.value?.toInt() ?: 0
     val blockStates = nbtCompound.optionalTag<NbtCompound>("block_states")
@@ -15,7 +16,10 @@ internal fun decodeSection(
         SectionTerrain(
             blockStates?.let {
                 decodeNbtPalette(it, MinecraftCoordinates.SECTION_BLOCK_COUNT, 4) { tag ->
-                    decodeBlockState(tag, chunkContext.blockStateDefinitions)
+                    val blockState = blockStateNbtDecoder.decode(tag)
+                    chunkContext.blockStateDefinitions.getOrPut(blockState.blockId) {
+                        BlockStateDefinition(blockState.blockId)
+                    }.state(blockState.properties)
                 }
             }
                 ?: PalettedContainer(MinecraftCoordinates.SECTION_BLOCK_COUNT, chunkContext.defaultBlockState),
@@ -52,7 +56,7 @@ internal fun encodeSection(
     chunkSection.terrain?.let { terrain ->
         require(y in chunkLayout) { "Section terrain Y $y is outside the build range" }
         terrain.requireShape()
-        fields["block_states"] = encodeNbtPalette(terrain.blockStates, 4, ::encodeBlockState)
+        fields["block_states"] = encodeNbtPalette(terrain.blockStates, 4, blockStateNbtEncoder::encode)
         fields["biomes"] = encodeNbtPalette(terrain.biomes, 1) { biomeId -> NbtString(biomeId.toString()) }
     }
     chunkSection.lighting.blockLight?.let { fields["BlockLight"] = it.toNbt() }
@@ -60,27 +64,7 @@ internal fun encodeSection(
     return NbtCompound(fields)
 }
 
-internal fun decodeBlockState(nbtTag: NbtTag): BlockState = decodeBlockState(nbtTag, null)
-
-private fun decodeBlockState(
-    nbtTag: NbtTag,
-    definitions: MutableMap<BlockId, BlockStateDefinition>?,
-): BlockState {
-    val nbtCompound = nbtTag.compound()
-    val blockId = BlockId.parse(nbtCompound.string("Name"))
-    val properties = StateProperties(buildMap {
-        nbtCompound.optionalTag<NbtCompound>("Properties")?.forEachEntry { name, tag -> put(name, tag.string()) }
-    })
-    return if (definitions == null) BlockState(blockId, properties) else
-        definitions.getOrPut(blockId) { BlockStateDefinition(blockId) }.state(properties)
-}
-
-internal fun encodeBlockState(blockState: BlockState): NbtCompound = NbtCompound(buildMap {
-    put("Name", NbtString(blockState.blockId.toString()))
-    if (blockState.properties.size != 0) {
-        put("Properties", NbtCompound(blockState.properties.associate { (name, value) -> name to NbtString(value) }))
-    }
-})
+private val blockStateNbtEncoder = BlockStateNbtEncoder()
 
 private fun <T : Any> decodeNbtPalette(
     nbtCompound: NbtCompound,

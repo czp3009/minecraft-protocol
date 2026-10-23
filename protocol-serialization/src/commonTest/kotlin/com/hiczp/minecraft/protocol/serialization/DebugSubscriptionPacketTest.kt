@@ -65,7 +65,7 @@ class DebugSubscriptionPacketTest {
                 openSet = emptyList(),
                 closedSet = emptyList(),
                 maximumNodeDistance = 1.0f,
-            ) to "050100000002${ZERO_POSITION_HEX}01${nodeHex}01${nodeHex}00003f800000",
+            ) to "050100000002${ZERO_POSITION_HEX}01${nodeHex}000001${nodeHex}3f800000",
             DebugSubscriptionData.EntityBlockIntersection(
                 DebugEntityBlockIntersection.IN_AIR,
             ) to "0602",
@@ -213,7 +213,7 @@ class DebugSubscriptionPacketTest {
             latestPathType,
         )
         // The official PathType has one entry beyond the pinned Wiki table.
-        assertEquals(0x1A, encoded[37].toInt() and 0xFF)
+        assertEquals(0x1A, encoded[39].toInt() and 0xFF)
     }
 
     @Test

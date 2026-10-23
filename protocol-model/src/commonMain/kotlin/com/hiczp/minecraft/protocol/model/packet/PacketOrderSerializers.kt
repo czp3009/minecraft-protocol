@@ -9,58 +9,6 @@ import kotlinx.serialization.encoding.Encoder
 
 // These packets declare fields in the official Java member order. Their manual codecs use a different wire order.
 // Private serialization surrogates preserve that order without changing the public constructor's logical contract.
-internal object ClientboundLevelParticlesPacketSerializer : KSerializer<ClientboundLevelParticlesPacket> {
-    private val delegate = LevelParticlesPayload.serializer()
-    override val descriptor = delegate.descriptor
-    override fun serialize(encoder: Encoder, value: ClientboundLevelParticlesPacket) = delegate.serialize(
-        encoder,
-        LevelParticlesPayload(
-            value.overrideLimiter,
-            value.alwaysShow,
-            value.x,
-            value.y,
-            value.z,
-            value.xDist,
-            value.yDist,
-            value.zDist,
-            value.maxSpeed,
-            value.count,
-            value.particle
-        )
-    )
-
-    override fun deserialize(decoder: Decoder): ClientboundLevelParticlesPacket = delegate.deserialize(decoder).let {
-        ClientboundLevelParticlesPacket(
-            it.x,
-            it.y,
-            it.z,
-            it.xDist,
-            it.yDist,
-            it.zDist,
-            it.maxSpeed,
-            it.count,
-            it.overrideLimiter,
-            it.alwaysShow,
-            it.particle
-        )
-    }
-}
-
-@Serializable
-private data class LevelParticlesPayload(
-    val overrideLimiter: Boolean,
-    val alwaysShow: Boolean,
-    val x: Double,
-    val y: Double,
-    val z: Double,
-    val xDist: Float,
-    val yDist: Float,
-    val zDist: Float,
-    val maxSpeed: Float,
-    val count: Int,
-    val particle: ParticleOptions,
-)
-
 internal object ClientboundSetExperiencePacketSerializer : KSerializer<ClientboundSetExperiencePacket> {
     private val delegate = ExperiencePayload.serializer()
     override val descriptor = delegate.descriptor
@@ -79,26 +27,6 @@ private data class ExperiencePayload(
     val experienceProgress: Float,
     @VarInt val experienceLevel: Int,
     @VarInt val totalExperience: Int
-)
-
-internal object ServerboundSignUpdatePacketSerializer : KSerializer<ServerboundSignUpdatePacket> {
-    private val delegate = SignUpdatePayload.serializer()
-    override val descriptor = delegate.descriptor
-    override fun serialize(encoder: Encoder, value: ServerboundSignUpdatePacket) = delegate.serialize(
-        encoder,
-        SignUpdatePayload(value.pos, value.isFrontText, value.lines)
-    )
-
-    override fun deserialize(decoder: Decoder): ServerboundSignUpdatePacket = delegate.deserialize(decoder).let {
-        ServerboundSignUpdatePacket(it.pos, it.lines, it.isFrontText)
-    }
-}
-
-@Serializable
-private data class SignUpdatePayload(
-    val pos: BlockPosition,
-    val isFrontText: Boolean,
-    @FixedLength(4) @MaxLength(384) val lines: List<String>
 )
 
 internal object ServerboundPlayerActionPacketSerializer : KSerializer<ServerboundPlayerActionPacket> {
@@ -121,22 +49,6 @@ private data class PlayerActionPayload(
     @EnumEncoding(EnumEncodingKind.UNSIGNED_BYTE) @WrappedEnum val direction: BlockFace,
     @VarInt val sequence: Int,
 )
-
-internal object ServerboundUseItemOnPacketSerializer : KSerializer<ServerboundUseItemOnPacket> {
-    private val delegate = UseItemOnPayload.serializer()
-    override val descriptor = delegate.descriptor
-    override fun serialize(encoder: Encoder, value: ServerboundUseItemOnPacket) = delegate.serialize(
-        encoder,
-        UseItemOnPayload(value.hand, value.blockHit, value.sequence)
-    )
-
-    override fun deserialize(decoder: Decoder): ServerboundUseItemOnPacket = delegate.deserialize(decoder).let {
-        ServerboundUseItemOnPacket(it.blockHit, it.hand, it.sequence)
-    }
-}
-
-@Serializable
-private data class UseItemOnPayload(val hand: InteractionHand, val blockHit: BlockHitResult, @VarInt val sequence: Int)
 
 internal object ServerboundSetCommandBlockPacketSerializer : KSerializer<ServerboundSetCommandBlockPacket> {
     private val delegate = CommandBlockPayload.serializer()
@@ -222,6 +134,7 @@ private data class StructureBlockPayload(
     val offset: StructureOffset,
     val size: StructureSize,
     val mirror: StructureMirror,
+    @WrappedEnum
     val rotation: StructureRotation,
     @MaxLength(128) val data: String,
     val integrity: StructureIntegrity,

@@ -8,7 +8,7 @@ import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(
-    0x42,
+    0x43,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_combat_end",
@@ -20,7 +20,7 @@ data class ClientboundPlayerCombatEndPacket(
 
 @Serializable
 @PacketInfo(
-    0x43,
+    0x44,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_combat_enter",
@@ -29,7 +29,7 @@ data object ClientboundPlayerCombatEnterPacket : PlayStatePacket, ClientboundPac
 
 @Serializable
 @PacketInfo(
-    0x44,
+    0x45,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_combat_kill",
@@ -42,7 +42,7 @@ data class ClientboundPlayerCombatKillPacket(
 
 @Serializable
 @PacketInfo(
-    0x45,
+    0x46,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_info_remove",
@@ -53,7 +53,7 @@ data class ClientboundPlayerInfoRemovePacket(
 
 @Serializable
 @PacketInfo(
-    0x47,
+    0x48,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_look_at",
@@ -66,7 +66,7 @@ data class ClientboundPlayerLookAtPacket(
 
 @Serializable
 @PacketInfo(
-    0x48,
+    0x49,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_position",
@@ -80,7 +80,7 @@ data class ClientboundPlayerPositionPacket(
 
 @Serializable
 @PacketInfo(
-    0x49,
+    0x4A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_rotation",
@@ -94,7 +94,7 @@ data class ClientboundPlayerRotationPacket(
 
 @Serializable
 @PacketInfo(
-    0x4B,
+    0x4C,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "recipe_book_remove",
@@ -106,7 +106,7 @@ data class ClientboundRecipeBookRemovePacket(
 
 @Serializable
 @PacketInfo(
-    0x4C,
+    0x4D,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "recipe_book_settings",
@@ -117,7 +117,7 @@ data class ClientboundRecipeBookSettingsPacket(
 
 @Serializable
 @PacketInfo(
-    0x4D,
+    0x4E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "remove_entities",
@@ -129,7 +129,7 @@ data class ClientboundRemoveEntitiesPacket(
 
 @Serializable
 @PacketInfo(
-    0x4E,
+    0x4F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "remove_mob_effect",
@@ -143,7 +143,7 @@ data class ClientboundRemoveMobEffectPacket(
 
 @Serializable
 @PacketInfo(
-    0x4F,
+    0x50,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "reset_score",
@@ -158,7 +158,7 @@ data class ClientboundResetScorePacket(
 @Serializable
 @PacketInfo(0x08, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "resource_pack_pop")
 @PacketInfo(
-    0x50,
+    0x51,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "resource_pack_pop",
@@ -170,7 +170,7 @@ data class ClientboundResourcePackPopPacket(
 @Serializable
 @PacketInfo(0x09, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "resource_pack_push")
 @PacketInfo(
-    0x51,
+    0x52,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "resource_pack_push",
@@ -187,7 +187,7 @@ data class ClientboundResourcePackPushPacket(
 
 @Serializable
 @PacketInfo(
-    0x53,
+    0x55,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "rotate_head",
@@ -200,7 +200,7 @@ data class ClientboundRotateHeadPacket(
 
 @Serializable
 @PacketInfo(
-    0x54,
+    0x56,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "section_blocks_update",
@@ -214,7 +214,7 @@ data class ClientboundSectionBlocksUpdatePacket(
 
 @Serializable
 @PacketInfo(
-    0x55,
+    0x57,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "select_advancements_tab",
@@ -225,7 +225,7 @@ data class ClientboundSelectAdvancementsTabPacket(
 
 @Serializable
 @PacketInfo(
-    0x56,
+    0x58,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "server_data",
@@ -238,7 +238,7 @@ data class ClientboundServerDataPacket(
 
 @Serializable
 @PacketInfo(
-    0x57,
+    0x59,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_action_bar_text",
@@ -249,7 +249,7 @@ data class ClientboundSetActionBarTextPacket(
 
 @Serializable
 @PacketInfo(
-    0x58,
+    0x5A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_center",
@@ -261,7 +261,7 @@ data class ClientboundSetBorderCenterPacket(
 
 @Serializable
 @PacketInfo(
-    0x59,
+    0x5B,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_lerp_size",
@@ -275,7 +275,7 @@ data class ClientboundSetBorderLerpSizePacket(
 
 @Serializable
 @PacketInfo(
-    0x5A,
+    0x5C,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_size",
@@ -286,7 +286,7 @@ data class ClientboundSetBorderSizePacket(
 
 @Serializable
 @PacketInfo(
-    0x5B,
+    0x5D,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_warning_delay",
@@ -298,7 +298,7 @@ data class ClientboundSetBorderWarningDelayPacket(
 
 @Serializable
 @PacketInfo(
-    0x5C,
+    0x5E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_border_warning_distance",
@@ -310,7 +310,7 @@ data class ClientboundSetBorderWarningDistancePacket(
 
 @Serializable
 @PacketInfo(
-    0x5D,
+    0x5F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_camera",
@@ -322,7 +322,7 @@ data class ClientboundSetCameraPacket(
 
 @Serializable
 @PacketInfo(
-    0x5E,
+    0x60,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_chunk_cache_center",
@@ -336,7 +336,7 @@ data class ClientboundSetChunkCacheCenterPacket(
 
 @Serializable
 @PacketInfo(
-    0x5F,
+    0x61,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_chunk_cache_radius",
@@ -348,7 +348,7 @@ data class ClientboundSetChunkCacheRadiusPacket(
 
 @Serializable
 @PacketInfo(
-    0x61,
+    0x63,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_default_spawn_position",

@@ -70,6 +70,11 @@ annotation class MaxByteLength(val bytes: Int)
 @Target(AnnotationTarget.PROPERTY)
 annotation class MaxCollectionSize(val elements: Int)
 
+/** The intrinsic minimum bytes per collection element, checked against the remaining payload before allocation. */
+@SerialInfo
+@Target(AnnotationTarget.PROPERTY)
+annotation class MinElementBytes(val bytes: Int)
+
 /**
  * Wrap the encoded value in a VarInt byte-length prefix and reject payloads
  * larger than [maxBytes].

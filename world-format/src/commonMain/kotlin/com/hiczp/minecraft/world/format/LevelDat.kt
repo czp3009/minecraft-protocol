@@ -30,6 +30,8 @@ data class LevelDat(
         val version: Int,
         @SerialName("Version")
         val versionInfo: Version,
+        @SerialName("version_history")
+        val versionHistory: List<Int> = emptyList(),
         @SerialName("ServerBrands")
         val serverBrands: List<String>,
         @SerialName("WasModded")

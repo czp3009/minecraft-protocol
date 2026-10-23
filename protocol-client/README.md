@@ -314,7 +314,7 @@ The client does not receive one complete world snapshot. It advances through the
 
 Continue after `negotiate()` on the same open connection. Pass
 either decoder constructed above as `chunkPacketDecoder`. The application callbacks apply a received player position,
-store a decoded `Chunk`, and handle
+return its resulting absolute `PositionAndRotation` after resolving relative flags, store a decoded `Chunk`, and handle
 other `ClientboundPacket` values. `desiredChunksPerTick` supplies the application's measured or configured receive rate:
 
 ```kotlin
@@ -322,7 +322,7 @@ suspend fun runPlayPacketLoop(
    minecraftClientConnection: MinecraftClientConnection,
    chunkPacketDecoder: ChunkPacketDecoder,
    desiredChunksPerTick: () -> Float,
-   applyPlayerPosition: suspend (ClientboundPlayerPositionPacket) -> Unit,
+   applyPlayerPosition: suspend (ClientboundPlayerPositionPacket) -> PositionAndRotation,
    storeChunk: suspend (Chunk) -> Unit,
    handlePacket: suspend (ClientboundPacket) -> Unit,
 ) {
@@ -357,9 +357,12 @@ suspend fun runPlayPacketLoop(
          }
 
          is ClientboundPlayerPositionPacket -> {
-            applyPlayerPosition(clientboundPacket)
+            val applied = applyPlayerPosition(clientboundPacket)
             minecraftClientConnection.outgoing.send(
-               ServerboundAcceptTeleportationPacket(clientboundPacket.id),
+               ServerboundAcceptTeleportationPacket(
+                  clientboundPacket.id, applied.position.x, applied.position.y, applied.position.z,
+                  applied.yRot, applied.xRot,
+               ),
             )
             minecraftClientConnection.requestFlush()
          }

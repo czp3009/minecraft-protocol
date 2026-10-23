@@ -18,8 +18,7 @@ import kotlin.uuid.Uuid
 
 /**
  * Emits protocol-valid Kotlin payloads for the exact-version vanilla codec
- * oracle. This lives in JVM test code because the oracle itself executes the
- * official server JAR and is not part of the multiplatform library.
+ * oracle. Portable tests send these payloads to the JVM Fixture Host, which executes the official server JAR.
  */
 internal object OfficialCodecFixtureGenerator {
     fun generate(): JsonElement {
@@ -67,25 +66,78 @@ internal object OfficialCodecFixtureGenerator {
                             )
                             put("sample", sampleName)
                             put("payloadHex", payloadHex)
+                            if (hasCanonicalSampleBytes(packetCodec.packetClass)) {
+                                put("expectedHex", payloadHex)
+                            }
                         },
                     )
                 }
                 check(seenPayloads.isNotEmpty()) {
                     "No protocol sample could be generated for ${packetCodec.packetClass}"
                 }
+                for (packetNormalizationSample in packetNormalizationSamples().filter { it.packet::class == packetCodec.packetClass }) {
+                    add(
+                        buildJsonObject {
+                            put("state", packetCodec.packetKey.connectionState.name)
+                            put("direction", packetCodec.packetKey.packetDirection.name)
+                            put("id", packetCodec.packetKey.id)
+                            put("kotlinClass", packetName)
+                            put("sample", packetNormalizationSample.name)
+                            put("payloadHex", packetNormalizationSample.payloadHex)
+                            put("expectedHex", packetNormalizationSample.expectedHex)
+                        },
+                    )
+                }
             }
         }
         return fixtures
     }
 
+    private fun hasCanonicalSampleBytes(packetClass: KClass<*>): Boolean = when (packetClass) {
+        // Vanilla deliberately discards unknown extension bodies, including the nullable Login answer.
+        ClientboundCustomQueryPacket::class, ServerboundCustomQueryAnswerPacket::class,
+        ClientboundCustomPayloadPacket::class, ServerboundCustomPayloadPacket::class -> false
+        // Compound keys and subscription sets have no wire ordering guarantee.
+        ClientboundShowDialogPacket::class, ServerboundDebugSubscriptionRequestPacket::class -> false
+        else -> true
+    }
+
     private fun explicitSamples(packetClass: KClass<*>): List<Pair<String, Packet>>? =
         when (packetClass) {
+            ClientboundMoveEntityPacket.Pos::class -> entityDeltaSamples().map { (name, delta) ->
+                name to ClientboundMoveEntityPacket.Pos(1, delta, true)
+            }
+
+            ClientboundMoveEntityPacket.PosRot::class -> entityDeltaSamples().map { (name, delta) ->
+                name to ClientboundMoveEntityPacket.PosRot(1, delta, Angle(64), Angle(-32), false)
+            }
+
+            ClientboundEntityPositionSyncPacket::class -> listOf(
+                "linear" to ClientboundEntityPositionSyncPacket(
+                    1,
+                    PositionPath.Linear(Vector3d(1.0, 2.0, 3.0)),
+                    90.0f,
+                    -45.0f,
+                    true
+                ),
+                "stepped" to ClientboundEntityPositionSyncPacket(
+                    1,
+                    PositionPath.Stepped(
+                        listOf(
+                            PositionStep(Vector3d(1.0, 2.0, 3.0), 1),
+                            PositionStep(Vector3d(4.0, 5.0, 6.0), 300)
+                        )
+                    ),
+                    90.0f, -45.0f, false,
+                ),
+            )
+
             ClientboundStatusResponsePacket::class ->
                 listOf(
                     "defaults" to ClientboundStatusResponsePacket(ServerStatus()),
                     "all_fields" to ClientboundStatusResponsePacket(
                         ServerStatus(
-                            description = JsonTextComponent("""{"text":"test"}"""),
+                            description = JsonTextComponent("\"test\""),
                             players = ServerStatus.Players(
                                 max = 20,
                                 online = 1,
@@ -106,7 +158,7 @@ internal object OfficialCodecFixtureGenerator {
             ClientboundLoginDisconnectPacket::class ->
                 listOf(
                     "text_component" to
-                            ClientboundLoginDisconnectPacket(JsonTextComponent("""{"text":"test"}""")),
+                            ClientboundLoginDisconnectPacket(JsonTextComponent("\"test\"")),
                 )
 
             ClientboundShowDialogPacket::class ->
@@ -135,7 +187,10 @@ internal object OfficialCodecFixtureGenerator {
                             xDist = 0.1f,
                             yDist = 0.2f,
                             zDist = 0.3f,
-                            maxSpeed = 1.0f,
+                            xMaxSpeed = 1.0f,
+                            yMaxSpeed = 2.0f,
+                            zMaxSpeed = 3.0f,
+                            randomizationType = ClientboundLevelParticlesPacket.RandomizationType.ALTERNATIVE_WITH_SPEED,
                             count = 1,
                             particle = namedNetworkTypeSample.value,
                         )
@@ -340,6 +395,13 @@ internal object OfficialCodecFixtureGenerator {
             "update-flags" to BossBarAction.UpdateFlags(7),
         )
 
+    private fun entityDeltaSamples(): List<Pair<String, VecDelta>> = listOf(
+        "linear" to VecDelta.Linear(-1, 2, 3),
+        "stepped" to VecDelta.Stepped(
+            listOf(VecDelta.Stepped.DeltaStep(-2, 3, 4, 1), VecDelta.Stepped.DeltaStep(5, 6, 7, 300)),
+        ),
+    )
+
     private fun playerInfoUpdateSamples(): List<Pair<String, Packet>> {
         val profileId = Uuid.fromLongs(1, 2)
         fun packet(
@@ -533,6 +595,28 @@ internal object OfficialCodecFixtureGenerator {
             blocks = RegistryHolderSet.Direct(listOf(1)),
         )
         return generic + listOf(
+            NamedDataComponentSample(
+                "pot_decorations-mixed_sides", DataComponentType.POT_DECORATIONS,
+                DataComponent.PotDecorations(back = ItemStackTemplate(1, 2), right = ItemStackTemplate(3, 4)),
+            ),
+            NamedDataComponentSample(
+                "sign_text_front-filtered", DataComponentType.SIGN_TEXT_FRONT,
+                DataComponent.SignTextFront(
+                    SignText(
+                        List(4) { TextComponent.literal("original") },
+                        List(4) { TextComponent.literal("filtered") },
+                        DyeColor.RED,
+                        true
+                    ),
+                ),
+            ),
+            NamedDataComponentSample(
+                "cooking_fuel-mixed_numbers", DataComponentType.COOKING_FUEL,
+                DataComponent.CookingFuel(
+                    ResolvableInt.Constant(300),
+                    ResolvableFloat.Reference(Identifier("fixture:speed"))
+                ),
+            ),
             NamedDataComponentSample(
                 name = "can_place_on-explicit_predicate",
                 dataComponentType = DataComponentType.CAN_PLACE_ON,

@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.test.host
 
+import kotlinx.serialization.json.JsonObject
 import java.nio.file.Files
 import kotlin.io.path.*
 import kotlin.test.Test
@@ -14,14 +15,14 @@ class HeadlessClientWorkspaceTest {
         try {
             val sourceDirectory = root.resolve("source")
             val minecraftDirectory = sourceDirectory.resolve("minecraft")
-            val launcher = sourceDirectory.resolve("headlessmc-launcher.jar")
+            val agent = sourceDirectory.resolve("headlessmc-lwjgl.jar")
             val modsDirectory = sourceDirectory.resolve("mods")
             val templateDirectory = sourceDirectory.resolve("template")
             val processedModsDirectory = templateDirectory.resolve(".fabric").resolve("processedMods")
             minecraftDirectory.resolve("libraries").createDirectories()
             minecraftDirectory.resolve("libraries").resolve("library.jar")
                 .writeText("library")
-            launcher.writeText("launcher")
+            agent.writeText("agent")
             modsDirectory.createDirectories()
             modsDirectory.resolve("hmc-specifics.jar").writeText("mod")
             processedModsDirectory.createDirectories()
@@ -47,7 +48,8 @@ class HeadlessClientWorkspaceTest {
                 minecraftVersion = "test",
                 fabricProfileId = "fabric-loader-test",
                 minecraftDirectory = minecraftDirectory,
-                launcher = launcher,
+                agent = agent,
+                launchManifest = JsonObject(emptyMap()),
                 modsDirectory = modsDirectory,
                 processedModsDirectory = processedModsDirectory,
                 templateDirectory = templateDirectory,
@@ -75,7 +77,7 @@ class HeadlessClientWorkspaceTest {
                 ),
             )
             assertEquals("library", privateLibrary.readText())
-            assertEquals("launcher", privateInstallation.launcher.readText())
+            assertEquals("agent", privateInstallation.agent.readText())
             assertEquals("mod", privateMod.readText())
             assertEquals("cache", privateCache.readText())
             assertEquals("options", privateOptions.readText())
@@ -101,8 +103,8 @@ class HeadlessClientWorkspaceTest {
                 )
                 assertTrue(
                     Files.isSameFile(
-                        launcher,
-                        privateInstallation.launcher,
+                        agent,
+                        privateInstallation.agent,
                     ),
                 )
                 assertTrue(

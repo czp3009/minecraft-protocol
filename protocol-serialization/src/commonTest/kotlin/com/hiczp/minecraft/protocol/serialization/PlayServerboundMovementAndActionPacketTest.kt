@@ -55,9 +55,7 @@ class PlayServerboundMovementAndActionPacketTest {
     fun `vehicle paddle and pick packets follow their independent primitive layouts`() {
         assertPacketBytes(
             ServerboundMoveVehiclePacket(
-                position = Vector3d(0.0, 0.0, 0.0),
-                yRot = 0.0f,
-                xRot = 0.0f,
+                movingTo = PositionAndRotation(Vector3d(0.0, 0.0, 0.0), yRot = 0.0f, xRot = 0.0f),
                 onGround = true,
             ),
             ServerboundMoveVehiclePacket.serializer(),
@@ -122,7 +120,7 @@ class PlayServerboundMovementAndActionPacketTest {
                 sequence = 300,
             ),
             ServerboundPlayerActionPacket.serializer(),
-            "07000000000000000005ac02",
+            "08000000000000000005ac02",
         )
 
         val wrappedFace = MinecraftPacketPayloadFormat.decodeFromByteArray<ServerboundPlayerActionPacket>(

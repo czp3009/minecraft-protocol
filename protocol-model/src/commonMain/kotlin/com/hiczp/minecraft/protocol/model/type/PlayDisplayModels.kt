@@ -66,18 +66,14 @@ enum class GameMode {
     SPECTATOR,
 }
 
-@Serializable
+@Serializable(with = CommonPlayerSpawnInfoSerializer::class)
 data class CommonPlayerSpawnInfo(
     @VarInt
     val dimensionTypeId: Int,
     val dimension: Identifier,
     val seed: Long,
-    @EnumEncoding(EnumEncodingKind.BYTE)
     @ZeroFallbackEnum
     val gameMode: GameMode,
-    @EnumEncoding(EnumEncodingKind.BYTE)
-    @NullSentinelByte
-    @ZeroFallbackEnum
     val previousGameMode: GameMode?,
     val isDebug: Boolean,
     val isFlat: Boolean,
@@ -91,6 +87,48 @@ data class CommonPlayerSpawnInfo(
         require(dimensionTypeId >= 0) {
             "A dimension-type registry ID must be non-negative"
         }
+    }
+}
+
+@Serializable
+private data class CommonPlayerSpawnInfoSurrogate(
+    @VarInt val dimensionTypeId: Int,
+    val dimension: Identifier,
+    val seed: Long,
+    @ZeroFallbackEnum val gameMode: GameMode,
+    @OptionalVarInt val previousGameMode: Int?,
+    val isDebug: Boolean,
+    val isFlat: Boolean,
+    val lastDeathLocation: GlobalPosition?,
+    @VarInt val portalCooldown: Int,
+    @VarInt val seaLevel: Int,
+)
+
+internal object CommonPlayerSpawnInfoSerializer : KSerializer<CommonPlayerSpawnInfo> {
+    override val descriptor = CommonPlayerSpawnInfoSurrogate.serializer().descriptor
+
+    override fun serialize(encoder: Encoder, value: CommonPlayerSpawnInfo) = encoder.encodeSerializableValue(
+        CommonPlayerSpawnInfoSurrogate.serializer(),
+        CommonPlayerSpawnInfoSurrogate(
+            value.dimensionTypeId, value.dimension, value.seed, value.gameMode, value.previousGameMode?.ordinal,
+            value.isDebug, value.isFlat, value.lastDeathLocation, value.portalCooldown, value.seaLevel,
+        ),
+    )
+
+    override fun deserialize(decoder: Decoder): CommonPlayerSpawnInfo {
+        val surrogate = decoder.decodeSerializableValue(CommonPlayerSpawnInfoSurrogate.serializer())
+        return CommonPlayerSpawnInfo(
+            surrogate.dimensionTypeId,
+            surrogate.dimension,
+            surrogate.seed,
+            surrogate.gameMode,
+            surrogate.previousGameMode?.let { GameMode.entries.getOrElse(it) { GameMode.SURVIVAL } },
+            surrogate.isDebug,
+            surrogate.isFlat,
+            surrogate.lastDeathLocation,
+            surrogate.portalCooldown,
+            surrogate.seaLevel,
+        )
     }
 }
 

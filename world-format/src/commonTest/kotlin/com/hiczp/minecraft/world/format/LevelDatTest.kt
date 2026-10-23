@@ -3,6 +3,7 @@ package com.hiczp.minecraft.world.format
 import com.hiczp.minecraft.nbt.NbtCompound
 import com.hiczp.minecraft.nbt.NbtInt
 import com.hiczp.minecraft.nbt.NbtIntArray
+import com.hiczp.minecraft.nbt.NbtList
 import com.hiczp.minecraft.nbt.serialization.*
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromByteArray
@@ -37,6 +38,7 @@ class LevelDatTest {
             levelDat.copy(
                 data = levelDat.data.copy(
                     enabledFeatures = listOf("minecraft:vanilla", "example:feature"),
+                    versionHistory = listOf(MinecraftWorldFormat.WORLD_VERSION),
                     removedFeatures = listOf("example:removed_feature"),
                     singleplayerUuid = NbtIntArray(intArrayOf(1, 2, 3, 4)),
                 ),
@@ -48,6 +50,7 @@ class LevelDatTest {
         assertTrue("enabled_features" in data.value)
         assertTrue("removed_features" in data.value)
         assertIs<NbtIntArray>(data["singleplayer_uuid"])
+        assertEquals(NbtList(listOf(NbtInt(MinecraftWorldFormat.WORLD_VERSION))), data["version_history"])
         assertEquals(expected, nbtFormat.decodeFromNbtTag<LevelDat>(nbtCompound))
     }
 
@@ -134,15 +137,15 @@ private fun assertRequiredNestedFieldsFail(
 
 private fun sampleLevelDat(): LevelDat = LevelDat(
     data = LevelDat.Data(
-        dataVersion = 4_903,
+        dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         lastPlayed = 1_786_958_771_250,
         levelName = "world",
         gameType = 0,
         time = 2,
         version = 19_133,
         versionInfo = LevelDat.Data.Version(
-            id = 4_903,
-            name = "26.2",
+            id = MinecraftWorldFormat.WORLD_VERSION,
+            name = "test-release",
             series = "main",
             snapshot = false,
         ),

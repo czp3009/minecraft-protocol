@@ -129,7 +129,7 @@ class CommandPacketTest {
     fun `unknown parser and impossible graph cycles are rejected`() {
         assertFailsWith<SerializationException> {
             MinecraftPacketPayloadFormat.decodeFromByteArray<ParserValue>(
-                "39".hexToByteArray(),
+                "7f".hexToByteArray(),
             )
         }
 

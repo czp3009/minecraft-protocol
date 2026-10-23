@@ -193,12 +193,21 @@ semantic implementation; a document is not an intermediate in the stream path.
 
 The following decoder maps the field used by the application-defined chest view above. Its slot count is supplied
 by that application because the sparse saved list does not carry it. Reuse the `chunkContext` constructed earlier;
-`tickBase` is the application's current game-time base. For encoding, take
+`tickBase` is the application's current game-time base. Construct `BlockStateNbtDecoder(defaultProperties)` with a
+provider of complete default `StateProperties` for each `BlockId`, or use
+`VanillaRegistryData.vanillaBlockStateRegistry.createBlockStateNbtDecoder()` from
+[protocol-configuration-vanilla](../protocol-configuration-vanilla/README.md). Saved states may be compact identifiers
+or partial `id`/`properties` compounds, so their omitted properties need these definitions. The encoder writes the full
+compound form from the supplied state. For encoding, take
 `chunkContext.dimensionTypeLayout.chunkLayout` and construct `ChunkNbtMetadata(dataVersion, lastUpdate)` from the values
 you want to persist, or reuse metadata returned by a prior decode:
 
 ```kotlin
-fun createChestChunkDecoder(chunkContext: ChunkContext, tickBase: Long): ChunkNbtDecoder = ChunkNbtDecoder(
+fun createChestChunkDecoder(
+    chunkContext: ChunkContext,
+    tickBase: Long,
+    blockStateNbtDecoder: BlockStateNbtDecoder,
+): ChunkNbtDecoder = ChunkNbtDecoder(
     ChunkNbtDecoderContext(
         chunkContext = chunkContext,
         nbtFormat = NbtFormat,
@@ -211,6 +220,7 @@ fun createChestChunkDecoder(chunkContext: ChunkContext, tickBase: Long): ChunkNb
             ),
         ),
         tickBase = tickBase,
+        blockStateNbtDecoder = blockStateNbtDecoder,
     ),
 )
 

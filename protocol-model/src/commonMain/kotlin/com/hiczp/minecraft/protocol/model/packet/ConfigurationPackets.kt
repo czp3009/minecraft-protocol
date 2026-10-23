@@ -49,7 +49,7 @@ data object ClientboundFinishConfigurationPacket : ConfigurationStatePacket, Cli
 
 @Serializable
 @PacketInfo(
-    0x2C,
+    0x2D,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "keep_alive",
@@ -61,7 +61,7 @@ data class ClientboundKeepAlivePacket(
 
 @Serializable
 @PacketInfo(
-    0x3D,
+    0x3E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "ping",
@@ -84,12 +84,12 @@ data class ClientboundRegistryDataPacket(
 
 @Serializable
 @PacketInfo(
-    0x78,
+    0x7A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "store_cookie",
 )
-@PacketInfo(0x0A, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "store_cookie")
+@PacketInfo(0x0B, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "store_cookie")
 data class ClientboundStoreCookiePacket(
     val key: Identifier,
     @MaxByteLength(5_120)
@@ -98,12 +98,12 @@ data class ClientboundStoreCookiePacket(
 
 @Serializable
 @PacketInfo(
-    0x81,
+    0x84,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "transfer",
 )
-@PacketInfo(0x0B, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "transfer")
+@PacketInfo(0x0C, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "transfer")
 data class ClientboundTransferPacket(
     @MaxLength(32_767)
     val host: String,
@@ -112,26 +112,26 @@ data class ClientboundTransferPacket(
 ) : ConfigurationStatePacket, PlayStatePacket, ClientboundPacket
 
 @Serializable
-@PacketInfo(0x0C, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "update_enabled_features")
+@PacketInfo(0x0D, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "update_enabled_features")
 data class ClientboundUpdateEnabledFeaturesPacket(
     val features: Set<Identifier>,
 ) : ConfigurationStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
-    0x86,
+    0x89,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "update_tags",
 )
-@PacketInfo(0x0D, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "update_tags")
+@PacketInfo(0x0E, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "update_tags")
 data class ClientboundUpdateTagsPacket(
     val tags: List<RegistryTags>,
 ) : ConfigurationStatePacket, PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
-    0x0E, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "select_known_packs",
+    0x0F, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "select_known_packs",
 )
 data class ClientboundSelectKnownPacks(
     val knownPacks: List<KnownPack>,
@@ -139,12 +139,12 @@ data class ClientboundSelectKnownPacks(
 
 @Serializable
 @PacketInfo(
-    0x88,
+    0x8B,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "custom_report_details",
 )
-@PacketInfo(0x0F, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "custom_report_details")
+@PacketInfo(0x10, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "custom_report_details")
 data class ClientboundCustomReportDetailsPacket(
     @MaxCollectionSize(32)
     val details: List<ReportDetail>,
@@ -152,37 +152,37 @@ data class ClientboundCustomReportDetailsPacket(
 
 @Serializable
 @PacketInfo(
-    0x89,
+    0x8C,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "server_links",
 )
-@PacketInfo(0x10, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "server_links")
+@PacketInfo(0x11, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "server_links")
 data class ClientboundServerLinksPacket(
     val links: List<ServerLink>,
 ) : ConfigurationStatePacket, PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
-    0x8B,
+    0x8E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "clear_dialog",
 )
-@PacketInfo(0x11, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "clear_dialog")
+@PacketInfo(0x12, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "clear_dialog")
 data object ClientboundClearDialogPacket :
     ConfigurationStatePacket, PlayStatePacket,
     ClientboundPacket
 
 @Serializable
 @PacketInfo(
-    0x8C,
+    0x8F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "show_dialog",
 )
 @PacketInfo(
-    0x12,
+    0x13,
     ConnectionState.CONFIGURATION,
     PacketDirection.CLIENTBOUND,
     "show_dialog",
@@ -193,7 +193,7 @@ data class ClientboundShowDialogPacket(
 ) : ConfigurationStatePacket, PlayStatePacket, ClientboundPacket
 
 @Serializable
-@PacketInfo(0x13, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "code_of_conduct")
+@PacketInfo(0x14, ConnectionState.CONFIGURATION, PacketDirection.CLIENTBOUND, "code_of_conduct")
 data class ClientboundCodeOfConductPacket(
     val codeOfConduct: String,
 ) : ConfigurationStatePacket, ClientboundPacket

@@ -1,12 +1,12 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class NetworkTypeSerializationTest {
     @Test
@@ -61,7 +61,7 @@ class NetworkTypeSerializationTest {
                 ),
             )
         }.toSet()
-        assertEquals((0..42).toSet(), serializerIds)
+        assertEquals((0..43).toSet(), serializerIds)
 
         samples.forEach { namedNetworkTypeSample ->
             val byteArray = MinecraftPacketPayloadFormat.encodeToByteArray(

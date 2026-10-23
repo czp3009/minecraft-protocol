@@ -38,6 +38,8 @@ data class PlayerData(
     val onGround: Boolean,
     @SerialName("Invulnerable")
     val invulnerable: Boolean,
+    @SerialName("invulnerable_time")
+    val invulnerableTime: Int = 0,
     @SerialName("PortalCooldown")
     val portalCooldown: Int,
     @SerialName("UUID")
@@ -142,6 +144,8 @@ data class PlayerData(
     val raidOmenPosition: BlockPosition? = null,
     @SerialName("ender_pearls")
     val enderPearls: List<NbtCompound> = emptyList(),
+    @SerialName("post_effects")
+    val postEffects: List<String> = emptyList(),
     @SerialName("ShoulderEntityLeft")
     val shoulderEntityLeft: NbtCompound? = null,
     @SerialName("ShoulderEntityRight")

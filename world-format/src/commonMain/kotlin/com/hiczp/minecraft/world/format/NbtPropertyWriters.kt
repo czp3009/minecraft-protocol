@@ -3,8 +3,10 @@ package com.hiczp.minecraft.world.format
 
 /** Value writers for shared data structures; applications bind any content-specific fields themselves. */
 object NbtPropertyWriters {
+    private val blockStateNbtEncoder = BlockStateNbtEncoder()
+
     val blockState: NbtPropertyValueWriter<BlockState> =
-        NbtPropertyValueWriter(PropertyTypes.BlockState) { blockState, _ -> encodeBlockState(blockState) }
+        NbtPropertyValueWriter(PropertyTypes.BlockState) { blockState, _ -> blockStateNbtEncoder.encode(blockState) }
     val itemStack: NbtPropertyValueWriter<ItemStack> = NbtPropertyValueWriter(PropertyTypes.ItemStack, ::writeItemStack)
     val itemSlots: NbtPropertyValueWriter<ItemSlots> = NbtPropertyValueWriter(PropertyTypes.ItemSlots, ::writeItemSlots)
     val components: NbtPropertyValueWriter<DataComponentMap> =

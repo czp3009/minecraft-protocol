@@ -18,6 +18,11 @@ import kotlinx.serialization.Serializable
 data class ServerboundAcceptTeleportationPacket(
     @VarInt
     val id: Int,
+    val x: Double,
+    val y: Double,
+    val z: Double,
+    val yRot: Float,
+    val xRot: Float,
 ) : PlayStatePacket, ServerboundPacket
 
 @Serializable

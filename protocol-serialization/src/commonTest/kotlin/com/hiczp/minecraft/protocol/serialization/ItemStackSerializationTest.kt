@@ -218,7 +218,7 @@ class ItemStackSerializationTest {
                     ),
                 ),
             ),
-            "010101004b02000101010000",
+            "010101004d02000101010000",
         )
     }
 
@@ -241,12 +241,12 @@ class ItemStackSerializationTest {
                     ),
                 ),
             ),
-            "0101010044020111223344000100",
+            "0101010046020111223344000100",
         )
     }
 
     @Test
-    fun `profile partial branch includes the 26_2 skin patch`() {
+    fun `profile partial branch includes the skin patch`() {
         assertStackBytes(
             ItemStack.of(
                 itemId = 1,
@@ -260,14 +260,14 @@ class ItemStackSerializationTest {
                     ),
                 ),
             ),
-            "01010100460000000000000000",
+            "01010100480000000000000000",
         )
     }
 
     @Test
     fun `animal variant codecs retain vanilla fallback policies`() {
         val salmonMalformed = MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
-            "01010100577f".hexToByteArray(),
+            "010101005d7f".hexToByteArray(),
         )
         assertEquals(
             ItemStack.of(
@@ -281,14 +281,14 @@ class ItemStackSerializationTest {
             salmonMalformed,
         )
         assertContentEquals(
-            "010101005702".hexToByteArray(),
+            "010101005d02".hexToByteArray(),
             MinecraftPacketPayloadFormat.encodeToByteArray(
                 salmonMalformed,
             ),
         )
 
         val horseMalformed = MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
-            "0101010066ffffffff0f".hexToByteArray(),
+            "010101006cffffffff0f".hexToByteArray(),
         )
         assertEquals(
             ItemStack.of(
@@ -315,7 +315,7 @@ class ItemStackSerializationTest {
                     ),
                 ),
             ),
-            "010101005d63",
+            "010101006363",
         )
     }
 
@@ -351,11 +351,12 @@ class ItemStackSerializationTest {
                 "0101010016".hexToByteArray(),
             )
         }
-        assertFailsWith<SerializationException> {
+        val failure = assertFailsWith<SerializationException> {
             MinecraftPacketPayloadFormat.decodeFromByteArray<ItemStack>(
-                "010101006f".hexToByteArray(),
+                "01010100ffffff7f".hexToByteArray(),
             )
         }
+        assertEquals("Unknown data component type ID 268435455", failure.message)
     }
 
     @Test

@@ -4,7 +4,9 @@ import com.hiczp.minecraft.nbt.NbtTag
 
 /** Value readers with no block/entity type selection or game-content field bindings. */
 object NbtPropertyReaders {
-    val blockState: NbtPropertyReader = reader(PropertyTypes.BlockState) { nbtTag, _ -> decodeBlockState(nbtTag) }
+    /** Binds the definitions needed to restore properties omitted by compact block-state values. */
+    fun blockState(blockStateNbtDecoder: BlockStateNbtDecoder): NbtPropertyReader =
+        reader(PropertyTypes.BlockState) { nbtTag, _ -> blockStateNbtDecoder.decode(nbtTag) }
     val itemStack: NbtPropertyReader = reader(PropertyTypes.ItemStack) { nbtTag, mappings ->
         readItemStack(nbtTag.compound(), mappings)
     }

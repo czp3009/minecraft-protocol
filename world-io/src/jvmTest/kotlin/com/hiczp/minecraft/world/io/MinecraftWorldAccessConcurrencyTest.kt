@@ -383,7 +383,7 @@ class MinecraftWorldAccessConcurrencyTest {
         val target = minecraftWorldPaths.statistics(player)
         val initial = PlayerStatistics(
             stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 1)),
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         )
         val replacement = initial.copy(
             stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 2)),
@@ -761,7 +761,7 @@ class MinecraftWorldAccessConcurrencyTest {
         val target = minecraftWorldPaths.statistics(playerUuid)
         val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:custom" to mapOf("minecraft:play_time" to 7)),
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         )
         val base = concurrencyFakeFileSystem()
         val sinkGate = BlockingGate()

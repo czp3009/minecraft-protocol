@@ -58,7 +58,14 @@ class ServerComputationTest {
                             NbtPropertyReaders.itemSlots(3)
                     )
         )
-        val decoder = ChunkNbtDecoder(ChunkNbtDecoderContext(chunkContext, NbtFormat, readMappings, 400))
+        val decoder = ChunkNbtDecoder(
+            ChunkNbtDecoderContext(
+                chunkContext,
+                NbtFormat,
+                readMappings,
+                400,
+                BlockStateNbtDecoder { StateProperties() })
+        )
         val reloaded = decoder.decodeDocument(encoder.encodeDocument(chunk)).chunk
         val reloadedProperties = reloaded.blockEntities.getValue(position).properties
         assertEquals(slots, reloadedProperties.require(ContainerProperties.Items))

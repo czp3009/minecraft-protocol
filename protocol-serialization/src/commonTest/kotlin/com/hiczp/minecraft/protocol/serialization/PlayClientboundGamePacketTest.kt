@@ -3,14 +3,14 @@ package com.hiczp.minecraft.protocol.serialization
 import com.hiczp.minecraft.protocol.model.packet.*
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.type.GameMode
+import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlinx.serialization.KSerializer
 
 class PlayClientboundGamePacketTest {
     @Test
-    fun `spawn info uses minus one game-mode sentinel without a Boolean marker`() {
+    fun `spawn info uses zero for absent previous game mode and offset VarInt for present mode`() {
         val base = CommonPlayerSpawnInfo(
             dimensionTypeId = 1,
             dimension = Identifier("minecraft:overworld"),
@@ -26,12 +26,12 @@ class PlayClientboundGamePacketTest {
         assertPacketBytes(
             base,
             CommonPlayerSpawnInfo.serializer(),
-            "01136d696e6563726166743a6f766572776f726c64000000000000000001ff000100023f",
+            "01136d696e6563726166743a6f766572776f726c6400000000000000000100000100023f",
         )
         assertPacketBytes(
             base.copy(previousGameMode = GameMode.SPECTATOR),
             CommonPlayerSpawnInfo.serializer(),
-            "01136d696e6563726166743a6f766572776f726c6400000000000000000103000100023f",
+            "01136d696e6563726166743a6f766572776f726c6400000000000000000104000100023f",
         )
     }
 
@@ -45,20 +45,17 @@ class PlayClientboundGamePacketTest {
     }
 
     @Test
-    fun `entity position sync follows PositionMoveRotation codec order`() {
+    fun `entity position sync carries a position path and rotation`() {
         assertPacketBytes(
             ClientboundEntityPositionSyncPacket(
                 id = 300,
-                values = PositionMoveRotation(
-                    position = Vector3d(1.0, 2.0, 3.0),
-                    deltaMovement = Vector3d(-1.0, 0.0, 0.5),
-                    yaw = 90.0f,
-                    pitch = -45.0f,
-                ),
+                position = PositionPath.Linear(Vector3d(1.0, 2.0, 3.0)),
+                yRot = 90.0f,
+                xRot = -45.0f,
                 onGround = true,
             ),
             ClientboundEntityPositionSyncPacket.serializer(),
-            "ac023ff000000000000040000000000000004008000000000000bff000000000000000000000000000003fe000000000000042b40000c234000001",
+            "ac02003ff00000000000004000000000000000400800000000000042b40000c234000001",
         )
     }
 

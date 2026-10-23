@@ -10,7 +10,7 @@ non-source generation, fixture templates, and Fixture Host service wiring.
 - Official-data producers own separate target, packet/registry/block reports, packet class/member analysis,
   Configuration captures, and extracted
   data-pack outputs.
-- Fixture producers acquire every version-pinned server/client runtime, library, asset, wrapper, loader, and mod input
+- Fixture producers acquire every version-pinned server/client runtime, library, asset, agent, loader, and mod input
   before launch. Fixture processes do not download missing resources.
 - Downloads rely on HTTP completion and declared provenance. Do not add duplicate checksums, expected sizes, freshness
   comparisons, or verification tasks; Mojang hashes remain only where upstream uses them as object locators.
@@ -41,6 +41,9 @@ non-source generation, fixture templates, and Fixture Host service wiring.
   template state.
 - Headless client template generation waits for HMC-Specifics initialization and a correlated `TitleScreen` GUI
   observation, quits normally, then publishes its reusable game directory.
+- Resolve official client/Fabric launch metadata during preparation. The host launches Fabric directly with the
+  HeadlessMC LWJGL agent and consumes the prepared argument/classpath manifest without discovering or downloading
+  inputs.
 - Later workspaces never launch an immutable root in place. Preserve the established symlink, hard-link, and copy policy
   encoded by the preparation and host code; mutable files are always real copies.
 

@@ -7,6 +7,7 @@ import com.hiczp.minecraft.nbt.serialization.NbtRootEncoding
 import com.hiczp.minecraft.world.format.BlockPosition
 import com.hiczp.minecraft.world.format.DimensionId
 import com.hiczp.minecraft.world.format.DimensionTypeId
+import com.hiczp.minecraft.world.format.MinecraftWorldFormat
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlin.test.Test
@@ -287,7 +288,7 @@ class RootSavedDataModelsTest {
         val encoded = nbtFormat.encodeToNbtTag(value, serializer)
         assertEquals(value, nbtFormat.decodeFromNbtTag(encoded, serializer))
 
-        val savedDataFile = SavedDataFile(dataVersion = 4_903, data = value)
+        val savedDataFile = SavedDataFile(dataVersion = MinecraftWorldFormat.WORLD_VERSION, data = value)
         val savedDataSerializer = SavedDataFile.serializer(serializer)
         val encodedFile = nbtFormat.encodeToNbtTag(savedDataFile, savedDataSerializer)
         assertEquals(savedDataFile, nbtFormat.decodeFromNbtTag(encodedFile, savedDataSerializer))

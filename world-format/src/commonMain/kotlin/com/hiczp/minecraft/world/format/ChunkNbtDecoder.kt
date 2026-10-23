@@ -15,12 +15,14 @@ data class ChunkNbtDecodeResult(val chunk: Chunk, val chunkNbtMetadata: ChunkNbt
  * Interpretation inputs for one dimension or batch of terrain records.
  * [chunkContext] is attached to decoded Chunks by reference. [tickBase] converts saved relative tick delays to absolute
  * game times; it is not LastUpdate. Persistence version and update time are read from each record, not supplied here.
+ * [blockStateNbtDecoder] supplies definition defaults omitted by compact or partial saved block states.
  */
 data class ChunkNbtDecoderContext(
     val chunkContext: ChunkContext,
     val nbtFormat: NbtFormat,
     val nbtPropertyReadMappings: NbtPropertyReadMappings,
     val tickBase: Long,
+    val blockStateNbtDecoder: BlockStateNbtDecoder,
 )
 
 /**
@@ -69,7 +71,7 @@ private class ChunkReader(private val context: ChunkNbtDecoderContext) : WorldNb
             when (name) {
                 "sections" -> {
                     val values = worldNbtFieldInput.read(WorldNbtListReader(WorldNbtCompoundValueReader { section ->
-                        decodeSection(section, context.chunkContext, mappings)
+                        decodeSection(section, context.chunkContext, mappings, context.blockStateNbtDecoder)
                     }))
                     sections = linkedMapOf()
                     values.forEach { (y, chunkSection) ->
@@ -158,7 +160,7 @@ internal inline fun <T> chunkNbtOperation(block: () -> T): T = try {
     throw ChunkNbtFormatException(failure.message ?: "Invalid Chunk NBT", failure)
 }
 
-internal val PROTO_CHUNK_FIELDS: Set<String> = setOf("below_zero_retrogen", "carving_mask", "entities")
+internal val PROTO_CHUNK_FIELDS: Set<String> = setOf("below_zero_retrogen", "entities")
 internal val CHUNK_NBT_FIELDS: Set<String> = setOf(
     "DataVersion",
     "xPos",

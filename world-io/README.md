@@ -114,7 +114,7 @@ Construct the three codecs before calling this function:
 
 | Boundary        | Configuration and example                                                                                                                                                     |
 |-----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Disk to Chunk   | [`ChunkNbtDecoderContext`](../world-format/README.md#decode-and-encode-nbt): domain context, NBT format, property readers and tick base                                       |
+| Disk to Chunk   | [`ChunkNbtDecoderContext`](../world-format/README.md#decode-and-encode-nbt): domain context, NBT format, property readers, tick base and block-state decoder                  |
 | Chunk to packet | [`ChunkPacketEncoderContext`](../protocol-world/README.md#chunk-packet-conversion): layout/light/defaults, registry mappings, update-tag projection and missing required data |
 | Packet to Chunk | [`ChunkPacketDecoderContext`](../protocol-world/README.md#chunk-packet-conversion): domain context, registry mappings, property readers and missing domain data               |
 

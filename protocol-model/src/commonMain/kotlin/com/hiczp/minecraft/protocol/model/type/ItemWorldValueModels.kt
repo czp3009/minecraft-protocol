@@ -26,6 +26,8 @@ data class InstrumentValue(
     val sound: SoundEventHolder,
     val useDuration: Float,
     val range: Float,
+    @VarInt
+    val durabilityDamage: Int,
     val description: TextComponent,
 )
 

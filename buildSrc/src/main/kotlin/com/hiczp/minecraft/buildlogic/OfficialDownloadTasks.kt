@@ -162,7 +162,7 @@ abstract class DownloadFabricLoaderProfileTask : DefaultTask() {
 }
 
 @CacheableTask
-abstract class DownloadHeadlessMcLauncherTask : DefaultTask() {
+abstract class DownloadHeadlessMcAgentTask : DefaultTask() {
     @get:Input
     abstract val headlessMcVersion: Property<String>
 
@@ -170,7 +170,7 @@ abstract class DownloadHeadlessMcLauncherTask : DefaultTask() {
     abstract val offline: Property<Boolean>
 
     @get:OutputFile
-    abstract val launcherFile: RegularFileProperty
+    abstract val agentFile: RegularFileProperty
 
     init {
         offline.convention(false)
@@ -179,16 +179,16 @@ abstract class DownloadHeadlessMcLauncherTask : DefaultTask() {
     @TaskAction
     fun download() {
         val version = headlessMcVersion.get()
-        val destination = launcherFile.asFile.get().toPath()
+        val destination = agentFile.asFile.get().toPath()
         runBlocking {
             DownloadHttp.download(
-                url = "https://github.com/headlesshq/headlessmc/releases/download/$version/headlessmc-launcher-wrapper-$version.jar",
+                url = "https://github.com/headlesshq/headlessmc/releases/download/$version/headlessmc-lwjgl-$version-all.jar",
                 destination = destination,
                 offline = offline.get(),
             )
         }
         logger.lifecycle(
-            "Downloaded HeadlessMC launcher wrapper: $destination",
+            "Downloaded HeadlessMC LWJGL agent: $destination",
         )
     }
 }
@@ -219,7 +219,7 @@ abstract class DownloadHeadlessMcAssetReplacementsTask : DefaultTask() {
     fun download() {
         val version = headlessMcVersion.get()
         val sourceRoot =
-            "https://raw.githubusercontent.com/headlesshq/headlessmc/$version/headlessmc-launcher/src/main/resources/assets"
+            "https://raw.githubusercontent.com/headlesshq/headlessmc/$version/headlessmc-launcher/headlessmc-launcher-assets/src/main/resources/assets"
         runBlocking {
             coroutineScope {
                 listOf(

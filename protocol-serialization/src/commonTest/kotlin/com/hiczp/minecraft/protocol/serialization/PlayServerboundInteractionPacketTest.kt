@@ -38,11 +38,11 @@ class PlayServerboundInteractionPacketTest {
     }
 
     @Test
-    fun `swing and teleport packets use VarInt hand and fixed UUID`() {
+    fun `punch is empty and teleport carries a fixed UUID`() {
         assertPacketBytes(
-            ServerboundSwingPacket(InteractionHand.OFF_HAND),
-            ServerboundSwingPacket.serializer(),
-            "01",
+            ServerboundPunchPacket,
+            ServerboundPunchPacket.serializer(),
+            "",
         )
         assertPacketBytes(
             ServerboundTeleportToEntityPacket(Uuid.fromLongs(0, 0)),
@@ -88,7 +88,7 @@ class PlayServerboundInteractionPacketTest {
         assertPacketBytes(
             ServerboundUseItemOnPacket(
                 hand = InteractionHand.OFF_HAND,
-                blockHit = BlockHitResult(
+                hitResult = BlockHitResult(
                     location = BlockPosition(0, 0, 0),
                     face = BlockFace.EAST,
                     cursorX = 0.0f,

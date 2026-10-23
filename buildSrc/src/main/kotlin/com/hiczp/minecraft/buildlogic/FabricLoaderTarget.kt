@@ -2,7 +2,7 @@ package com.hiczp.minecraft.buildlogic
 
 /** The independently selected stable Fabric Loader release. */
 object FabricLoaderTarget {
-    const val FABRIC_LOADER_VERSION = "0.19.3"
+    const val FABRIC_LOADER_VERSION = "0.19.5"
 
     fun profileId(minecraftVersion: String): String =
         "fabric-loader-$FABRIC_LOADER_VERSION-$minecraftVersion"

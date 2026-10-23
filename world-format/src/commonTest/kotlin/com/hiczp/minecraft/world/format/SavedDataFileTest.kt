@@ -20,7 +20,7 @@ class SavedDataFileTest {
     @Test
     fun dimensionSavedDataModelsRoundTripTheSelectedReleaseShapes() {
         val worldBorder = SavedDataFile(
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
             data = WorldBorderData(
                 centerX = 0.0,
                 centerZ = 0.0,
@@ -47,7 +47,7 @@ class SavedDataFileTest {
         )
         val heroUuid = Uuid.fromLongs(1, 2)
         val raids = SavedDataFile(
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
             data = RaidsData(
                 raids = listOf(
                     RaidsData.Raid(
@@ -71,7 +71,7 @@ class SavedDataFileTest {
             ),
         )
         val enderDragonFight = SavedDataFile(
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
             data = EnderDragonFightData(
                 needsStateScanning = false,
                 dragonKilled = true,

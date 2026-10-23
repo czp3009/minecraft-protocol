@@ -16,7 +16,7 @@ class PlayerAdvancementsTest {
                 done = index % 2 == 0,
             )
         }
-        val expected = PlayerAdvancements(4_903, advancements)
+        val expected = PlayerAdvancements(MinecraftWorldFormat.WORLD_VERSION, advancements)
         val encoded = Json.encodeToString(expected)
 
         assertEquals(expected, Json.decodeFromString<PlayerAdvancements>(encoded))
@@ -33,11 +33,11 @@ class PlayerAdvancementsTest {
                     put("done", JsonPrimitive(true))
                 },
             )
-            put("DataVersion", JsonPrimitive(4_903))
+            put("DataVersion", JsonPrimitive(MinecraftWorldFormat.WORLD_VERSION))
         }
         assertEquals(
             PlayerAdvancements(
-                dataVersion = 4_903,
+                dataVersion = MinecraftWorldFormat.WORLD_VERSION,
                 advancements = mapOf(
                     "example:first" to PlayerAdvancements.Progress(
                         criteria = mapOf("criterion" to "2026-08-18 00:00:00 +0000"),
@@ -61,7 +61,7 @@ class PlayerAdvancementsTest {
             )
         }
         val validJson = Json.encodeToString(
-            PlayerAdvancements(4_903, emptyMap()),
+            PlayerAdvancements(MinecraftWorldFormat.WORLD_VERSION, emptyMap()),
         )
         assertFailsWith<SerializationException> {
             Json.decodeFromString<PlayerAdvancements>(validJson.dropLast(1))
@@ -69,7 +69,7 @@ class PlayerAdvancementsTest {
         assertFailsWith<SerializationException> {
             Json.decodeFromJsonElement<PlayerAdvancements>(
                 buildJsonObject {
-                    put("DataVersion", JsonPrimitive(4_903))
+                    put("DataVersion", JsonPrimitive(MinecraftWorldFormat.WORLD_VERSION))
                     put(
                         "example:unknown_field",
                         buildJsonObject {

@@ -2,6 +2,7 @@ package com.hiczp.minecraft.world.io.fixturetest.hostfilesystem
 
 import com.hiczp.minecraft.nbt.*
 import com.hiczp.minecraft.nbt.serialization.NbtFormat
+import com.hiczp.minecraft.protocol.configuration.vanilla.VanillaRegistryData
 import com.hiczp.minecraft.test.*
 import com.hiczp.minecraft.world.format.*
 import com.hiczp.minecraft.world.format.data.*
@@ -530,7 +531,10 @@ class OfficialWorldStorageInteropTest {
                 if (index == 0) {
                     val chunkContext = inspectedChunkContext(nbtDocument)
                     val chunkNbtDecoder = ChunkNbtDecoder(
-                        ChunkNbtDecoderContext(chunkContext, NbtFormat, NbtPropertyReadMappings(), tickBase = 0),
+                        ChunkNbtDecoderContext(
+                            chunkContext, NbtFormat, NbtPropertyReadMappings(), tickBase = 0,
+                            blockStateNbtDecoder = VanillaRegistryData.vanillaBlockStateRegistry.createBlockStateNbtDecoder(),
+                        ),
                     )
                     val chunkNbtDecodeResult = chunkNbtDecoder.decodeDocument(nbtDocument)
                     val chunkNbtEncoder = ChunkNbtEncoder(

@@ -8,14 +8,48 @@ import com.hiczp.minecraft.protocol.configuration.MinecraftDimensionLayout
 import com.hiczp.minecraft.protocol.configuration.completeSynchronizedRegistryPackets
 import com.hiczp.minecraft.protocol.configuration.requireRegistryPacket
 import com.hiczp.minecraft.protocol.model.packet.ClientboundRegistryDataPacket
-import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.KnownPack
-import com.hiczp.minecraft.protocol.model.type.MinecraftBlockIds
-import com.hiczp.minecraft.protocol.model.type.RegistryEntry
+import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.world.format.DimensionTypeFormatException
 import kotlin.test.*
 
 class VanillaConfigurationDataTest {
+    @Test
+    fun handwrittenDiscriminatorsMatchOfficialRegistryIds() {
+        val particles = VanillaRegistryData.requireRegistry(Identifier("particle_type"))
+        assertEquals(particles.size, ParticleType.entries.size)
+        ParticleType.entries.forEach { particleType ->
+            assertEquals(
+                particleType.ordinal,
+                particles.requireRawId(Identifier(particleType.wireName)),
+                particleType.name
+            )
+        }
+        val components = VanillaRegistryData.requireRegistry(Identifier("data_component_type"))
+        assertEquals(components.size, DataComponentType.entries.size)
+        DataComponentType.entries.forEach { dataComponentType ->
+            assertEquals(
+                dataComponentType.ordinal,
+                components.requireRawId(Identifier(dataComponentType.wireName)),
+                dataComponentType.name,
+            )
+        }
+        val argumentTypes = VanillaRegistryData.requireRegistry(Identifier("command_argument_type"))
+        SimpleCommandParser.entries.forEach { simpleCommandParser ->
+            assertEquals(
+                simpleCommandParser.protocolId,
+                argumentTypes.requireRawId(Identifier(simpleCommandParser.wireName)),
+                simpleCommandParser.name,
+            )
+        }
+        RegistryCommandParser.entries.forEach { registryCommandParser ->
+            assertEquals(
+                registryCommandParser.protocolId,
+                argumentTypes.requireRawId(Identifier(registryCommandParser.wireName)),
+                registryCommandParser.name,
+            )
+        }
+    }
+
     @Test
     fun exposesACompleteOfficialConfigurationSnapshot() {
         val vanillaConfigurationData = VanillaConfigurationData

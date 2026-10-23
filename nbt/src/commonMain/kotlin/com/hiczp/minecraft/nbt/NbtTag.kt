@@ -117,7 +117,7 @@ data class NbtString(val value: String) : NbtTag
 /**
  * A logical NBT list.
  *
- * Minecraft 26.2 permits mixed logical element types and wraps them into a
+ * The repository-selected Minecraft release permits mixed logical element types and wraps them into a
  * homogeneous compound list on the binary wire. END still has no list-value
  * representation and is rejected here.
  */

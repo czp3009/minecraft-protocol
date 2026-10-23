@@ -42,10 +42,13 @@ val chunkContext = minecraftDimensionContext.chunkContext(
     defaultBiome = BiomeId("minecraft:plains"),
 )
 val packetCodecContext = minecraftDimensionContext.packetCodecContext
+val blockStateNbtDecoder = VanillaRegistryData.vanillaBlockStateRegistry.createBlockStateNbtDecoder()
 ```
 
 `MinecraftDimensionContext` and `MinecraftDimensionLayout` come from `protocol-configuration`; `Identifier` comes from
-`protocol-model`; domain types come from `world-format`. The default cells above are explicit application choices.
+`protocol-model`; domain types come from `world-format`. The default cells above are explicit application choices. The
+`blockStateNbtDecoder` binds the generated default
+properties needed by compact or partial saved block states; pass it to `ChunkNbtDecoderContext`.
 For an actual world's dimensions or a connection with data-pack/loader overrides, use
 [the resolved world or connection data](../protocol-configuration/README.md#resolve-dimensions) instead of assuming this
 vanilla snapshot. These contexts feed the [NBT codecs](../world-format/README.md#decode-and-encode-nbt) and

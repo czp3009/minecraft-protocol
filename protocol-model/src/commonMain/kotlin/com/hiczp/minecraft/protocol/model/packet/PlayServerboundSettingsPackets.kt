@@ -19,7 +19,7 @@ import kotlin.uuid.Uuid
 
 @Serializable
 @PacketInfo(
-    0x2E,
+    0x2F,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "recipe_book_change_settings",
@@ -32,7 +32,7 @@ data class ServerboundRecipeBookChangeSettingsPacket(
 
 @Serializable
 @PacketInfo(
-    0x2F,
+    0x30,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "recipe_book_seen_recipe",
@@ -44,7 +44,7 @@ data class ServerboundRecipeBookSeenRecipePacket(
 
 @Serializable
 @PacketInfo(
-    0x30,
+    0x31,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "rename_item",
@@ -57,7 +57,7 @@ data class ServerboundRenameItemPacket(
 @Serializable
 @PacketInfo(0x06, ConnectionState.CONFIGURATION, PacketDirection.SERVERBOUND, "resource_pack")
 @PacketInfo(
-    0x31,
+    0x32,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "resource_pack",
@@ -199,7 +199,7 @@ internal object SeenAdvancementsActionSerializer : KSerializer<SeenAdvancementsA
 
 @Serializable
 @PacketInfo(
-    0x32,
+    0x33,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "seen_advancements",
@@ -211,7 +211,7 @@ data class ServerboundSeenAdvancementsPacket(
 
 @Serializable
 @PacketInfo(
-    0x33,
+    0x34,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "select_trade",
@@ -223,7 +223,7 @@ data class ServerboundSelectTradePacket(
 
 @Serializable
 @PacketInfo(
-    0x34,
+    0x35,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_beacon",
@@ -237,7 +237,7 @@ data class ServerboundSetBeaconPacket(
 
 @Serializable
 @PacketInfo(
-    0x35,
+    0x36,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_carried_item",

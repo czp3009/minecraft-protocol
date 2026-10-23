@@ -198,7 +198,7 @@ internal fun slotDisplayRegistrySamples():
         NamedNetworkTypeSample(
             "tag",
             "minecraft:tag",
-            SlotDisplay.Tag(Identifier("minecraft:planks")),
+            SlotDisplay.Tag(RegistryHolderSet.Named(Identifier("fixture:items"))),
         ),
         NamedNetworkTypeSample(
             "dyed",
@@ -545,6 +545,7 @@ internal fun entityDataValueSamples():
                 EntityDataValue.Arm(HumanoidArm.LEFT),
             ),
         )
+        add(NamedNetworkTypeSample("dye_color", "dye_color", EntityDataValue.DyeColorValue(DyeColor.RED)))
     }
 }
 

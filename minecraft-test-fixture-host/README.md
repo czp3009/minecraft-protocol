@@ -10,7 +10,7 @@ for supported test tasks and supplies the portable client with a loopback RPC en
 ## What the host provides
 
 - official server processes with isolated workspaces and loopback endpoints;
-- prepared HeadlessMC/Fabric/HMC-Specifics official clients;
+- prepared official clients launched through Fabric with the HeadlessMC LWJGL agent and HMC-Specifics controls;
 - bounded process logs and event waits;
 - official packet, NBT, and SNBT codec verification;
 - lifecycle operations for stopping a process, retaining files, deleting a workspace, and final cleanup;
@@ -18,6 +18,10 @@ for supported test tasks and supplies the portable client with a loopback RPC en
 
 All official artifacts and immutable templates are prepared by Gradle before launch. The host consumes the supplied
 paths and does not download or repair fixtures.
+
+Headless client JVMs use finite default HTTP connection and read timeouts. The official client synchronously fetches
+its server block list before connecting, including to loopback peers; an unavailable remote service must not leave
+that initialization waiting indefinitely. These process settings do not change game socket timeouts.
 
 ## Implementation boundary
 

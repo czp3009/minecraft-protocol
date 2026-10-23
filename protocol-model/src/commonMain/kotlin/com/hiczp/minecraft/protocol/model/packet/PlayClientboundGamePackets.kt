@@ -3,7 +3,7 @@ package com.hiczp.minecraft.protocol.model.packet
 import com.hiczp.minecraft.protocol.model.type.BlockPosition
 import com.hiczp.minecraft.protocol.model.type.ChunkPos
 import com.hiczp.minecraft.protocol.model.type.Identifier
-import com.hiczp.minecraft.protocol.model.type.PositionMoveRotation
+import com.hiczp.minecraft.protocol.model.type.PositionPath
 import com.hiczp.minecraft.protocol.model.wire.*
 import kotlinx.serialization.Serializable
 
@@ -29,13 +29,15 @@ data class ClientboundEntityEventPacket(
 data class ClientboundEntityPositionSyncPacket(
     @VarInt
     val id: Int,
-    val values: PositionMoveRotation,
+    val position: PositionPath,
+    val yRot: Float,
+    val xRot: Float,
     val onGround: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
-    0x25,
+    0x26,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "forget_level_chunk",
@@ -64,7 +66,7 @@ enum class GameEventType {
 
 @Serializable
 @PacketInfo(
-    0x26,
+    0x27,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "game_event",
@@ -77,7 +79,7 @@ data class ClientboundGameEventPacket(
 
 @Serializable
 @PacketInfo(
-    0x27,
+    0x28,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "game_rule_values",
@@ -89,7 +91,7 @@ data class ClientboundGameRuleValuesPacket(
 
 @Serializable
 @PacketInfo(
-    0x28,
+    0x29,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "game_test_highlight_pos",
@@ -101,7 +103,7 @@ data class ClientboundGameTestHighlightPosPacket(
 
 @Serializable
 @PacketInfo(
-    0x29,
+    0x2A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "mount_screen_open",
@@ -116,7 +118,7 @@ data class ClientboundMountScreenOpenPacket(
 
 @Serializable
 @PacketInfo(
-    0x2A,
+    0x2B,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "hurt_animation",
@@ -129,7 +131,7 @@ data class ClientboundHurtAnimationPacket(
 
 @Serializable
 @PacketInfo(
-    0x2B,
+    0x2C,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "initialize_border",

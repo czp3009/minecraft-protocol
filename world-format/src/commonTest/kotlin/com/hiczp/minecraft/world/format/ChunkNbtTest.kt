@@ -15,7 +15,14 @@ class ChunkNbtTest {
     private val readMappings = NbtPropertyReadMappings()
     private val writeMappings = NbtPropertyWriteMappings()
     private val metadata = ChunkNbtMetadata(Int.MIN_VALUE, 987)
-    private val decoder = ChunkNbtDecoder(ChunkNbtDecoderContext(context, nbtFormat, readMappings, 1000))
+    private val decoder = ChunkNbtDecoder(
+        ChunkNbtDecoderContext(
+            context,
+            nbtFormat,
+            readMappings,
+            1000,
+            BlockStateNbtDecoder { StateProperties() })
+    )
     private val encoder = ChunkNbtEncoder(
         ChunkNbtEncoderContext(
             context.dimensionTypeLayout.chunkLayout,
@@ -126,7 +133,7 @@ class ChunkNbtTest {
             NbtCompound(
                 mapOf(
                     "DataVersion" to NbtInt(42), "Status" to NbtString("minecraft:noise"),
-                    "carving_mask" to NbtLongArray(longArrayOf(123)), "below_zero_retrogen" to NbtCompound(emptyMap())
+                    "below_zero_retrogen" to NbtCompound(emptyMap())
                 )
             )
         )
@@ -134,10 +141,10 @@ class ChunkNbtTest {
         assertFalse(result.chunk.isFullyGenerated)
         assertTrue(result.chunk.sections.all { it == null })
         assertEquals(42, result.chunkNbtMetadata.dataVersion)
-        assertFalse("carving_mask" in result.chunk.properties.entries)
+        assertFalse("below_zero_retrogen" in result.chunk.properties.entries)
         val output = encoder.encodeDocument(result.chunk)
         assertEquals(NbtString("minecraft:noise"), output.root["Status"])
-        assertNull(output.root["carving_mask"])
+        assertNull(output.root["below_zero_retrogen"])
     }
 
     @Test
@@ -153,7 +160,7 @@ class ChunkNbtTest {
                     {id: "DUMMY", x: -627, y: -53, z: 82}
                 ],
                 xPos: -40, zPos: 5,
-                sections: [{Y: -4b, block_states: {palette: [{Name: "minecraft:stone"}]}}]
+                sections: [{Y: -4b, block_states: {palette: [{id: "minecraft:stone"}]}}]
             }
             """.trimIndent()
         ).root

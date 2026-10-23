@@ -63,12 +63,14 @@ enum class DataComponentType(
     BLOCKS_ATTACKS("minecraft:blocks_attacks"),
     PIERCING_WEAPON("minecraft:piercing_weapon"),
     KINETIC_WEAPON("minecraft:kinetic_weapon"),
-    SWING_ANIMATION("minecraft:swing_animation"),
+    ATTACK_ANIMATION("minecraft:attack_animation"),
+    INTERACT_ANIMATION("minecraft:interact_animation"),
     ADDITIONAL_TRADE_COST("minecraft:additional_trade_cost"),
+    BLOCK_TRANSFORMER("minecraft:block_transformer"),
+    VILLAGER_FOOD("minecraft:villager_food"),
     STORED_ENCHANTMENTS("minecraft:stored_enchantments"),
     DYE("minecraft:dye"),
     DYED_COLOR("minecraft:dyed_color"),
-    MAP_COLOR("minecraft:map_color"),
     MAP_ID("minecraft:map_id"),
     MAP_DECORATIONS("minecraft:map_decorations"),
     MAP_POST_PROCESSING("minecraft:map_post_processing"),
@@ -105,6 +107,10 @@ enum class DataComponentType(
     LOCK("minecraft:lock"),
     CONTAINER_LOOT("minecraft:container_loot"),
     BREAK_SOUND("minecraft:break_sound"),
+    COMPOSTABLE("minecraft:compostable"),
+    COOKING_FUEL("minecraft:cooking_fuel"),
+    BREWING_FUEL("minecraft:brewing_fuel"),
+    MOB_VISIBILITY("minecraft:mob_visibility"),
     VILLAGER_VARIANT("minecraft:villager/variant"),
     WOLF_VARIANT("minecraft:wolf/variant"),
     WOLF_SOUND_VARIANT("minecraft:wolf/sound_variant"),
@@ -134,6 +140,11 @@ enum class DataComponentType(
     CAT_COLLAR("minecraft:cat/collar"),
     SHEEP_COLOR("minecraft:sheep/color"),
     SHULKER_COLOR("minecraft:shulker/color"),
+    PROVIDES_POTTERY_PATTERN("minecraft:provides_pottery_pattern"),
+    SIGN_TEXT_FRONT("minecraft:sign_text_front"),
+    SIGN_TEXT_BACK("minecraft:sign_text_back"),
+    WAXED("minecraft:waxed"),
+    CUSHION_COLOR("minecraft:cushion/color"),
     ;
 
     val protocolId: Int
@@ -481,13 +492,12 @@ sealed interface DataComponent {
     ) : DataComponent
 
     @Serializable
-    @DataComponentInfo(DataComponentType.SWING_ANIMATION)
-    data class SwingAnimation(
-        @ZeroFallbackEnum
-        val type: SwingAnimationType,
-        @VarInt
-        val duration: Int,
-    ) : DataComponent
+    @DataComponentInfo(DataComponentType.ATTACK_ANIMATION)
+    data class AttackAnimation(val animation: SwingAnimation) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.INTERACT_ANIMATION)
+    data class InteractAnimation(val animation: SwingAnimation) : DataComponent
 
     @Serializable
     @DataComponentInfo(DataComponentType.ADDITIONAL_TRADE_COST)
@@ -495,6 +505,14 @@ sealed interface DataComponent {
         @VarInt
         val value: Int,
     ) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.BLOCK_TRANSFORMER)
+    data class BlockTransformer(@VarInt val registryId: Int) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.VILLAGER_FOOD)
+    data class VillagerFood(@VarInt val nutrition: Int) : DataComponent
 
     @Serializable
     @DataComponentInfo(DataComponentType.STORED_ENCHANTMENTS)
@@ -519,12 +537,6 @@ sealed interface DataComponent {
     @Serializable
     @DataComponentInfo(DataComponentType.DYED_COLOR)
     data class DyedColor(
-        val rgb: Int,
-    ) : DataComponent
-
-    @Serializable
-    @DataComponentInfo(DataComponentType.MAP_COLOR)
-    data class MapColor(
         val rgb: Int,
     ) : DataComponent
 
@@ -730,9 +742,10 @@ sealed interface DataComponent {
     @Serializable
     @DataComponentInfo(DataComponentType.POT_DECORATIONS)
     data class PotDecorations(
-        @MaxCollectionSize(4)
-        @VarIntElements
-        val itemRegistryIds: List<Int>,
+        val back: ItemStackTemplate? = null,
+        val left: ItemStackTemplate? = null,
+        val right: ItemStackTemplate? = null,
+        val front: ItemStackTemplate? = null,
     ) : DataComponent
 
     @Serializable
@@ -779,6 +792,22 @@ sealed interface DataComponent {
     data class BreakSound(
         val sound: SoundEventHolder,
     ) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.COMPOSTABLE)
+    data class Compostable(val layers: ResolvableInt) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.COOKING_FUEL)
+    data class CookingFuel(val burnTime: ResolvableInt, val speedMultiplier: ResolvableFloat) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.BREWING_FUEL)
+    data class BrewingFuel(val uses: ResolvableInt, val speedMultiplier: ResolvableFloat) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.MOB_VISIBILITY)
+    data class MobVisibility(val targetingEntityTypes: RegistryHolderSet, val visibility: Float) : DataComponent
 
     @Serializable
     @DataComponentInfo(DataComponentType.VILLAGER_VARIANT)
@@ -981,6 +1010,26 @@ sealed interface DataComponent {
         @ZeroFallbackEnum
         val color: DyeColor,
     ) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.PROVIDES_POTTERY_PATTERN)
+    data class ProvidesPotteryPattern(@VarInt val registryId: Int) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.SIGN_TEXT_FRONT)
+    data class SignTextFront(val text: SignText) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.SIGN_TEXT_BACK)
+    data class SignTextBack(val text: SignText) : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.WAXED)
+    data object Waxed : DataComponent
+
+    @Serializable
+    @DataComponentInfo(DataComponentType.CUSHION_COLOR)
+    data class CushionColor(@ZeroFallbackEnum val color: DyeColor) : DataComponent
 }
 
 @Serializable(with = DataComponentPatchSerializer::class)

@@ -7,12 +7,12 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
 /**
- * The protocol representation is a VarInt word count followed by big-endian
- * Long words. Equality is content-based despite the primitive-array storage.
+ * A set of nonnegative bit indices. Trailing zero words are normalized and the supplied array is copied.
+ * The logical serializer exposes Long words; the packet format uses the official compact little-endian byte form.
  */
 @Serializable(with = BitSetSerializer::class)
 class BitSet(words: LongArray) {
-    private val storage = words.copyOf()
+    private val storage = words.copyOf(words.indexOfLast { it != 0L } + 1)
 
     val words: LongArray
         get() = storage.copyOf()

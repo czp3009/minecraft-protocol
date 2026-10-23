@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable(with = ServerboundSetCommandBlockPacketSerializer::class)
 @PacketInfo(
-    0x36,
+    0x37,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_command_block",
@@ -23,7 +23,7 @@ data class ServerboundSetCommandBlockPacket(
 
 @Serializable
 @PacketInfo(
-    0x37,
+    0x38,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_command_minecart",
@@ -39,7 +39,7 @@ data class ServerboundSetCommandMinecartPacket(
 
 @Serializable
 @PacketInfo(
-    0x39,
+    0x3A,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_game_rule",
@@ -57,7 +57,7 @@ data class ServerboundSetGameRulePacket(
 
 @Serializable
 @PacketInfo(
-    0x3A,
+    0x3B,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_jigsaw_block",
@@ -78,7 +78,7 @@ data class ServerboundSetJigsawBlockPacket(
 
 @Serializable(with = ServerboundSetStructureBlockPacketSerializer::class)
 @PacketInfo(
-    0x3B,
+    0x3C,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_structure_block",
@@ -92,6 +92,7 @@ data class ServerboundSetStructureBlockPacket(
     val offset: StructureOffset,
     val size: StructureSize,
     val mirror: StructureMirror,
+    @WrappedEnum
     val rotation: StructureRotation,
     @MaxLength(128)
     val data: String,
@@ -106,7 +107,7 @@ data class ServerboundSetStructureBlockPacket(
 
 @Serializable
 @PacketInfo(
-    0x3C,
+    0x3D,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_test_block",
@@ -119,9 +120,9 @@ data class ServerboundSetTestBlockPacket(
     val message: String,
 ) : PlayStatePacket, ServerboundPacket
 
-@Serializable(with = ServerboundSignUpdatePacketSerializer::class)
+@Serializable
 @PacketInfo(
-    0x3D,
+    0x3E,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "sign_update",
@@ -131,5 +132,6 @@ data class ServerboundSignUpdatePacket(
     @FixedLength(4)
     @MaxLength(384)
     val lines: List<String>,
-    val isFrontText: Boolean,
+    @ZeroFallbackEnum
+    val slot: SignTextSlot,
 ) : PlayStatePacket, ServerboundPacket

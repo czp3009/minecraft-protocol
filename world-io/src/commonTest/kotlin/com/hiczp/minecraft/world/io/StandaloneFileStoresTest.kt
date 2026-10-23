@@ -324,7 +324,7 @@ class StandaloneFileStoresTest {
 
         val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         )
         utf8JsonFileStore.writeJson(
             minecraftWorldPaths.statistics(player),
@@ -340,7 +340,7 @@ class StandaloneFileStoresTest {
         )
 
         val playerAdvancements = PlayerAdvancements(
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
             advancements = mapOf(
                 "minecraft:story/root" to PlayerAdvancements.Progress(
                     criteria = mapOf("crafting_table" to "2026-08-18 00:00:00 +0000"),
@@ -372,10 +372,10 @@ class StandaloneFileStoresTest {
         val playerUuid = "00000000-0000-0000-0000-000000000000"
         val playerStatistics = PlayerStatistics(
             stats = mapOf("minecraft:mined" to mapOf("minecraft:stone" to 42)),
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         )
         val playerAdvancements = PlayerAdvancements(
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
             advancements = emptyMap(),
         )
 
@@ -418,7 +418,7 @@ class StandaloneFileStoresTest {
 
         val jsonPath = "/world/segmented.json".toPath()
         val jsonValue = PlayerAdvancements(
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
             advancements = (0 until 2_048).associate { index ->
                 "example:advancement_$index" to PlayerAdvancements.Progress(
                     criteria = mapOf("criterion_$index" to "2026-08-18 00:00:00 +0000"),

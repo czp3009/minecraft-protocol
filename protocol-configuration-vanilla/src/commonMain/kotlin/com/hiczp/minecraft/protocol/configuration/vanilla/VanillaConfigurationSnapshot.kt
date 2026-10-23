@@ -1,10 +1,14 @@
 package com.hiczp.minecraft.protocol.configuration.vanilla
 
-import com.hiczp.minecraft.protocol.model.packet.*
+import com.hiczp.minecraft.protocol.model.packet.ClientboundRegistryDataPacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundSelectKnownPacks
+import com.hiczp.minecraft.protocol.model.packet.ClientboundUpdateEnabledFeaturesPacket
+import com.hiczp.minecraft.protocol.model.packet.ClientboundUpdateTagsPacket
 import com.hiczp.minecraft.protocol.model.type.Identifier
 import com.hiczp.minecraft.protocol.model.type.KnownPack
 import com.hiczp.minecraft.protocol.model.type.RegistryTags
-import com.hiczp.minecraft.protocol.serialization.PacketRegistry
+import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormat
+import kotlinx.serialization.DeserializationStrategy
 import kotlin.io.encoding.Base64
 
 internal data class VanillaConfigurationSnapshot(
@@ -17,25 +21,25 @@ internal data class VanillaConfigurationSnapshot(
 
 internal fun decodeVanillaConfigurationSnapshot(): VanillaConfigurationSnapshot {
     val clientboundSelectKnownPacks = decodeConfigurationPacket(
-        packetId = 0x0E,
         packetPayloadChunks = VanillaConfigurationPacketPayloads.offeredKnownPacksPayloadChunks,
-    ) as ClientboundSelectKnownPacks
+        deserializationStrategy = ClientboundSelectKnownPacks.serializer(),
+    )
     val clientboundUpdateEnabledFeaturesPacket = decodeConfigurationPacket(
-        packetId = 0x0C,
         packetPayloadChunks = VanillaConfigurationPacketPayloads.enabledFeatureFlagsPayloadChunks,
-    ) as ClientboundUpdateEnabledFeaturesPacket
+        deserializationStrategy = ClientboundUpdateEnabledFeaturesPacket.serializer(),
+    )
     val completeSynchronizedRegistryPackets =
         VanillaConfigurationPacketPayloads.completeSynchronizedRegistryPacketPayloadChunks.map { packetPayloadChunks ->
-            decodeConfigurationPacket(0x07, packetPayloadChunks) as ClientboundRegistryDataPacket
+            decodeConfigurationPacket(packetPayloadChunks, ClientboundRegistryDataPacket.serializer())
         }
     val knownPackSynchronizedRegistryPackets =
         VanillaConfigurationPacketPayloads.knownPackSynchronizedRegistryPacketPayloadChunks.map { packetPayloadChunks ->
-            decodeConfigurationPacket(0x07, packetPayloadChunks) as ClientboundRegistryDataPacket
+            decodeConfigurationPacket(packetPayloadChunks, ClientboundRegistryDataPacket.serializer())
         }
     val clientboundUpdateTagsPacket = decodeConfigurationPacket(
-        packetId = 0x0D,
         packetPayloadChunks = VanillaConfigurationPacketPayloads.registryTagsPayloadChunks,
-    ) as ClientboundUpdateTagsPacket
+        deserializationStrategy = ClientboundUpdateTagsPacket.serializer(),
+    )
 
     return VanillaConfigurationSnapshot(
         offeredKnownPacks = clientboundSelectKnownPacks.knownPacks,
@@ -46,12 +50,10 @@ internal fun decodeVanillaConfigurationSnapshot(): VanillaConfigurationSnapshot 
     )
 }
 
-private fun decodeConfigurationPacket(
-    packetId: Int,
+private fun <T> decodeConfigurationPacket(
     packetPayloadChunks: List<String>,
-): Packet = PacketRegistry.vanilla.decodePayload(
-    connectionState = ConnectionState.CONFIGURATION,
-    packetDirection = PacketDirection.CLIENTBOUND,
-    id = packetId,
-    payload = Base64.decode(packetPayloadChunks.joinToString(separator = "")),
+    deserializationStrategy: DeserializationStrategy<T>,
+): T = MinecraftPacketPayloadFormat.decodeFromByteArray(
+    deserializationStrategy,
+    Base64.decode(packetPayloadChunks.joinToString(separator = "")),
 )

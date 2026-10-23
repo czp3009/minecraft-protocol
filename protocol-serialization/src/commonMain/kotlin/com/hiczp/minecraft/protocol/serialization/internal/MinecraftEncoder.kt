@@ -6,6 +6,7 @@ import com.hiczp.minecraft.nbt.NbtEnd
 import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.nbt.NbtTagEncoder
 import com.hiczp.minecraft.nbt.NbtTagSerializer
+import com.hiczp.minecraft.protocol.model.type.BitSet
 import com.hiczp.minecraft.protocol.model.type.PalettedContainer
 import com.hiczp.minecraft.protocol.model.type.Vector3d
 import com.hiczp.minecraft.protocol.model.wire.*
@@ -186,6 +187,7 @@ internal class MinecraftEncoder(
             encodePrimitiveArray(serializer, value) -> Unit
             serializer is NbtTagSerializer<*> -> serializer.serialize(this, value)
             value is Uuid -> minecraftWriter.write(value.toByteArray())
+            value is BitSet -> ByteBitSetCodec.write(minecraftWriter, value)
             pendingHints.any { it is NetworkNbt } -> {
                 throw MinecraftSerializationException(
                     "@NetworkNbt can only be used with an NbtTag subtype",

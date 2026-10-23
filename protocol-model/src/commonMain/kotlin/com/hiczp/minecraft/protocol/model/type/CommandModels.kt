@@ -174,8 +174,13 @@ enum class SimpleCommandParser(val protocolId: Int) {
     LOOT_TABLE(52),
     LOOT_PREDICATE(53),
     LOOT_MODIFIER(54),
-    DIALOG(55),
-    UUID(56),
+    CONTEXT_FLOAT_PROVIDER(55),
+    CONTEXT_INT_PROVIDER(56),
+    SLOT_SOURCE(57),
+    DIALOG(58),
+    FEATURE(59),
+    SWING_ANIMATION(60),
+    UUID(61),
     ;
 
     val wireName: String

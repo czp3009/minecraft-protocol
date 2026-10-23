@@ -17,6 +17,8 @@ class PlayerDataTest {
     fun playerDataStreamsOneStrongRootWhileKeepingRegistryPayloadsRaw() {
         val playerData = samplePlayerData().copy(
             customName = NbtString("Player"),
+            invulnerableTime = 12,
+            postEffects = listOf("minecraft:creeper"),
             tags = listOf("example"),
             customData = NbtCompound(mapOf("modded" to NbtInt(1))),
             passengers = listOf(NbtCompound(mapOf("id" to NbtString("minecraft:pig")))),
@@ -54,6 +56,8 @@ class PlayerDataTest {
         assertIs<NbtIntArray>(root["UUID"])
         assertIs<NbtList>(root["Pos"])
         assertIs<NbtList>(root["Inventory"])
+        assertEquals(NbtInt(12), root["invulnerable_time"])
+        assertEquals(NbtList(listOf(NbtString("minecraft:creeper"))), root["post_effects"])
         assertTrue("RootVehicle" in root.value)
         assertFalse("ShoulderEntityRight" in root.value)
     }
@@ -90,7 +94,7 @@ private fun samplePlayerData(): PlayerData = PlayerData(
     attributes = listOf(PlayerData.Attribute("minecraft:movement_speed", 0.1)),
     fallFlying = false,
     brain = NbtCompound(mapOf("memories" to NbtCompound(emptyMap()))),
-    dataVersion = 4_903,
+    dataVersion = MinecraftWorldFormat.WORLD_VERSION,
     inventory = emptyList(),
     selectedItemSlot = 0,
     sleepTimer = 0,

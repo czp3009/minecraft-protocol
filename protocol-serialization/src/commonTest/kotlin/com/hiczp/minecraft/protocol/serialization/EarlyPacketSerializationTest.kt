@@ -38,7 +38,7 @@ class EarlyPacketSerializationTest {
             port = 25_565,
             intention = ClientIntent.LOGIN,
         )
-        val expected = "8806096c6f63616c686f737463dd02".hexToByteArray()
+        val expected = "8906096c6f63616c686f737463dd02".hexToByteArray()
         assertContentEquals(
             expected,
             MinecraftPacketPayloadFormat.encodeToByteArray(clientIntentionPacket),

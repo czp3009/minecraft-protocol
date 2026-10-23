@@ -9,9 +9,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.*
+import java.io.File
 import java.nio.file.Path
 import java.util.*
 import kotlin.io.path.*
@@ -275,12 +274,12 @@ internal fun prepareHeadlessClientRuntime(
 ): HeadlessClientInstallation {
     val runtime = workDirectory.resolve("runtime")
     val minecraft = runtime.resolve("minecraft")
-    val launcher = runtime.resolve("headlessmc").resolve("headlessmc-launcher.jar")
+    val agent = runtime.resolve("headlessmc").resolve("headlessmc-lwjgl.jar")
     headlessClientInstallation.minecraftDirectory.linkDirectoryTo(minecraft)
-    headlessClientInstallation.launcher.linkFileTo(launcher)
+    headlessClientInstallation.agent.linkFileTo(agent)
     return headlessClientInstallation.copy(
         minecraftDirectory = minecraft,
-        launcher = launcher,
+        agent = agent,
     )
 }
 
@@ -302,7 +301,7 @@ internal fun prepareHeadlessClientWorkspace(
     )
 }
 
-private fun headlessClientCommand(
+internal fun headlessClientCommand(
     headlessClientInstallation: HeadlessClientInstallation,
     gameDirectory: Path,
     headlessMcHome: Path,
@@ -311,55 +310,66 @@ private fun headlessClientCommand(
     val offlineUuid = UUID.nameUUIDFromBytes("OfflinePlayer:$playerName".encodeToByteArray())
         .toString()
         .replace("-", "")
-    return fixtureJavaCommand(
-        "-Xms256M",
-        "-Xmx1G",
-        "-Duser.home=$headlessMcHome",
-        "-Djava.awt.headless=true",
-        "-Djoml.nounsafe=true",
-        "--sun-misc-unsafe-memory-access=allow",
-        "-Dhmc.mcdir=${headlessClientInstallation.minecraftDirectory}",
-        "-Dhmc.gamedir=$gameDirectory",
-        "-Dhmc.java.versions=java",
-        "-Dhmc.no.auto.config=true",
-        "-Dhmc.java.use.current=false",
-        "-Dhmc.java.require.exact=true",
-        "-Dhmc.auto.download=false",
-        "-Dhmc.auto.download.java=false",
-        "-Dhmc.auto.download.versions=false",
-        "-Dhmc.auto.download.specifics=false",
-        "-Dhmc.assets.dummy=true",
-        "-Dhmc.assets.check.hash=false",
-        "-Dhmc.assets.check.size=false",
-        "-Dhmc.assets.check.file.hash=false",
-        "-Dhmc.always.download.assets.index=false",
-        "-Dhmc.libraries.check.hash=false",
-        "-Dhmc.libraries.check.size=false",
-        "-Dhmc.libraries.check.file.hash=false",
-        "-Dhmc.install.mc.logging=false",
-        "-Dhmc.account.refresh.on.game.launch=false",
-        "-Dhmc.account.refresh.on.launch=false",
-        "-Dhmc.store.accounts=false",
-        "-Dhmc.offline=true",
-        "-Dhmc.offline.username=$playerName",
-        "-Dhmc.offline.uuid=$offlineUuid",
-        "-Dhmc.offline.token=0",
-        "-Dhmc.jline.enabled=false",
-        "-Dhmc.filehandler.enabled=false",
-        "-Dhmc.rethrow.launch.exceptions=true",
-        "-Dhmc.exit.on.failed.command=true",
-        "-Dhmc.crash.report.watcher=true",
-        "-Dhmc.check.xvfb=false",
-        "-jar",
-        headlessClientInstallation.launcher.toString(),
-        "--command",
-        "launch",
-        headlessClientInstallation.fabricProfileId,
-        "-lwjgl",
-        "-inmemory",
-        "-offline",
+    val launchManifest = headlessClientInstallation.launchManifest
+    val nativesDirectory = headlessMcHome.resolve("natives").createDirectories()
+    val classpath = launchManifest.getValue("classpath").jsonArray.joinToString(File.pathSeparator) {
+        headlessClientInstallation.minecraftDirectory.safeResolve(it.jsonPrimitive.content).toString()
+    }
+    val substitutions = mapOf(
+        "auth_player_name" to playerName,
+        "auth_uuid" to offlineUuid,
+        "auth_access_token" to "0",
+        "clientid" to "",
+        "auth_xuid" to "",
+        "version_name" to headlessClientInstallation.fabricProfileId,
+        "version_type" to launchManifest.getValue("version_type").jsonPrimitive.content,
+        "game_directory" to gameDirectory.toString(),
+        "assets_root" to headlessClientInstallation.minecraftDirectory.resolve("assets").toString(),
+        "assets_index_name" to launchManifest.getValue("asset_index").jsonPrimitive.content,
+        "natives_directory" to nativesDirectory.toString(),
+        "launcher_name" to "minecraft-test-fixture-host",
+        "launcher_version" to headlessClientInstallation.minecraftVersion,
+        "classpath" to classpath,
     )
+
+    fun arguments(key: String): List<String> = launchManifest.getValue(key).jsonArray.map { argument ->
+        CLIENT_ARGUMENT_PLACEHOLDER.replace(argument.jsonPrimitive.content) {
+            substitutions.getValue(it.groupValues[1])
+        }
+    }
+
+    val arguments = buildList {
+        add("-Xms256M")
+        add("-Xmx1G")
+        add("-Duser.home=$headlessMcHome")
+        add("-Djava.awt.headless=true")
+        add("-Djoml.nounsafe=true")
+        // Patchy's synchronous block-list download otherwise has no timeout, even for loopback connections.
+        add("-Dsun.net.client.defaultConnectTimeout=5000")
+        add("-Dsun.net.client.defaultReadTimeout=5000")
+        add("--sun-misc-unsafe-memory-access=allow")
+        add("-javaagent:${headlessClientInstallation.agent}")
+        add("-Dfabric.systemLibraries=${headlessClientInstallation.agent}")
+        add("-Dhmc.jline.enabled=false")
+        add("-Dhmc.account.refresh.enabled=false")
+        add("-Dhmc.files.location=$headlessMcHome")
+        addAll(arguments("jvm_arguments"))
+        add(launchManifest.getValue("main_class").jsonPrimitive.content)
+        addAll(arguments("game_arguments"))
+    }
+    // A JVM argument file avoids the Windows process command-line length limit.
+    val argumentFile = headlessMcHome.resolve("client.args")
+    argumentFile.writeText(arguments.joinToString("\n", postfix = "\n") { it.quotedJavaArgument() })
+    return fixtureJavaCommand("@$argumentFile")
 }
+
+private fun String.quotedJavaArgument(): String {
+    val escaped = replace("\\", "\\\\").replace("\"", "\\\"")
+        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    return "\"$escaped\""
+}
+
+private val CLIENT_ARGUMENT_PLACEHOLDER = Regex("""\$\{([^}]+)}""")
 
 private suspend fun stopHeadlessClientProcess(
     minecraftTestProcess: MinecraftTestProcess,
@@ -444,7 +454,10 @@ internal suspend fun generateHeadlessClientTemplate(
             minecraftVersion = minecraftVersion,
             fabricProfileId = "fabric-loader-$fabricLoaderVersion-$minecraftVersion",
             minecraftDirectory = runtimeDirectory.resolve("minecraft"),
-            launcher = runtimeDirectory.resolve("headlessmc").resolve("headlessmc-launcher.jar"),
+            agent = runtimeDirectory.resolve("headlessmc").resolve("headlessmc-lwjgl.jar"),
+            launchManifest = testJson.decodeFromString<JsonObject>(
+                runtimeDirectory.resolve("headlessmc").resolve("launch.json").readText(),
+            ),
             modsDirectory = runtimeDirectory.resolve("mods"),
             processedModsDirectory = null,
             templateDirectory = templateDirectory,
@@ -490,7 +503,7 @@ internal suspend fun generateHeadlessClientTemplate(
             templateDirectory.resolve(".fabric").resolve("processedMods"),
         )
         CLIENT_TEMPLATE_CLEARED_DIRECTORIES.forEach { relativePath ->
-            templateDirectory.safeResolve(relativePath).deleteFilesRecursively()
+            templateDirectory.safeResolve(relativePath).createDirectories().deleteFilesRecursively()
         }
         CLIENT_TEMPLATE_IGNORED_FILES.forEach { relativePath ->
             templateDirectory.safeResolve(relativePath).deleteTree()
@@ -525,9 +538,10 @@ internal suspend fun generateHeadlessClientTemplate(
                         JsonPrimitive(hmcSpecificsAssetName),
                 "hmc_specifics_asset_url" to
                         JsonPrimitive(hmcSpecificsAssetUrl),
-                "relative_headlessmc_launcher" to JsonPrimitive(
-                    "runtime/headlessmc/headlessmc-launcher.jar",
+                "relative_headlessmc_agent" to JsonPrimitive(
+                    "runtime/headlessmc/headlessmc-lwjgl.jar",
                 ),
+                "relative_launch_manifest" to JsonPrimitive("runtime/headlessmc/launch.json"),
                 "relative_minecraft_directory" to
                         JsonPrimitive("runtime/minecraft"),
                 "relative_mods_directory" to

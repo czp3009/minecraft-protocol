@@ -68,6 +68,7 @@ sealed interface ConsumeEffect {
     @Serializable
     data class TeleportRandomly(
         val diameter: Float,
+        val directionalParticles: Boolean = true,
     ) : ConsumeEffect
 
     @Serializable

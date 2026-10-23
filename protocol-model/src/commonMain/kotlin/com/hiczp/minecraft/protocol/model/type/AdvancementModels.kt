@@ -1,5 +1,6 @@
 package com.hiczp.minecraft.protocol.model.type
 
+import com.hiczp.minecraft.protocol.model.wire.ZeroFallbackEnum
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -24,8 +25,6 @@ data class AdvancementDisplayInfo(
     val background: Identifier? = null,
     val showToast: Boolean = false,
     val hidden: Boolean = false,
-    val x: Float,
-    val y: Float,
 )
 
 @Serializable
@@ -55,11 +54,9 @@ internal object AdvancementDisplayInfoSerializer :
         element<TextComponent>("title")
         element<TextComponent>("description")
         element<ItemStackTemplate>("icon")
-        element<AdvancementType>("type")
+        element<AdvancementType>("type", annotations = listOf(ZeroFallbackEnum()))
         element<Int>("flags")
         element<Identifier>("background", isOptional = true)
-        element<Float>("x")
-        element<Float>("y")
     }
 
     override fun serialize(encoder: Encoder, value: AdvancementDisplayInfo) {
@@ -101,8 +98,6 @@ internal object AdvancementDisplayInfoSerializer :
                 it,
             )
         }
-        output.encodeFloatElement(descriptor, X, value.x)
-        output.encodeFloatElement(descriptor, Y, value.y)
         output.endStructure(descriptor)
     }
 
@@ -138,8 +133,6 @@ internal object AdvancementDisplayInfoSerializer :
         } else {
             null
         }
-        val x = input.decodeFloatElement(descriptor, X)
-        val y = input.decodeFloatElement(descriptor, Y)
         input.endStructure(descriptor)
         return AdvancementDisplayInfo(
             title,
@@ -149,8 +142,6 @@ internal object AdvancementDisplayInfoSerializer :
             background,
             flags and SHOW_TOAST != 0,
             flags and HIDDEN != 0,
-            x,
-            y,
         )
     }
 
@@ -160,8 +151,6 @@ internal object AdvancementDisplayInfoSerializer :
     private const val TYPE: Int = 3
     private const val FLAGS: Int = 4
     private const val BACKGROUND: Int = 5
-    private const val X: Int = 6
-    private const val Y: Int = 7
 
     private const val HAS_BACKGROUND: Int = 0x01
     private const val SHOW_TOAST: Int = 0x02

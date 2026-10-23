@@ -84,8 +84,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
     val minecraftVersionsDirectory = minecraftRuntimeDirectory.map {
         it.dir("versions")
     }
-    val headlessLauncherFile = headlessRuntimeDirectory.map {
-        it.file("headlessmc/headlessmc-launcher.jar")
+    val headlessAgentFile = headlessRuntimeDirectory.map {
+        it.file("headlessmc/headlessmc-lwjgl.jar")
     }
     val headlessModsDirectory = headlessRuntimeDirectory.map {
         it.dir("mods")
@@ -249,15 +249,33 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         )
         downloadMinecraftClientAssetObjectsTask.outputDirectory.set(clientOriginalAssetObjects)
     }
-    val downloadHeadlessLauncher = tasks.register(
-        "downloadHeadlessMcLauncher",
-        DownloadHeadlessMcLauncherTask::class.java,
-    ) { downloadHeadlessMcLauncherTask ->
-        downloadHeadlessMcLauncherTask.group = FIXTURE_TASK_GROUP
-        downloadHeadlessMcLauncherTask.description = "Download the exact HeadlessMC launcher wrapper."
-        downloadHeadlessMcLauncherTask.offline.set(gradle.startParameter.isOffline)
-        downloadHeadlessMcLauncherTask.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
-        downloadHeadlessMcLauncherTask.launcherFile.set(headlessLauncherFile)
+    val downloadHeadlessAgent = tasks.register(
+        "downloadHeadlessMcAgent",
+        DownloadHeadlessMcAgentTask::class.java,
+    ) { downloadHeadlessMcAgentTask ->
+        downloadHeadlessMcAgentTask.group = FIXTURE_TASK_GROUP
+        downloadHeadlessMcAgentTask.description = "Download the exact HeadlessMC LWJGL agent."
+        downloadHeadlessMcAgentTask.offline.set(gradle.startParameter.isOffline)
+        downloadHeadlessMcAgentTask.headlessMcVersion.set(HeadlessMcTarget.HEADLESS_MC_VERSION)
+        downloadHeadlessMcAgentTask.agentFile.set(headlessAgentFile)
+    }
+    val generateClientLaunch = tasks.register(
+        "generateHeadlessClientLaunch",
+        GenerateHeadlessClientLaunchTask::class.java,
+    ) { generateHeadlessClientLaunchTask ->
+        generateHeadlessClientLaunchTask.group = FIXTURE_TASK_GROUP
+        generateHeadlessClientLaunchTask.metadataFile.set(metadataOutput)
+        generateHeadlessClientLaunchTask.fabricProfileFile.set(downloadFabricProfile.flatMap { it.outputFile })
+        generateHeadlessClientLaunchTask.operatingSystem.set(providers.systemProperty("os.name").map {
+            when {
+                it.startsWith("Windows") -> "windows"
+                it.startsWith("Mac") -> "osx"
+                else -> "linux"
+            }
+        })
+        generateHeadlessClientLaunchTask.architecture.set(providers.systemProperty("os.arch"))
+        generateHeadlessClientLaunchTask.operatingSystemVersion.set(providers.systemProperty("os.version"))
+        generateHeadlessClientLaunchTask.outputFile.set(headlessRuntimeDirectory.map { it.file("headlessmc/launch.json") })
     }
     val downloadAssetReplacements = tasks.register(
         "downloadHeadlessMcAssetReplacements",
@@ -355,7 +373,8 @@ fun Project.applyMinecraftFixtureArtifactsConvention(): MinecraftTestFixtureOutp
         generateHeadlessClientTemplateTask.description =
             "Start, stop, sanitize, and publish the HeadlessMC client template."
         generateHeadlessClientTemplateTask.dependsOn(
-            downloadHeadlessLauncher,
+            downloadHeadlessAgent,
+            generateClientLaunch,
             downloadLibraries,
             assembleAssets,
             assembleVersionLayout,

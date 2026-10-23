@@ -3,6 +3,9 @@
 package com.hiczp.minecraft.protocol.configuration.vanilla
 
 import com.hiczp.minecraft.protocol.model.type.*
+import com.hiczp.minecraft.world.format.BlockId
+import com.hiczp.minecraft.world.format.BlockStateNbtDecoder
+import com.hiczp.minecraft.world.format.StateProperties
 import kotlinx.io.Buffer
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
@@ -106,6 +109,14 @@ data class VanillaBlockStateRegistry(
 
     fun default(blockId: Identifier): VanillaBlockState =
         defaultBlockStatesByBlockId[blockId] ?: error("$blockId is not a vanilla block")
+
+    /** Binds this registry's default properties for decoding compact or partial saved block states. */
+    fun createBlockStateNbtDecoder(): BlockStateNbtDecoder {
+        val defaultProperties = defaultBlockStatesByBlockId.entries.associate { (blockId, vanillaBlockState) ->
+            BlockId(blockId.value) to StateProperties(vanillaBlockState.properties)
+        }
+        return BlockStateNbtDecoder { blockId -> defaultProperties.getValue(blockId) }
+    }
 
     fun find(
         blockId: Identifier,

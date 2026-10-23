@@ -52,14 +52,8 @@ data class WrittenBookPage(
 
 @Serializable
 data class TrimMaterialValue(
-    val assets: TrimMaterialAssets,
+    val paletteId: Identifier,
     val description: TextComponent,
-)
-
-@Serializable
-data class TrimMaterialAssets(
-    val baseSuffix: String,
-    val overrides: Map<Identifier, String>,
 )
 
 @Serializable

@@ -40,7 +40,7 @@ data class ClientboundContainerSetSlotPacket(
 
 @Serializable
 @PacketInfo(
-    0x34,
+    0x35,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "merchant_offers",
@@ -59,7 +59,7 @@ data class ClientboundMerchantOffersPacket(
 
 @Serializable
 @PacketInfo(
-    0x60,
+    0x62,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_cursor_item",
@@ -70,7 +70,7 @@ data class ClientboundSetCursorItemPacket(
 
 @Serializable
 @PacketInfo(
-    0x66,
+    0x68,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_equipment",
@@ -83,7 +83,7 @@ data class ClientboundSetEquipmentPacket(
 
 @Serializable
 @PacketInfo(
-    0x6C,
+    0x6E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_player_inventory",
@@ -117,7 +117,7 @@ data class ServerboundContainerClickPacket(
 
 @Serializable
 @PacketInfo(
-    0x38,
+    0x39,
     ConnectionState.PLAY,
     PacketDirection.SERVERBOUND,
     officialName = "set_creative_mode_slot",

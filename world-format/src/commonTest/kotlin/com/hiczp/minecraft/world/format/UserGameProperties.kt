@@ -1,6 +1,9 @@
 package com.hiczp.minecraft.world.format
 
-import com.hiczp.minecraft.nbt.*
+import com.hiczp.minecraft.nbt.NbtCompound
+import com.hiczp.minecraft.nbt.NbtList
+import com.hiczp.minecraft.nbt.NbtShort
+import com.hiczp.minecraft.nbt.NbtTag
 import kotlin.uuid.Uuid
 
 /**
@@ -30,7 +33,7 @@ internal object UserGameProperties {
         put(NbtPropertyPath(NbtPropertyScope("entity", "minecraft:item"), "Item"), NbtPropertyReaders.itemStack)
         put(
             NbtPropertyPath(NbtPropertyScope("block_entity", "minecraft:piston"), "blockState"),
-            NbtPropertyReaders.blockState
+            NbtPropertyReaders.blockState(BlockStateNbtDecoder { StateProperties() })
         )
         FURNACE_TYPES.forEach { type ->
             FURNACE_TIMERS.forEach { name ->

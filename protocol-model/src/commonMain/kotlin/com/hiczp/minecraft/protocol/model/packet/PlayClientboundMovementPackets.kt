@@ -2,11 +2,12 @@ package com.hiczp.minecraft.protocol.model.packet
 
 import com.hiczp.minecraft.protocol.model.type.*
 import com.hiczp.minecraft.protocol.model.wire.VarInt
+import com.hiczp.minecraft.protocol.model.wire.ZeroFallbackEnum
 import kotlinx.serialization.Serializable
 
 @Serializable
 @PacketInfo(
-    0x2E,
+    0x2F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "level_event",
@@ -20,7 +21,7 @@ data class ClientboundLevelEventPacket(
 
 @Serializable
 @PacketInfo(
-    0x32,
+    0x33,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "low_disk_space_warning",
@@ -31,7 +32,7 @@ data object ClientboundLowDiskSpaceWarningPacket :
 
 @Serializable
 @PacketInfo(
-    0x37,
+    0x38,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "move_minecart_along_track",
@@ -44,31 +45,30 @@ data class ClientboundMoveMinecartPacket(
 
 @Serializable
 @PacketInfo(
-    0x39,
+    0x3A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "move_vehicle",
 )
 data class ClientboundMoveVehiclePacket(
-    val position: Vector3d,
-    val yRot: Float,
-    val xRot: Float,
-) : PlayStatePacket, ClientboundPacket
-
-@Serializable
-@PacketInfo(
-    0x3A,
-    ConnectionState.PLAY,
-    PacketDirection.CLIENTBOUND,
-    officialName = "open_book",
-)
-data class ClientboundOpenBookPacket(
-    val hand: InteractionHand,
+    val movingTo: PositionAndRotation,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
     0x3B,
+    ConnectionState.PLAY,
+    PacketDirection.CLIENTBOUND,
+    officialName = "open_book",
+)
+data class ClientboundOpenBookPacket(
+    @ZeroFallbackEnum
+    val hand: InteractionHand,
+) : PlayStatePacket, ClientboundPacket
+
+@Serializable
+@PacketInfo(
+    0x3C,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "open_screen",
@@ -83,20 +83,21 @@ data class ClientboundOpenScreenPacket(
 
 @Serializable
 @PacketInfo(
-    0x3C,
+    0x3D,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "open_sign_editor",
 )
 data class ClientboundOpenSignEditorPacket(
     val pos: BlockPosition,
-    val isFrontText: Boolean,
+    @ZeroFallbackEnum
+    val slot: SignTextSlot,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(0x01, ConnectionState.STATUS, PacketDirection.CLIENTBOUND, "pong_response")
 @PacketInfo(
-    0x3E,
+    0x3F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "pong_response",
@@ -107,7 +108,7 @@ data class ClientboundPongResponsePacket(
 
 @Serializable
 @PacketInfo(
-    0x40,
+    0x41,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_abilities",

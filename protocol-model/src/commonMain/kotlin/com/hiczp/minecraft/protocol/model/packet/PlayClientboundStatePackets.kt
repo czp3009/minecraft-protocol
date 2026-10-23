@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 @PacketInfo(
-    0x62,
+    0x64,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_display_objective",
@@ -21,7 +21,7 @@ data class ClientboundSetDisplayObjectivePacket(
 
 @Serializable
 @PacketInfo(
-    0x64,
+    0x66,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_entity_link",
@@ -33,7 +33,7 @@ data class ClientboundSetEntityLinkPacket(
 
 @Serializable
 @PacketInfo(
-    0x65,
+    0x67,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_entity_motion",
@@ -47,7 +47,7 @@ data class ClientboundSetEntityMotionPacket(
 
 @Serializable(with = ClientboundSetExperiencePacketSerializer::class)
 @PacketInfo(
-    0x67,
+    0x69,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_experience",
@@ -62,7 +62,7 @@ data class ClientboundSetExperiencePacket(
 
 @Serializable
 @PacketInfo(
-    0x68,
+    0x6A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_health",
@@ -76,7 +76,7 @@ data class ClientboundSetHealthPacket(
 
 @Serializable
 @PacketInfo(
-    0x69,
+    0x6B,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_held_slot",
@@ -88,7 +88,7 @@ data class ClientboundSetHeldSlotPacket(
 
 @Serializable
 @PacketInfo(
-    0x6B,
+    0x6D,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_passengers",
@@ -102,7 +102,7 @@ data class ClientboundSetPassengersPacket(
 
 @Serializable
 @PacketInfo(
-    0x6F,
+    0x71,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_simulation_distance",
@@ -114,7 +114,7 @@ data class ClientboundSetSimulationDistancePacket(
 
 @Serializable
 @PacketInfo(
-    0x70,
+    0x72,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_subtitle_text",
@@ -125,7 +125,7 @@ data class ClientboundSetSubtitleTextPacket(
 
 @Serializable
 @PacketInfo(
-    0x71,
+    0x73,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_time",
@@ -138,7 +138,7 @@ data class ClientboundSetTimePacket(
 
 @Serializable
 @PacketInfo(
-    0x72,
+    0x74,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_title_text",
@@ -149,7 +149,7 @@ data class ClientboundSetTitleTextPacket(
 
 @Serializable
 @PacketInfo(
-    0x73,
+    0x75,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_titles_animation",
@@ -162,7 +162,7 @@ data class ClientboundSetTitlesAnimationPacket(
 
 @Serializable
 @PacketInfo(
-    0x76,
+    0x78,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "start_configuration",
@@ -173,7 +173,7 @@ data object ClientboundStartConfigurationPacket :
 
 @Serializable
 @PacketInfo(
-    0x77,
+    0x79,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "stop_sound",
@@ -185,7 +185,7 @@ data class ClientboundStopSoundPacket(
 
 @Serializable
 @PacketInfo(
-    0x79,
+    0x7C,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "system_chat",
@@ -197,7 +197,7 @@ data class ClientboundSystemChatPacket(
 
 @Serializable
 @PacketInfo(
-    0x7A,
+    0x7D,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "tab_list",
@@ -209,7 +209,7 @@ data class ClientboundTabListPacket(
 
 @Serializable
 @PacketInfo(
-    0x7B,
+    0x7E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "tag_query",
@@ -224,7 +224,7 @@ data class ClientboundTagQueryPacket(
 
 @Serializable
 @PacketInfo(
-    0x7C,
+    0x7F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "take_item_entity",
@@ -240,7 +240,7 @@ data class ClientboundTakeItemEntityPacket(
 
 @Serializable
 @PacketInfo(
-    0x7D,
+    0x80,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "teleport_entity",
@@ -255,7 +255,7 @@ data class ClientboundTeleportEntityPacket(
 
 @Serializable
 @PacketInfo(
-    0x7E,
+    0x81,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "test_instance_block_status",
@@ -267,7 +267,7 @@ data class ClientboundTestInstanceBlockStatus(
 
 @Serializable
 @PacketInfo(
-    0x7F,
+    0x82,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "ticking_state",
@@ -279,7 +279,7 @@ data class ClientboundTickingStatePacket(
 
 @Serializable
 @PacketInfo(
-    0x80,
+    0x83,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "ticking_step",

@@ -6,6 +6,7 @@ import com.hiczp.minecraft.nbt.NbtEnd
 import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.nbt.NbtTagDecoder
 import com.hiczp.minecraft.nbt.NbtTagSerializer
+import com.hiczp.minecraft.protocol.model.type.BitSet
 import com.hiczp.minecraft.protocol.model.wire.*
 import com.hiczp.minecraft.protocol.serialization.MinecraftPacketPayloadFormatConfiguration
 import com.hiczp.minecraft.protocol.serialization.MinecraftSerializationException
@@ -270,6 +271,11 @@ internal class MinecraftDecoder(
                 (Uuid.fromByteArray(minecraftReader.readBytes(Uuid.SIZE_BYTES)) as T)
             }
 
+            deserializer === BitSet.serializer() -> {
+                @Suppress("UNCHECKED_CAST")
+                (ByteBitSetCodec.read(minecraftReader, minecraftPacketPayloadFormatConfiguration) as T)
+            }
+
             pendingHints.any { it is LowPrecisionVector } -> {
                 if (deserializer.descriptor.serialName != VECTOR_3D_SERIAL_NAME) {
                     throw MinecraftSerializationException(
@@ -451,6 +457,10 @@ internal class MinecraftDecoder(
             throw MinecraftSerializationException("Invalid collection size: $size")
         }
         validateCollectionHints(size, hints)
+        hints.filterIsInstance<MinElementBytes>().singleOrNull()?.let { minElementBytes ->
+            require(minElementBytes.bytes > 0) { "MinElementBytes must be positive" }
+            requireArrayBytes(size, minElementBytes.bytes)
+        }
         return DecodedCollection(
             size,
             hints.filter {

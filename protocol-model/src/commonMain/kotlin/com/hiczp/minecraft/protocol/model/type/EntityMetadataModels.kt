@@ -225,6 +225,8 @@ sealed interface EntityDataValue {
     data class Profile(val value: ResolvableProfile) : EntityDataValue
 
     data class Arm(val value: HumanoidArm) : EntityDataValue
+
+    data class DyeColorValue(val value: DyeColor) : EntityDataValue
 }
 
 @Serializable
@@ -372,6 +374,7 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
             annotations = listOf(ZeroFallbackEnum()),
             isOptional = true,
         )
+        element<DyeColor>("dyeColor", annotations = listOf(ZeroFallbackEnum()), isOptional = true)
     }
 
     override fun serialize(encoder: Encoder, value: EntityDataValue) {
@@ -590,6 +593,12 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
                 HumanoidArm.serializer(),
                 value.value,
             )
+            is EntityDataValue.DyeColorValue -> output.serializable(
+                43,
+                DYE_COLOR,
+                DyeColor.serializer(),
+                value.value,
+            )
         }
         output.endStructure(descriptor)
     }
@@ -745,6 +754,7 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
             42 -> EntityDataValue.Arm(
                 input.serializable(ARM, HumanoidArm.serializer()),
             )
+            43 -> EntityDataValue.DyeColorValue(input.serializable(DYE_COLOR, DyeColor.serializer()))
 
             else -> throw SerializationException(
                 "Unknown entity metadata serializer $type",
@@ -841,4 +851,5 @@ internal object EntityDataValueSerializer : KSerializer<EntityDataValue> {
     private const val QUATERNION: Int = 29
     private const val PROFILE: Int = 30
     private const val ARM: Int = 31
+    private const val DYE_COLOR: Int = 32
 }

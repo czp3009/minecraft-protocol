@@ -11,7 +11,8 @@ internal data class HeadlessClientInstallation(
     val minecraftVersion: String,
     val fabricProfileId: String,
     val minecraftDirectory: Path,
-    val launcher: Path,
+    val agent: Path,
+    val launchManifest: JsonObject,
     val modsDirectory: Path,
     val processedModsDirectory: Path?,
     val templateDirectory: Path,
@@ -29,8 +30,8 @@ internal object HeadlessClientPreparation {
         val minecraftDirectory = root.safeResolve(
             manifest.getValue("relative_minecraft_directory").jsonPrimitive.content,
         )
-        val launcher = root.safeResolve(
-            manifest.getValue("relative_headlessmc_launcher").jsonPrimitive.content,
+        val agent = root.safeResolve(
+            manifest.getValue("relative_headlessmc_agent").jsonPrimitive.content,
         )
         val modsDirectory = root.safeResolve(
             manifest.getValue("relative_mods_directory").jsonPrimitive.content,
@@ -43,7 +44,7 @@ internal object HeadlessClientPreparation {
         )
         check(
             minecraftDirectory.isDirectory() &&
-                    launcher.isRegularFile() &&
+                    agent.isRegularFile() &&
                     modsDirectory.isDirectory() &&
                     processedModsDirectory.isDirectory() &&
                     templateDirectory.isDirectory(),
@@ -54,7 +55,10 @@ internal object HeadlessClientPreparation {
             minecraftVersion = minecraftVersion,
             fabricProfileId = manifest.getValue("fabric_profile_id").jsonPrimitive.content,
             minecraftDirectory = minecraftDirectory,
-            launcher = launcher,
+            agent = agent,
+            launchManifest = testJson.decodeFromString<JsonObject>(
+                root.safeResolve(manifest.getValue("relative_launch_manifest").jsonPrimitive.content).readText(),
+            ),
             modsDirectory = modsDirectory,
             processedModsDirectory = processedModsDirectory,
             templateDirectory = templateDirectory,

@@ -5,12 +5,12 @@
 package com.hiczp.minecraft.protocol.serialization
 
 import com.hiczp.minecraft.protocol.model.type.*
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 internal data class NamedDataComponentSample(
     val name: String,
@@ -35,6 +35,47 @@ internal fun dataComponentTestSamples(): List<NamedDataComponentSample> =
                 )
             }
         }
+        val trimMaterialHolder = TrimMaterialHolder.Direct(
+            TrimMaterialValue(Identifier("minecraft:gold"), TextComponent.literal("Gold")),
+        )
+        add(
+            NamedDataComponentSample(
+                "trim-direct", DataComponentType.TRIM,
+                DataComponent.Trim(
+                    trimMaterialHolder,
+                    TrimPatternHolder.Direct(
+                        TrimPatternValue(
+                            Identifier("minecraft:sentry"),
+                            TextComponent.literal("Sentry"),
+                            true
+                        )
+                    ),
+                ),
+            ),
+        )
+        add(
+            NamedDataComponentSample(
+                "provides_trim_material-direct",
+                DataComponentType.PROVIDES_TRIM_MATERIAL,
+                DataComponent.ProvidesTrimMaterial(trimMaterialHolder)
+            )
+        )
+        add(
+            NamedDataComponentSample(
+                "instrument-direct", DataComponentType.INSTRUMENT,
+                DataComponent.Instrument(
+                    InstrumentHolder.Direct(
+                        InstrumentValue(
+                            SoundEventHolder.Reference(0),
+                            0.0f,
+                            256.0f,
+                            300,
+                            TextComponent.literal("Horn")
+                        )
+                    ),
+                ),
+            ),
+        )
     }
 
 class DataComponentSerializationTest {

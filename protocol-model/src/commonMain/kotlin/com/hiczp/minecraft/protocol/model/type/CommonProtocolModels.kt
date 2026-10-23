@@ -4,13 +4,13 @@ package com.hiczp.minecraft.protocol.model.type
 
 import com.hiczp.minecraft.nbt.NbtTag
 import com.hiczp.minecraft.protocol.model.wire.*
-import kotlin.uuid.Uuid
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.descriptors.element
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlin.uuid.Uuid
 
 @Serializable
 data class ProfileProperty(
@@ -110,13 +110,16 @@ data class ClientInformation(
     @MaxLength(16)
     val locale: String,
     val viewDistance: Byte,
+    @WrappedEnum
     val chatMode: ChatMode,
     val chatColors: Boolean,
     @UnsignedByte
     val displayedSkinParts: Int,
+    @ZeroFallbackEnum
     val mainHand: MainHand,
     val enableTextFiltering: Boolean,
     val allowServerListings: Boolean,
+    @WrappedEnum
     val particleStatus: ParticleStatus,
 )
 

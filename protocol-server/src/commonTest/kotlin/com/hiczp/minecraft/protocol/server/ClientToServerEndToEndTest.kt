@@ -501,7 +501,14 @@ class ClientToServerEndToEndTest {
         while (!(chunkReceived && entityReceived && difficultyReceived && playerAbilities != null)) {
             when (val clientboundPacket = minecraftClientConnection.incoming.receive()) {
                 is ClientboundPlayerPositionPacket -> {
-                    minecraftClientConnection.outgoing.send(ServerboundAcceptTeleportationPacket(clientboundPacket.id))
+                    val change = clientboundPacket.change
+                    check(clientboundPacket.relatives.values.isEmpty())
+                    minecraftClientConnection.outgoing.send(
+                        ServerboundAcceptTeleportationPacket(
+                            clientboundPacket.id, change.position.x, change.position.y, change.position.z,
+                            change.yaw, change.pitch,
+                        ),
+                    )
                     minecraftClientConnection.requestFlush()
                 }
 

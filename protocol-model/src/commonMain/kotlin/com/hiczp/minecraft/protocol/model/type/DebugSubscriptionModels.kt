@@ -110,9 +110,9 @@ sealed interface DebugSubscriptionData {
         val nextNodeIndex: Int,
         val target: BlockPosition,
         val nodes: List<DebugPathNode>,
-        val targetNodes: Set<DebugPathNode>,
         val openSet: List<DebugPathNode>,
         val closedSet: List<DebugPathNode>,
+        val targetNodes: Set<DebugPathNode>,
         val maximumNodeDistance: Float,
     ) : DebugSubscriptionData
 
@@ -234,6 +234,7 @@ data class DebugPathNode(
     val walkedDistance: Float,
     val costMalus: Float,
     val closed: Boolean,
+    @ZeroFallbackEnum
     val type: DebugPathType,
     val totalCost: Float,
 )

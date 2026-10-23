@@ -385,7 +385,7 @@ class TypedWorldFilesTest {
             ),
         )
         val statisticsJson = buildJsonObject {
-            put("DataVersion", JsonPrimitive(4_903))
+            put("DataVersion", JsonPrimitive(MinecraftWorldFormat.WORLD_VERSION))
             put("future_mod_field", buildJsonObject { put("value", JsonPrimitive(7)) })
         }
         try {
@@ -409,11 +409,11 @@ private fun typedStatistics(): PlayerStatistics = PlayerStatistics(
         "minecraft:mined" to mapOf("minecraft:stone" to 42),
         "example:custom" to mapOf("example:value" to 7),
     ),
-    dataVersion = 4_903,
+    dataVersion = MinecraftWorldFormat.WORLD_VERSION,
 )
 
 private fun typedAdvancements(): PlayerAdvancements = PlayerAdvancements(
-    dataVersion = 4_903,
+    dataVersion = MinecraftWorldFormat.WORLD_VERSION,
     advancements = mapOf(
         "minecraft:story/root" to PlayerAdvancements.Progress(
             criteria = mapOf("crafting_table" to "2026-08-18 00:00:00 +0000"),
@@ -423,7 +423,7 @@ private fun typedAdvancements(): PlayerAdvancements = PlayerAdvancements(
 )
 
 private fun typedWorldBorderData(): SavedDataFile<WorldBorderData> = SavedDataFile(
-    dataVersion = 4_903,
+    dataVersion = MinecraftWorldFormat.WORLD_VERSION,
     data = WorldBorderData(
         centerX = 0.0,
         centerZ = 0.0,
@@ -438,13 +438,13 @@ private fun typedWorldBorderData(): SavedDataFile<WorldBorderData> = SavedDataFi
 )
 
 private fun typedChunkTicketsData(): SavedDataFile<ChunkTicketsData> =
-    SavedDataFile(dataVersion = 4_903, data = ChunkTicketsData())
+    SavedDataFile(dataVersion = MinecraftWorldFormat.WORLD_VERSION, data = ChunkTicketsData())
 
 private fun typedRaidsData(): SavedDataFile<RaidsData> =
-    SavedDataFile(dataVersion = 4_903, data = RaidsData(nextId = 1, tick = 0))
+    SavedDataFile(dataVersion = MinecraftWorldFormat.WORLD_VERSION, data = RaidsData(nextId = 1, tick = 0))
 
 private fun typedEnderDragonFightData(): SavedDataFile<EnderDragonFightData> = SavedDataFile(
-    dataVersion = 4_903,
+    dataVersion = MinecraftWorldFormat.WORLD_VERSION,
     data = EnderDragonFightData(
         needsStateScanning = true,
         dragonKilled = false,

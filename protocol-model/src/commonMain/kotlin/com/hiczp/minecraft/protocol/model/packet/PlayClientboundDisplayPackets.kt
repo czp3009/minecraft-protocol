@@ -49,11 +49,12 @@ data class ClientboundExplodePacket(
     val explosionParticle: ParticleOptions,
     val explosionSound: SoundEventHolder,
     val blockParticles: List<WeightedExplosionParticle>,
+    val playSound: Boolean,
 ) : PlayStatePacket, ClientboundPacket
 
 @Serializable
 @PacketInfo(
-    0x2D,
+    0x2E,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "level_chunk_with_light",
@@ -65,30 +66,38 @@ data class ClientboundLevelChunkWithLightPacket(
     val lightData: ClientboundLightUpdatePacketData,
 ) : PlayStatePacket, ClientboundPacket
 
-@Serializable(with = ClientboundLevelParticlesPacketSerializer::class)
+@Serializable
 @PacketInfo(
-    0x2F,
+    0x30,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "level_particles",
 )
 data class ClientboundLevelParticlesPacket(
+    val particle: ParticleOptions,
+    val overrideLimiter: Boolean,
+    val alwaysShow: Boolean,
     val x: Double,
     val y: Double,
     val z: Double,
     val xDist: Float,
     val yDist: Float,
     val zDist: Float,
-    val maxSpeed: Float,
+    val xMaxSpeed: Float,
+    val yMaxSpeed: Float,
+    val zMaxSpeed: Float,
+    @VarInt
     val count: Int,
-    val overrideLimiter: Boolean,
-    val alwaysShow: Boolean,
-    val particle: ParticleOptions,
-) : PlayStatePacket, ClientboundPacket
+    @ZeroFallbackEnum
+    val randomizationType: RandomizationType,
+) : PlayStatePacket, ClientboundPacket {
+    @Serializable
+    enum class RandomizationType { DEFAULT, ALTERNATIVE, ALTERNATIVE_WITH_SPEED }
+}
 
 @Serializable
 @PacketInfo(
-    0x30,
+    0x31,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "light_update",
@@ -103,7 +112,7 @@ data class ClientboundLightUpdatePacket(
 
 @Serializable
 @PacketInfo(
-    0x31,
+    0x32,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "login",
@@ -128,7 +137,7 @@ data class ClientboundLoginPacket(
 
 @Serializable(with = ClientboundMapItemDataPacketSerializer::class)
 @PacketInfo(
-    0x33,
+    0x34,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "map_item_data",
@@ -260,7 +269,7 @@ internal object ClientboundMapItemDataPacketSerializer
 
 @Serializable
 @PacketInfo(
-    0x41,
+    0x42,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_chat",
@@ -281,7 +290,7 @@ data class ClientboundPlayerChatPacket(
 
 @Serializable
 @PacketInfo(
-    0x46,
+    0x47,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "player_info_update",
@@ -316,7 +325,7 @@ data class ClientboundPlayerInfoUpdatePacket(
 
 @Serializable
 @PacketInfo(
-    0x52,
+    0x54,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "respawn",
@@ -334,7 +343,7 @@ data class ClientboundRespawnPacket(
 
 @Serializable
 @PacketInfo(
-    0x63,
+    0x65,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_entity_data",
@@ -347,7 +356,7 @@ data class ClientboundSetEntityDataPacket(
 
 @Serializable
 @PacketInfo(
-    0x6A,
+    0x6C,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_objective",
@@ -360,7 +369,7 @@ data class ClientboundSetObjectivePacket(
 
 @Serializable
 @PacketInfo(
-    0x6D,
+    0x6F,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_player_team",
@@ -387,7 +396,7 @@ data class ClientboundSetPlayerTeamPacket(
 
 @Serializable
 @PacketInfo(
-    0x6E,
+    0x70,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "set_score",
@@ -403,7 +412,7 @@ data class ClientboundSetScorePacket(
 
 @Serializable
 @PacketInfo(
-    0x74,
+    0x76,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "sound_entity",
@@ -420,7 +429,7 @@ data class ClientboundSoundEntityPacket(
 
 @Serializable
 @PacketInfo(
-    0x75,
+    0x77,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "sound",
@@ -465,7 +474,7 @@ data class ClientboundSoundPacket(
 
 @Serializable
 @PacketInfo(
-    0x8A,
+    0x8D,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "waypoint",
@@ -485,7 +494,7 @@ data class ClientboundTrackedWaypointPacket(
 
 @Serializable
 @PacketInfo(
-    0x3F,
+    0x40,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "place_ghost_recipe",
@@ -498,7 +507,7 @@ data class ClientboundPlaceGhostRecipePacket(
 
 @Serializable
 @PacketInfo(
-    0x4A,
+    0x4B,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "recipe_book_add",
@@ -537,22 +546,25 @@ data class ClientboundRecipeBookAddPacket(
 
 @Serializable
 @PacketInfo(
-    0x82,
+    0x85,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "update_advancements",
 )
 data class ClientboundUpdateAdvancementsPacket(
-    val reset: Boolean,
-    val added: List<AdvancementHolder>,
+    val shouldReset: Boolean,
+    val added: List<PositionedAdvancement>,
     val removed: Set<Identifier>,
     val progress: Map<Identifier, AdvancementProgress>,
     val showAdvancements: Boolean,
-) : PlayStatePacket, ClientboundPacket
+) : PlayStatePacket, ClientboundPacket {
+    @Serializable
+    data class PositionedAdvancement(val advancement: AdvancementHolder, val x: Float, val y: Float)
+}
 
 @Serializable
 @PacketInfo(
-    0x85,
+    0x88,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "update_recipes",

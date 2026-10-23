@@ -35,26 +35,22 @@ class PlayClientboundMovementPacketTest {
         assertPacketBytes(
             ClientboundMoveEntityPacket.Pos(
                 entityId = 300,
-                xa = 1,
-                ya = -2,
-                za = Short.MAX_VALUE,
+                delta = VecDelta.Linear(1, -2, Short.MAX_VALUE),
                 onGround = true,
             ),
             ClientboundMoveEntityPacket.Pos.serializer(),
-            "ac020001fffe7fff01",
+            "ac02010001fffe7fff",
         )
         assertPacketBytes(
             ClientboundMoveEntityPacket.PosRot(
                 entityId = 1,
-                xa = 1,
-                ya = 2,
-                za = 3,
+                delta = VecDelta.Linear(1, 2, 3),
                 yRot = Angle(0x80.toByte()),
                 xRot = Angle(0x7F),
                 onGround = false,
             ),
             ClientboundMoveEntityPacket.PosRot.serializer(),
-            "01000100020003807f00",
+            "0100000100020003807f",
         )
         assertPacketBytes(
             ClientboundMoveEntityPacket.Rot(
@@ -64,7 +60,7 @@ class PlayClientboundMovementPacketTest {
                 onGround = true,
             ),
             ClientboundMoveEntityPacket.Rot.serializer(),
-            "0140c001",
+            "010140c0",
         )
     }
 
@@ -93,9 +89,7 @@ class PlayClientboundMovementPacketTest {
     fun `vehicle and UI packets match their primitive codecs`() {
         assertPacketBytes(
             ClientboundMoveVehiclePacket(
-                Vector3d(1.0, 2.0, 3.0),
-                yRot = 90.0f,
-                xRot = -45.0f,
+                PositionAndRotation(Vector3d(1.0, 2.0, 3.0), yRot = 90.0f, xRot = -45.0f),
             ),
             ClientboundMoveVehiclePacket.serializer(),
             "3ff00000000000004000000000000000400800000000000042b40000c2340000",
@@ -115,7 +109,7 @@ class PlayClientboundMovementPacketTest {
             "ac020208000178",
         )
         assertPacketBytes(
-            ClientboundOpenSignEditorPacket(ZERO_POSITION, isFrontText = true),
+            ClientboundOpenSignEditorPacket(ZERO_POSITION, slot = SignTextSlot.FRONT),
             ClientboundOpenSignEditorPacket.serializer(),
             "${ZERO_POSITION_HEX}01",
         )

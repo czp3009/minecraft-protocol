@@ -7,6 +7,7 @@ import net.minecraft.SharedConstants;
 import net.minecraft.core.*;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.nbt.*;
 import net.minecraft.network.FriendlyByteBuf;
@@ -20,7 +21,11 @@ import net.minecraft.network.protocol.handshake.HandshakeProtocols;
 import net.minecraft.network.protocol.login.LoginProtocols;
 import net.minecraft.network.protocol.status.StatusProtocols;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.RegistryDataLoader;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.tags.TagKey;
+import net.minecraft.tags.TagLoader;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -32,7 +37,7 @@ import java.util.stream.Collectors;
 /**
  * Executes payloads emitted by the Kotlin implementation through the matching
  * vanilla packet STREAM_CODEC. A passing result proves complete consumption
- * and successful official re-encoding without persisting a success report.
+ * and successful official re-encoding, plus exact canonical bytes when supplied by the fixture.
  */
 public final class OfficialCodecOracle {
     private static final int MAX_REPORTED_FAILURES = 20;
@@ -65,6 +70,14 @@ public final class OfficialCodecOracle {
                         fixture.payload(),
                         registryAccess
                 );
+                if (fixture.expected() != null && !Arrays.equals(fixture.expected(), encoded)) {
+                    throw new AssertionError(
+                            "Vanilla encoded %s, expected %s".formatted(
+                                    HexFormat.of().formatHex(encoded),
+                                    HexFormat.of().formatHex(fixture.expected())
+                            )
+                    );
+                }
                 if (!Arrays.equals(fixture.payload(), encoded)) {
                     passThroughOfficialCodec(
                             fixture.packetKey(),
@@ -358,7 +371,17 @@ public final class OfficialCodecOracle {
             )
                     : GameProtocols.SERVERBOUND_TEMPLATE.bind(
                     RegistryFriendlyByteBuf.decorator(registryAccess),
-                    () -> true
+                    new GameProtocols.Context() {
+                        @Override
+                        public boolean hasInfiniteMaterials() {
+                            return true;
+                        }
+
+                        @Override
+                        public boolean canUseCommandBlocks() {
+                            return true;
+                        }
+                    }
             );
             default -> throw new IllegalArgumentException(
                     "Unknown protocol state %s".formatted(packetKey.state())
@@ -367,17 +390,19 @@ public final class OfficialCodecOracle {
     }
 
     private static RegistryAccess createVanillaRegistryAccess() {
+        // A fixture-owned named set exercises the holder-set branch without needing server tag reloads.
+        BuiltInRegistries.ITEM.prepareTagReload(new TagLoader.LoadResult<>(
+                Registries.ITEM,
+                Map.of(TagKey.create(Registries.ITEM, Identifier.parse("fixture:items")), List.of())
+        )).apply();
         RegistryAccess.Frozen staticRegistries =
                 RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY);
-        HolderLookup.Provider vanillaLookups = VanillaRegistries.createLookup();
+        HolderLookup.Provider vanillaLookups = VanillaRegistries.createWorldLookup();
         List<Registry<?>> registries = staticRegistries.registries()
                 .map(RegistryAccess.RegistryEntry::value)
                 .collect(Collectors.toCollection(ArrayList::new));
-        Set<Object> staticKeys = staticRegistries.registries()
-                .map(RegistryAccess.RegistryEntry::key)
-                .collect(Collectors.toCollection(HashSet::new));
-        vanillaLookups.listRegistryKeys()
-                .filter(resourceKey -> !staticKeys.contains(resourceKey))
+        RegistryDataLoader.SYNCHRONIZED_REGISTRIES.stream()
+                .map(RegistryDataLoader.RegistryData::key)
                 .forEach(resourceKey -> registries.add(materializeRegistry(vanillaLookups, resourceKey)));
 
         RegistryAccess registryAccess = new RegistryAccess.ImmutableRegistryAccess(registries);
@@ -431,7 +456,8 @@ public final class OfficialCodecOracle {
                             ),
                             fixtureInput.kotlinClass(),
                             fixtureInput.sample(),
-                            HexFormat.of().parseHex(fixtureInput.payloadHex())
+                            HexFormat.of().parseHex(fixtureInput.payloadHex()),
+                            fixtureInput.expectedHex() == null ? null : HexFormat.of().parseHex(fixtureInput.expectedHex())
                     )
             );
         }
@@ -533,7 +559,8 @@ public final class OfficialCodecOracle {
             int id,
             String kotlinClass,
             String sample,
-            String payloadHex
+            String payloadHex,
+            String expectedHex
     ) {
     }
 
@@ -541,7 +568,8 @@ public final class OfficialCodecOracle {
             PacketKey packetKey,
             String kotlinClass,
             String sample,
-            byte[] payload
+            byte[] payload,
+            byte[] expected
     ) {
         @Override
         public boolean equals(Object other) {
@@ -549,13 +577,15 @@ public final class OfficialCodecOracle {
                     && packetKey.equals(fixture.packetKey)
                     && kotlinClass.equals(fixture.kotlinClass)
                     && sample.equals(fixture.sample)
-                    && Arrays.equals(payload, fixture.payload);
+                    && Arrays.equals(payload, fixture.payload)
+                    && Arrays.equals(expected, fixture.expected);
         }
 
         @Override
         public int hashCode() {
             int result = Objects.hash(packetKey, kotlinClass, sample);
-            return 31 * result + Arrays.hashCode(payload);
+            result = 31 * result + Arrays.hashCode(payload);
+            return 31 * result + Arrays.hashCode(expected);
         }
     }
 

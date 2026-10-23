@@ -130,7 +130,7 @@ internal object FilterMaskSerializer : KSerializer<FilterMask> {
 
     override fun deserialize(decoder: Decoder): FilterMask {
         val input = decoder.beginStructure(descriptor)
-        val value = when (val type = input.decodeIntElement(descriptor, TYPE)) {
+        val value = when (input.decodeIntElement(descriptor, TYPE)) {
             0 -> FilterMask.PassThrough
             1 -> FilterMask.FullyFiltered
             2 -> FilterMask.PartiallyFiltered(
@@ -141,7 +141,7 @@ internal object FilterMaskSerializer : KSerializer<FilterMask> {
                 ),
             )
 
-            else -> throw SerializationException("Unknown filter-mask type $type")
+            else -> FilterMask.PassThrough
         }
         input.endStructure(descriptor)
         return value

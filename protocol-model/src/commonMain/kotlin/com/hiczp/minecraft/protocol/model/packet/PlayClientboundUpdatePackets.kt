@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 @PacketInfo(
-    0x83,
+    0x86,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "update_attributes",
@@ -30,7 +30,7 @@ data class ClientboundUpdateAttributesPacket(
 
 @Serializable
 @PacketInfo(
-    0x84,
+    0x87,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "update_mob_effect",
@@ -49,7 +49,7 @@ data class ClientboundUpdateMobEffectPacket(
 
 @Serializable
 @PacketInfo(
-    0x87,
+    0x8A,
     ConnectionState.PLAY,
     PacketDirection.CLIENTBOUND,
     officialName = "projectile_power",

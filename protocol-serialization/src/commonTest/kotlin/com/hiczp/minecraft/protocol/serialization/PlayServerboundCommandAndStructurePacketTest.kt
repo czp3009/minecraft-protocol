@@ -138,17 +138,17 @@ class PlayServerboundCommandAndStructurePacketTest {
         assertPacketBytes(
             ServerboundSignUpdatePacket(
                 pos = BlockPosition(0, 0, 0),
-                isFrontText = true,
+                slot = SignTextSlot.FRONT,
                 lines = listOf("a", "", "bc", "d"),
             ),
             ServerboundSignUpdatePacket.serializer(),
-            "0000000000000000010161000262630164",
+            "0000000000000000016100026263016401",
         )
         assertFails {
             MinecraftPacketPayloadFormat.encodeToByteArray(
                 ServerboundSignUpdatePacket(
                     pos = BlockPosition(0, 0, 0),
-                    isFrontText = true,
+                    slot = SignTextSlot.FRONT,
                     lines = listOf("only one")
                 ),
             )
@@ -157,7 +157,7 @@ class PlayServerboundCommandAndStructurePacketTest {
             MinecraftPacketPayloadFormat.encodeToByteArray(
                 ServerboundSignUpdatePacket(
                     pos = BlockPosition(0, 0, 0),
-                    isFrontText = true,
+                    slot = SignTextSlot.FRONT,
                     lines = listOf("x".repeat(385), "", "", ""),
                 ),
             )

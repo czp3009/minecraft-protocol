@@ -20,7 +20,7 @@ class PlayerStatisticsTest {
                 ),
                 "example:custom_type" to mapOf("example:value" to Int.MAX_VALUE),
             ),
-            dataVersion = 4_903,
+            dataVersion = MinecraftWorldFormat.WORLD_VERSION,
         )
         val encoded = Json.encodeToString(expected)
 

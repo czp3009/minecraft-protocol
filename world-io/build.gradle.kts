@@ -103,6 +103,9 @@ kotlin {
 
         val hostFilesystemTest = create("hostFilesystemTest") {
             dependsOn(commonTest.get())
+            dependencies {
+                implementation(project(":protocol-configuration-vanilla"))
+            }
         }
         jvmTest {
             dependsOn(hostFilesystemTest)

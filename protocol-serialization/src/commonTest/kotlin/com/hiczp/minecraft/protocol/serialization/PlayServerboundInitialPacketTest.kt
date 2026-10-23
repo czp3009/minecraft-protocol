@@ -15,9 +15,9 @@ class PlayServerboundInitialPacketTest {
     @Test
     fun `teleport attack and block query use VarInt identifiers`() {
         assertPacketBytes(
-            ServerboundAcceptTeleportationPacket(300),
+            ServerboundAcceptTeleportationPacket(300, 1.0, 2.0, 3.0, 90.0f, -45.0f),
             ServerboundAcceptTeleportationPacket.serializer(),
-            "ac02",
+            "ac023ff00000000000004000000000000000400800000000000042b40000c2340000",
         )
         assertPacketBytes(
             ServerboundAttackPacket(300),

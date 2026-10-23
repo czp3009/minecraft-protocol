@@ -26,33 +26,40 @@ explicit contexts. Neither model package owns a game loop or performs gameplay c
 
 ## Representation differences
 
-| Official shape                                   | Kotlin representation and scope of the difference                                                                                                                                                          |
-|--------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Primitive arrays / owned byte buffers            | Immutable `ByteString` for owned opaque bytes; content equality for array-bearing values. No Netty buffer ownership or I/O escapes into models                                                             |
-| Runtime registry holders and keys                | Explicit registry IDs/identifiers, or reference/direct sealed holders when the wire supports both. Resolution belongs to the supplied `PacketCodecContext`                                                 |
-| `ClientIntent`                                   | Three valid intentions with explicit IDs 1–3. The reserved zero has no model enum entry and decoding rejects it                                                                                            |
-| Declaration order differs from wire order        | Public members follow the official declarations; private serialization proxies preserve the actual reader/writer order for command trees, particles, experience, signs, block actions and item interaction |
-| Compound bit flags                               | Typed flag values or logical Boolean members preserve the same bit fields. Movement flags are shared across movement variants; unused flags are not independently writable state                           |
-| Commands: entries/stubs/flags                    | `CommandNode` and `CommandParser` form a logical tree description without Brigadier builders, runtime argument objects or redundant nullable stub fields                                                   |
-| Boss-event operations                            | `BossBarAction` is a sealed operation family. Each operation carries only its own fields; the serializer owns its discriminator and flag packing                                                           |
-| Objective/team operations                        | `ObjectiveUpdate` and `TeamUpdate` exclude impossible method/payload combinations. Team `Parameters` retains the official field names/order; its operation serializer writes the wire order                |
-| Player-info action mask and entries              | `PlayerInfoUpdatePayload` couples the mask to the nested entries. Only selected fields are serialized. `PlayerListProfile` carries the profile body; the entry's `profileId` is the one transmitted UUID   |
-| Look-at / entity interaction / seen advancements | Sealed variants express conditional payloads without unrelated nullable fields or a contradictory discriminator                                                                                            |
-| Section block changes                            | `SectionBlockChange` couples local position and state instead of accepting parallel arrays of unrelated lengths                                                                                            |
-| Stop-sound presence flags                        | One `StopSound` value represents the four source/sound presence combinations                                                                                                                               |
-| Abilities and spawn information                  | Shared logical aggregates preserve the reusable abilities and player-spawn facts while excluding runtime player/level objects                                                                              |
-| Configuration registry records, tags and links   | Shared logical records carry identifier/payload lists without official mutable registry synchronization owners or map wrappers                                                                             |
-| Status                                           | Shared `ServerStatus` and its nested records are model values. The JSON string is their physical packet representation                                                                                     |
+| Official shape                                   | Kotlin representation and scope of the difference                                                                                                                                                        |
+|--------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Primitive arrays / owned byte buffers            | Immutable `ByteString` for owned opaque bytes; content equality for array-bearing values. No Netty buffer ownership or I/O escapes into models                                                           |
+| Runtime registry holders and keys                | Explicit registry IDs/identifiers, or reference/direct sealed holders when the wire supports both. Resolution belongs to the supplied `PacketCodecContext`                                               |
+| `ClientIntent`                                   | Three valid intentions with explicit IDs 1–3. The reserved zero has no model enum entry and decoding rejects it                                                                                          |
+| Declaration order differs from wire order        | Public members follow the official declarations; private serialization proxies preserve the actual reader/writer order for command trees, experience, relative movement and block actions                |
+| Compound bit flags                               | Typed flag values or logical Boolean members preserve the same bit fields. Movement flags are shared across movement variants; unused flags are not independently writable state                         |
+| Commands: entries/stubs/flags                    | `CommandNode` and `CommandParser` form a logical tree description without Brigadier builders, runtime argument objects or redundant nullable stub fields                                                 |
+| Boss-event operations                            | `BossBarAction` is a sealed operation family. Each operation carries only its own fields; the serializer owns its discriminator and flag packing                                                         |
+| Objective/team operations                        | `ObjectiveUpdate` and `TeamUpdate` exclude impossible method/payload combinations. Team `Parameters` retains the official field names/order; its operation serializer writes the wire order              |
+| Player-info action mask and entries              | `PlayerInfoUpdatePayload` couples the mask to the nested entries. Only selected fields are serialized. `PlayerListProfile` carries the profile body; the entry's `profileId` is the one transmitted UUID |
+| Look-at / entity interaction / seen advancements | Sealed variants express conditional payloads without unrelated nullable fields or a contradictory discriminator                                                                                          |
+| Section block changes                            | `SectionBlockChange` couples local position and state instead of accepting parallel arrays of unrelated lengths                                                                                          |
+| Stop-sound presence flags                        | One `StopSound` value represents the four source/sound presence combinations                                                                                                                             |
+| Abilities and spawn information                  | Shared logical aggregates preserve the reusable abilities and player-spawn facts while excluding runtime player/level objects                                                                            |
+| Configuration registry records, tags and links   | Shared logical records carry identifier/payload lists without official mutable registry synchronization owners or map wrappers                                                                           |
+| Status                                           | Shared `ServerStatus` and its nested records are model values. The JSON string is their physical packet representation                                                                                   |
 
 `@PacketInfo.shapeException` records each top-level aggregate difference beside the declaration. These are scoped
 representation decisions; the domain model's omission of runtime ownership is not a reason to shorten official packet
 names or erase their direction.
 
+`PositionPath.Stepped` derives its endpoint from the final `PositionStep`, matching the official stream constructor;
+it does not expose the official record's independently supplied redundant endpoint. `VecDelta.Stepped` requires at
+least one step because a zero count selects `VecDelta.Linear` on the wire. Its packet serializer combines the step count
+and ground flag and supplies the count to the delta serializer. `PositionAndRotation` represents the immutable official
+value without importing the mutable runtime implementation. Sign text omits client rendering caches and derives absent
+filtered messages from the original four messages.
+
 ## Chunk and state-dependent codecs
 
 `ClientboundLevelChunkPacketData` contains heightmaps, one contiguous Section `buffer: ByteString`, and its nested
-`BlockEntityInfo` records. It requires no dimension layout. `BlockEntityInfo` uses Byte/Short values for the exact
-transmitted widths, while its official in-process container uses Ints. Optional update tags remain nullable.
+`BlockEntityInfo` records. It requires no dimension layout. `BlockEntityInfo` uses the official Byte/Short widths.
+Optional update tags remain nullable.
 `ClientboundLightUpdatePacketData` contains masks and light updates. The low-level `LevelChunkSectionData` seam belongs
 to the physical Section format; it is not the complete packet's terrain model.
 
