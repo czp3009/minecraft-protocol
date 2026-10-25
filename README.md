@@ -133,6 +133,7 @@ conversion boundaries in more detail. The linked module guides show both explici
 ## Demos
 
 - [Launcher](demo/launcher/README.md): terminal account management, official-version installation and game launch.
+- [NBT reader](demo/nbt-reader/README.md): read raw or GZIP NBT as a typed terminal tree or SNBT.
 - [Web map](demo/web-map/README.md): live world inspection with a browser map and official block textures.
 
 ## Build and test

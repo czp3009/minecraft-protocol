@@ -38,5 +38,6 @@ include(
     ":minecraft-test-fixture-host",
     ":protocol-symbol-processor",
     ":demo:launcher",
+    ":demo:nbt-reader",
     ":demo:web-map",
 )

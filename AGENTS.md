@@ -61,7 +61,7 @@ Private development infrastructure has separate boundaries:
 - `protocol-symbol-processor` owns KSP generation derived from source annotations.
 - `minecraft-test-support` owns the portable kRPC fixture contract and test-process client.
 - `minecraft-test-fixture-host` owns the private JVM host, processes, workspaces, and host filesystem implementation.
-- `demo/launcher` and `demo/web-map` are example applications, not reusable runtime layers.
+- Subprojects under `demo/` are example applications, not reusable runtime layers.
 
 Keep physical byte encoding out of models, socket and framing behavior out of serialization, filesystem behavior out of
 `world-format`, and generators or test launchers out of runtime source sets.

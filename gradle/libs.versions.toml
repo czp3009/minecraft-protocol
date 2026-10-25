@@ -6,6 +6,7 @@ kotlinx-coroutines = "1.11.0"
 kotlinx-rpc = "0.10.4"
 ktor = "3.6.0"
 kotlinx-io = "0.9.1"
+kotlinx-cli = "0.3.6"
 okio = "3.18.2"
 lz4-java = "1.11.3"
 kompress = "2.3.1"
@@ -55,6 +56,7 @@ ktor-client-winhttp = { module = "io.ktor:ktor-client-winhttp", version.ref = "k
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
+kotlinx-cli = { module = "org.jetbrains.kotlinx:kotlinx-cli", version.ref = "kotlinx-cli" }
 kotlinx-io-okio = { module = "org.jetbrains.kotlinx:kotlinx-io-okio", version.ref = "kotlinx-io" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 okio-fakefilesystem = { module = "com.squareup.okio:okio-fakefilesystem", version.ref = "okio" }
