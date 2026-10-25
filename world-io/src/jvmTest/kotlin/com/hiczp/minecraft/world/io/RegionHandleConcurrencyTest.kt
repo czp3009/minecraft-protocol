@@ -1507,7 +1507,7 @@ class RegionHandleConcurrencyTest {
             }
             jobs += decoding
             decodeGate.awaitEntered()
-            val sameFile = async(Dispatchers.Default) {
+            val sameFile = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
                 regionStorage.writeCompressedChunk(ChunkPosition(1, 0), concurrencyChunk(8))
             }
             jobs += sameFile

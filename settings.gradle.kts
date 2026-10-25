@@ -40,4 +40,5 @@ include(
     ":demo:launcher",
     ":demo:nbt-reader",
     ":demo:web-map",
+    ":demo:world-mcp",
 )
