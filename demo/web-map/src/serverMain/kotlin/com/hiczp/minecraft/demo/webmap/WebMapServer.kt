@@ -6,6 +6,8 @@ import io.ktor.server.cio.*
 import io.ktor.server.engine.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.rpc.krpc.ktor.server.Krpc
@@ -62,8 +64,24 @@ fun startWebMapServer(
         port = webMapServerConfiguration.port,
     ) {
         webMapModule(webMapService, webMapServerConfiguration.webRoot)
-    }.start(wait = true)
+    }.startAndAwaitShutdown()
 }
+
+/** Runs on the application's main thread; platform hooks request shutdown and this flow stops the server. */
+internal fun EmbeddedServer<*, *>.startAndAwaitShutdown() {
+    start(wait = false)
+    try {
+        installShutdownHook()
+        runBlocking { shutdownRequested.await() }
+    } finally {
+        stop(500, 5000)
+    }
+}
+
+internal val shutdownRequested = CompletableDeferred<Unit>()
+
+/** Installs the process hook after Ktor starts; callbacks complete [shutdownRequested] without stopping the server. */
+internal expect fun installShutdownHook()
 
 private val RESERVED_WEB_PATHS: Set<String> = setOf("assets", "rpc")
 
