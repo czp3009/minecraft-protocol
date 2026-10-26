@@ -127,6 +127,12 @@ object MinecraftTestSupport {
         minecraftTestSupportServiceClient.restartServer(officialMinecraftServer)
     }
 
+    /** Probes the server world's session.lock from the separate Host process without writing its marker. */
+    suspend fun isServerWorldLocked(officialMinecraftServer: OfficialMinecraftServer): Boolean =
+        withServiceClient { minecraftTestSupportServiceClient ->
+            minecraftTestSupportServiceClient.isServerWorldLocked(officialMinecraftServer)
+        }
+
     /**
      * Closes the process and waits until it has exited while retaining its
      * working directory and Fixture Host slot.

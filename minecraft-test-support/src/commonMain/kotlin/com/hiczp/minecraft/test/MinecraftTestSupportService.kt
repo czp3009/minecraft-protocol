@@ -58,6 +58,8 @@ interface MinecraftTestSupportService {
         officialMinecraftServer: OfficialMinecraftServer,
     ): OfficialMinecraftServer
 
+    suspend fun isServerWorldLocked(officialMinecraftServer: OfficialMinecraftServer): Boolean
+
     suspend fun closeProcess(minecraftTestResource: MinecraftTestResource): Int
 
     suspend fun awaitExit(minecraftTestResource: MinecraftTestResource): Int

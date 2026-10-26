@@ -3,7 +3,6 @@ package com.hiczp.minecraft.world.io
 import kotlinx.coroutines.test.runTest
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
-import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import kotlin.test.*
@@ -89,13 +88,7 @@ class WorldDirectoryLockTest {
             "world-io-process-lock-",
         )
         val root = temporaryDirectory.toOkioPath()
-        val process = ProcessBuilder(
-            "java",
-            "-cp",
-            lockHolderClasspath(),
-            LOCK_HOLDER_MAIN_CLASS,
-            temporaryDirectory.toString(),
-        ).redirectErrorStream(true).start()
+        val process = startWorldLockProcess(temporaryDirectory)
         try {
             val readiness = process.inputReader().readLine()
             check(readiness == LOCK_HOLDER_READY) {
@@ -124,14 +117,6 @@ class WorldDirectoryLockTest {
     }
 }
 
-private fun lockHolderClasspath(): String = listOf(
-    WorldLockProcessMain::class.java,
-    Unit::class.java,
-).map { type ->
-    File(type.protectionDomain.codeSource.location.toURI()).absolutePath
-}.distinct().joinToString(File.pathSeparator)
-
-private const val LOCK_HOLDER_MAIN_CLASS = "com.hiczp.minecraft.world.io.WorldLockProcessMain"
 private const val LOCK_HOLDER_READY = "LOCKED"
 private const val LOCK_HOLDER_RELEASE = 1
 private val WORLD_LOCK_MARKER = "☃".encodeToByteArray()

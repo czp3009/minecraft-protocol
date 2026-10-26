@@ -8,6 +8,15 @@ import platform.posix.*
 
 internal actual fun acquireWorldDirectoryLock(
     path: Path,
+): WorldDirectoryLock = withInProcessLockRegistry(path) {
+    if (posixFileKey(path) in IN_PROCESS_LOCK_KEYS) {
+        throw worldAlreadyLockedException(absoluteWorldLockPath(path))
+    }
+    acquirePosixWorldDirectoryLock(path)
+}
+
+private fun acquirePosixWorldDirectoryLock(
+    path: Path,
 ): WorldDirectoryLock {
     val descriptor = openPosixWorldLock(path, create = true)
     if (descriptor == -1) {
@@ -39,7 +48,11 @@ internal actual fun acquireWorldDirectoryLock(
     }
 }
 
-internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
+internal actual fun isWorldDirectoryLocked(path: Path): Boolean = withInProcessLockRegistry(path) {
+    if (posixFileKey(path) in IN_PROCESS_LOCK_KEYS) true else probePosixWorldDirectoryLock(path)
+}
+
+private fun probePosixWorldDirectoryLock(path: Path): Boolean {
     val descriptor = openPosixWorldLock(path, create = false)
     if (descriptor == -1) {
         return when (val openError = errno) {
@@ -68,7 +81,7 @@ internal actual fun isWorldDirectoryLocked(path: Path): Boolean {
             { closePosixFile(descriptor, path) },
             {
                 acquiredKey?.let { posixFileKey ->
-                    removeInProcessLock(path, posixFileKey)
+                    IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
                 }
             },
         )
@@ -85,9 +98,9 @@ private class PosixWorldDirectoryLock(
     override val isValid: Boolean
         get() = valid
 
-    override fun close() {
+    override fun close(): Unit = withInProcessLockRegistry(path) {
         val openDescriptor = descriptor
-        if (openDescriptor == CLOSED_DESCRIPTOR) return
+        if (openDescriptor == CLOSED_DESCRIPTOR) return@withInProcessLockRegistry
         descriptor = CLOSED_DESCRIPTOR
         closeAllPreserving(
             null,
@@ -97,7 +110,7 @@ private class PosixWorldDirectoryLock(
             { closePosixFile(openDescriptor, path) },
             {
                 valid = false
-                removeInProcessLock(path, posixFileKey)
+                IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
             },
         )
     }
@@ -130,23 +143,34 @@ private fun tryAcquirePosixFileLock(
     // synchronized device/inode registry reproduces FileChannel's refusal of
     // an overlapping lock held elsewhere in this process.
     val posixFileKey = posixFileKey(descriptor, path)
-    return withInProcessLockRegistry(path) {
-        if (!IN_PROCESS_LOCK_KEYS.add(posixFileKey)) {
-            return@withInProcessLockRegistry null
+    if (!IN_PROCESS_LOCK_KEYS.add(posixFileKey)) return null
+    return when (val lockError = setPosixLock(descriptor, F_WRLCK)) {
+        0 -> posixFileKey
+        EACCES, EAGAIN -> {
+            IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
+            null
         }
-        when (val lockError = setPosixLock(descriptor, F_WRLCK)) {
-            0 -> posixFileKey
-            EACCES, EAGAIN -> {
-                IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
-                null
-            }
 
-            else -> {
-                IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
-                throw posixLockIoFailure("lock", path, lockError)
-            }
+        else -> {
+            IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
+            throw posixLockIoFailure("lock", path, lockError)
         }
     }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun posixFileKey(path: Path): PosixFileKey? = memScoped {
+    val metadata = alloc<stat>()
+    var result: Int
+    do {
+        result = stat(path.toString(), metadata.ptr)
+    } while (result != 0 && errno == EINTR)
+    if (result != 0) {
+        // Let open report missing paths and access errors using the operation's existing semantics.
+        if (errno == ENOENT || errno == EACCES) return@memScoped null
+        throw posixLockIoFailure("inspect", path, errno)
+    }
+    PosixFileKey(device = metadata.st_dev.toString(), inode = metadata.st_ino.toString())
 }
 
 private fun unlockPosixFile(
@@ -259,12 +283,6 @@ private inline fun <T> withInProcessLockRegistry(
     }
 }
 
-private fun removeInProcessLock(path: Path, posixFileKey: PosixFileKey) {
-    withInProcessLockRegistry(path) {
-        IN_PROCESS_LOCK_KEYS.remove(posixFileKey)
-    }
-}
-
 private fun absoluteWorldLockPath(path: Path): String =
     if (path.isAbsolute) {
         path.toString()
@@ -287,6 +305,8 @@ private data class PosixFileKey(
 
 private const val CLOSED_DESCRIPTOR = -1
 private val WORLD_LOCK_MARKER = "☃".encodeToByteArray()
+// Unlike the official single-owner process, library callers may probe their own lease. Closing a second descriptor
+// would release the process's lock, so stat and check the inode before opening while holding the registry mutex.
 private val IN_PROCESS_LOCK_KEYS = mutableSetOf<PosixFileKey>()
 
 @OptIn(ExperimentalForeignApi::class)

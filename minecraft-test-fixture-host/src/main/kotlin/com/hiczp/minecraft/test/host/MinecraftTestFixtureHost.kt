@@ -193,6 +193,9 @@ private class MinecraftTestSupportServiceServer(
         officialMinecraftServer: OfficialMinecraftServer,
     ): OfficialMinecraftServer = hostedFixtureResources.restartServer(officialMinecraftServer)
 
+    override suspend fun isServerWorldLocked(officialMinecraftServer: OfficialMinecraftServer): Boolean =
+        hostedFixtureResources.hostedServer(officialMinecraftServer).isWorldLocked()
+
     override suspend fun closeProcess(
         minecraftTestResource: MinecraftTestResource,
     ): Int = hostedFixtureResources.closeProcess(minecraftTestResource)

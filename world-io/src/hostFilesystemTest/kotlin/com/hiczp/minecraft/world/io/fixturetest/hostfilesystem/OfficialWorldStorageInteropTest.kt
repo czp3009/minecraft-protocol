@@ -46,6 +46,7 @@ class OfficialWorldStorageInteropTest {
             val worldDirectory = workingDirectory / WORLD_NAME
 
             prepareOfficialWorld(officialMinecraftServer, worldDirectory)
+            assertLibraryLockSurvivesProbes(officialMinecraftServer, worldDirectory)
             val initial = auditWorld(worldDirectory)
             requireCompleteOfficialFixture(initial)
             val structuredPlayerRewrite = exerciseStandalonePolicies(worldDirectory, initial)
@@ -141,6 +142,28 @@ class OfficialWorldStorageInteropTest {
                     failure.addSuppressed(closeFailure)
                 }
             }
+        }
+    }
+
+    private suspend fun assertLibraryLockSurvivesProbes(
+        officialMinecraftServer: OfficialMinecraftServer,
+        worldDirectory: Path,
+    ) {
+        MinecraftWorldAccess.open(worldDirectory).use {
+            check(MinecraftTestSupport.isServerWorldLocked(officialMinecraftServer)) {
+                "Library world lease was not visible to another process"
+            }
+            check(MinecraftWorldAccess.isLocked(worldDirectory))
+            check(MinecraftTestSupport.isServerWorldLocked(officialMinecraftServer)) {
+                "Inspecting a library world lease released its process lock"
+            }
+            check(captureLockAcquisitionFailure(worldDirectory) is WorldLockException)
+            check(MinecraftTestSupport.isServerWorldLocked(officialMinecraftServer)) {
+                "Rejecting a second world owner released the original process lock"
+            }
+        }
+        check(!MinecraftTestSupport.isServerWorldLocked(officialMinecraftServer)) {
+            "Closing the library world owner retained its process lock"
         }
     }
 

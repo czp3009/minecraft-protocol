@@ -14,9 +14,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import java.nio.channels.FileChannel
+import java.nio.file.AccessDeniedException
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import kotlin.concurrent.Volatile
 import kotlin.io.path.*
 import kotlin.time.Duration
@@ -81,6 +85,22 @@ internal class HostedOfficialMinecraftServerResource private constructor(
     }
 
     suspend fun awaitExit(): Int = launchedOfficialServer.minecraftTestProcess.awaitExit()
+
+    suspend fun isWorldLocked(): Boolean = processMutex.withLock {
+        check(managedMinecraftTestResource.isOpen) { "Official server is closing" }
+        val levelName = officialMinecraftServerConfiguration.properties["level-name"] ?: DEFAULT_WORLD_NAME
+        val lockPath = workDirectory.safeResolve(levelName).resolve("session.lock")
+        // Match DirectoryLock.isLocked from a process distinct from the library under test.
+        try {
+            FileChannel.open(lockPath, StandardOpenOption.WRITE).use { fileChannel ->
+                fileChannel.tryLock().use { fileLock -> fileLock == null }
+            }
+        } catch (_: NoSuchFileException) {
+            false
+        } catch (_: AccessDeniedException) {
+            true
+        }
+    }
 
     /** Restarts the official server in the same isolated world directory. */
     suspend fun restart() {

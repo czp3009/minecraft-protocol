@@ -7,15 +7,21 @@ import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.AccessDeniedException
+import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.WRITE
+import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.Path as NioPath
 
-internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
+internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock = synchronized(IN_PROCESS_LOCK_KEYS) {
     val nioPath = NioPath.of(path.toString())
+    if (existingFileKey(nioPath) in IN_PROCESS_LOCK_KEYS) {
+        throw worldAlreadyLockedException(nioPath.toAbsolutePath().toString())
+    }
     val fileChannel = FileChannel.open(nioPath, CREATE, WRITE)
     try {
+        val fileKey = checkNotNull(existingFileKey(nioPath)) { "World lock disappeared after opening: $path" }
         /*
          * This intentionally mirrors the official DirectoryLock.create.
          * OpenJDK allows shared writer handles on Windows, so a competing
@@ -38,13 +44,14 @@ internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
         } ?: throw worldAlreadyLockedException(
             nioPath.toAbsolutePath().toString(),
         )
-        return JavaNioWorldDirectoryLock(fileChannel, fileLock)
-    } catch (failure: IOException) {
+        IN_PROCESS_LOCK_KEYS.add(fileKey)
+        JavaNioWorldDirectoryLock(fileChannel, fileLock, fileKey)
+    } catch (failure: Throwable) {
         // A mandatory Windows byte lock can reject the marker write before
         // tryLock. Re-probe before classifying that otherwise ordinary I/O
         // error, so unrelated failures retain their public Okio I/O type.
         val mapped = if (
-            failure is WorldLockException ||
+            failure !is IOException || failure is WorldLockException ||
             !worldLockAppearsHeld(path)
         ) {
             failure
@@ -63,18 +70,28 @@ internal actual fun acquireWorldDirectoryLock(path: Path): WorldDirectoryLock {
     }
 }
 
-internal actual fun isWorldDirectoryLocked(path: Path): Boolean = try {
-    FileChannel.open(NioPath.of(path.toString()), WRITE).use { fileChannel ->
-        fileChannel.tryLock().use { fileLock ->
-            fileLock == null
+internal actual fun isWorldDirectoryLocked(path: Path): Boolean = synchronized(IN_PROCESS_LOCK_KEYS) {
+    try {
+        val nioPath = NioPath.of(path.toString())
+        if (existingFileKey(nioPath) in IN_PROCESS_LOCK_KEYS) return@synchronized true
+        FileChannel.open(nioPath, WRITE).use { fileChannel ->
+            fileChannel.tryLock().use { fileLock ->
+                fileLock == null
+            }
         }
+    } catch (_: AccessDeniedException) {
+        true
+    } catch (_: NoSuchFileException) {
+        false
+    } catch (_: OverlappingFileLockException) {
+        true
     }
-} catch (_: AccessDeniedException) {
-    true
+}
+
+private fun existingFileKey(path: NioPath): Any? = try {
+    Files.readAttributes(path, BasicFileAttributes::class.java).fileKey() ?: path.toRealPath()
 } catch (_: NoSuchFileException) {
-    false
-} catch (_: OverlappingFileLockException) {
-    true
+    null
 }
 
 private fun worldLockAppearsHeld(path: Path): Boolean = try {
@@ -86,18 +103,26 @@ private fun worldLockAppearsHeld(path: Path): Boolean = try {
 private class JavaNioWorldDirectoryLock(
     private val fileChannel: FileChannel,
     private val fileLock: FileLock,
+    private val fileKey: Any,
 ) : WorldDirectoryLock {
     override val isValid: Boolean
         get() = fileLock.isValid
 
-    override fun close() {
+    override fun close(): Unit = synchronized(IN_PROCESS_LOCK_KEYS) {
+        if (!fileChannel.isOpen) return@synchronized
         closeAllPreserving(
             null,
             { if (fileLock.isValid) fileLock.release() },
             { if (fileChannel.isOpen) fileChannel.close() },
+            { IN_PROCESS_LOCK_KEYS.remove(fileKey) },
         )
     }
 }
+
+// DirectoryLock's second-channel probe is unsafe for a lease held by this process on POSIX: closing any descriptor
+// for that inode releases all process-associated locks. Check inode identity before opening, including path aliases,
+// and serialize acquisition, probing and release so another library operation cannot open it during acquisition.
+private val IN_PROCESS_LOCK_KEYS = mutableSetOf<Any>()
 
 private val WORLD_LOCK_MARKER = "☃".encodeToByteArray().let { marker ->
     ByteBuffer.allocateDirect(marker.size).apply {
